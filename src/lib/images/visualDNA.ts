@@ -222,17 +222,35 @@ export function resolveCharacterVisualDNA(
   // Build evidence coverage set for clarification resolution
   const evidenceTraits = existingEvidenceTraits || [];
   
-  // Group evidence by category with best confidence per category
-  const evidenceByCat = new Map<TraitCategory, { confidence: 'high' | 'medium' | 'low'; source: string }>();
+  // Classify evidence into persistent vs transient
+  const transientStates: TransientVisualState[] = [];
+  const persistentEvidence: EvidenceTrait[] = [];
   for (const et of evidenceTraits) {
-    const existing = evidenceByCat.get(et.category);
-    const rank = { high: 0, medium: 1, low: 2 };
-    if (!existing || rank[et.confidence] < rank[existing.confidence]) {
-      evidenceByCat.set(et.category, { confidence: et.confidence, source: et.evidenceSource });
+    if (TRANSIENT_STATE_PATTERNS.test(et.label)) {
+      transientStates.push({
+        label: et.label,
+        category: et.category,
+        bodyRegion: 'unspecified',
+        confidence: et.confidence,
+        evidenceSource: et.evidenceSource,
+        evidenceExcerpt: et.evidenceExcerpt,
+      });
+    } else {
+      persistentEvidence.push(et);
     }
   }
   
-  // Identify missing clarifications with resolution status
+  // Group persistent evidence by category with best confidence per category
+  const evidenceByCat = new Map<TraitCategory, { confidence: 'high' | 'medium' | 'low'; source: string; label: string }>();
+  for (const et of persistentEvidence) {
+    const existing = evidenceByCat.get(et.category);
+    const rank = { high: 0, medium: 1, low: 2 };
+    if (!existing || rank[et.confidence] < rank[existing.confidence]) {
+      evidenceByCat.set(et.category, { confidence: et.confidence, source: et.evidenceSource, label: et.label });
+    }
+  }
+  
+  // Identify missing clarifications with resolution status and answer candidates
   const coveredCategories = new Set(allTraits.map(t => t.category));
   const markerCategories = new Set(mergedMarkers.filter(m => m.status !== 'rejected').map(() => 'marker' as TraitCategory));
   
@@ -241,11 +259,35 @@ export function resolveCharacterVisualDNA(
     const hasMarker = c.category === 'marker' && markerCategories.size > 0;
     const evidenceEntry = evidenceByCat.get(c.category);
     
+    // Check for approved persistent markers resolving the marker category
+    const approvedMarkersForCat = mergedMarkers.filter(m => m.status === 'approved');
+    if (c.category === 'marker' && approvedMarkersForCat.length > 0) {
+      return {
+        category: c.category, question: c.question, importance: c.importance,
+        status: 'resolved' as ClarificationStatus,
+        resolvedBy: 'approved binding marker',
+        answerCandidate: {
+          text: approvedMarkersForCat.map(m => m.label).join(', '),
+          confidence: 'high' as const,
+          basis: 'persistent_marker' as const,
+        },
+      };
+    }
+    
     if (hasStrong || hasMarker) {
-      return { category: c.category, question: c.question, importance: c.importance, status: 'resolved' as ClarificationStatus, resolvedBy: 'canon/script' };
+      const canonTraits = allTraits.filter(t => t.category === c.category);
+      return {
+        category: c.category, question: c.question, importance: c.importance,
+        status: 'resolved' as ClarificationStatus,
+        resolvedBy: 'canon/script',
+        answerCandidate: canonTraits.length > 0 ? {
+          text: canonTraits.map(t => t.label).join(', '),
+          confidence: 'high' as const,
+          basis: 'canon' as const,
+        } : undefined,
+      };
     }
     if (evidenceEntry) {
-      // High-confidence evidence from explicit sources fully resolves the category
       const isFullyResolved = evidenceEntry.confidence === 'high';
       return {
         category: c.category,
@@ -253,8 +295,31 @@ export function resolveCharacterVisualDNA(
         importance: c.importance,
         status: (isFullyResolved ? 'resolved' : 'partial') as ClarificationStatus,
         resolvedBy: `evidence/${evidenceEntry.source} (${evidenceEntry.confidence})`,
+        answerCandidate: {
+          text: evidenceEntry.label,
+          confidence: evidenceEntry.confidence,
+          basis: 'direct_evidence' as const,
+        },
       };
     }
+    
+    // Check if transient states provide any (weak) coverage
+    const transientForCat = transientStates.filter(t => t.category === c.category);
+    if (transientForCat.length > 0) {
+      return {
+        category: c.category,
+        question: c.question,
+        importance: c.importance,
+        status: 'partial' as ClarificationStatus,
+        resolvedBy: 'transient state (scene-bound)',
+        answerCandidate: {
+          text: transientForCat[0].label + ' (transient — not permanent)',
+          confidence: 'low' as const,
+          basis: 'transient_state' as const,
+        },
+      };
+    }
+    
     return { category: c.category, question: c.question, importance: c.importance, status: 'missing' as ClarificationStatus };
   }).filter(c => c.status !== 'resolved');
   
@@ -273,7 +338,8 @@ export function resolveCharacterVisualDNA(
     producerGuidance,
     lockedInvariants: allInvariants,
     flexibleAxes,
-    evidenceTraits,
+    evidenceTraits: persistentEvidence,
+    transientStates,
     contradictions,
     missingClarifications,
     identitySignature: hasIdSig ? identitySignature : null,
