@@ -18,6 +18,7 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { useCharacterIdentityNotes } from '@/hooks/useCharacterIdentityNotes';
 import { resolveCharacterIdentity, checkIdentityNotesAgainstCanon } from '@/lib/images/identityResolver';
+import { resolveCharacterTraits, detectTraitContradictions, formatTraitsForPrompt, type CharacterTrait, type TraitSource } from '@/lib/images/characterTraits';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
