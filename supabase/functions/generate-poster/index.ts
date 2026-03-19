@@ -859,6 +859,9 @@ serve(async (req) => {
           model: editGenConfig.model,
           render_status: "key_art_only",
           is_active: false,
+          truth_snapshot_json: truthSnapshot,
+          dependency_hash: truthSnapshot.canon_hash,
+          freshness_status: "current",
         })
         .select()
         .single();
