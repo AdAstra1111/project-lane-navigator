@@ -8,6 +8,7 @@ import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
 import { resolveImageStylePolicy } from '@/lib/images/stylePolicy';
 import { resolveAllCanonImages } from './resolveCanonImages';
+import { normalizeCanonText } from './normalizeCanonText';
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
