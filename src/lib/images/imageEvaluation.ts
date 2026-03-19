@@ -10,6 +10,7 @@
 
 import type { CharacterVisualDNA, VisualDNATrait } from './visualDNA';
 import type { ProjectImage, CanonConstraints } from './types';
+import { isMarkerApplicableForShot } from './characterTraits';
 
 // ── Types ──
 
@@ -152,16 +153,25 @@ function runPromptAudit(
     }
   }
 
-  // Check approved binding markers in prompt
+  // Check approved binding markers in prompt — only when applicable to this shot type
   const approvedMarkers = (dna.bindingMarkers || []).filter(m => m.status === 'approved');
+  const imageShotType = image.shot_type || '';
   for (const marker of approvedMarkers) {
     const markerLabel = `${marker.markerType}${marker.bodyRegion !== 'unspecified' ? ` on ${marker.bodyRegion}` : ''}`;
+    const applicable = isMarkerApplicableForShot(marker, imageShotType);
+    
+    if (!applicable) {
+      // Marker's body region not visible in this shot type — not a violation
+      invariantsSatisfied.push(`[MARKER] ${markerLabel} — N/A for ${imageShotType || 'unknown'} shot`);
+      continue;
+    }
+    
     const markerInPrompt = prompt.includes(marker.markerType.toLowerCase()) ||
       prompt.includes(marker.label.toLowerCase());
     if (markerInPrompt) {
       invariantsSatisfied.push(`[MARKER] ${markerLabel}`);
     } else {
-      invariantsViolated.push(`[MARKER] ${markerLabel} — binding marker missing from prompt`);
+      invariantsViolated.push(`[MARKER] ${markerLabel} — binding marker missing from prompt (applicable for ${imageShotType || 'this'} shot)`);
     }
   }
   

@@ -190,7 +190,16 @@ export function resolveCharacterVisualDNA(
   
   // Build evidence coverage set for clarification resolution
   const evidenceTraits = existingEvidenceTraits || [];
-  const evidenceCoveredCategories = new Set(evidenceTraits.map(t => t.category));
+  
+  // Group evidence by category with best confidence per category
+  const evidenceByCat = new Map<TraitCategory, { confidence: 'high' | 'medium' | 'low'; source: string }>();
+  for (const et of evidenceTraits) {
+    const existing = evidenceByCat.get(et.category);
+    const rank = { high: 0, medium: 1, low: 2 };
+    if (!existing || rank[et.confidence] < rank[existing.confidence]) {
+      evidenceByCat.set(et.category, { confidence: et.confidence, source: et.evidenceSource });
+    }
+  }
   
   // Identify missing clarifications with resolution status
   const coveredCategories = new Set(allTraits.map(t => t.category));
@@ -198,15 +207,22 @@ export function resolveCharacterVisualDNA(
   
   const missingClarifications: MissingClarification[] = CORE_VISUAL_CATEGORIES.map(c => {
     const hasStrong = coveredCategories.has(c.category);
-    const hasEvidence = evidenceCoveredCategories.has(c.category);
     const hasMarker = c.category === 'marker' && markerCategories.size > 0;
+    const evidenceEntry = evidenceByCat.get(c.category);
     
     if (hasStrong || hasMarker) {
       return { category: c.category, question: c.question, importance: c.importance, status: 'resolved' as ClarificationStatus, resolvedBy: 'canon/script' };
     }
-    if (hasEvidence) {
-      const evidenceSource = evidenceTraits.find(t => t.category === c.category)?.evidenceSource;
-      return { category: c.category, question: c.question, importance: c.importance, status: 'partial' as ClarificationStatus, resolvedBy: evidenceSource || 'evidence' };
+    if (evidenceEntry) {
+      // High-confidence evidence from explicit sources fully resolves the category
+      const isFullyResolved = evidenceEntry.confidence === 'high';
+      return {
+        category: c.category,
+        question: c.question,
+        importance: c.importance,
+        status: (isFullyResolved ? 'resolved' : 'partial') as ClarificationStatus,
+        resolvedBy: `evidence/${evidenceEntry.source} (${evidenceEntry.confidence})`,
+      };
     }
     return { category: c.category, question: c.question, importance: c.importance, status: 'missing' as ClarificationStatus };
   }).filter(c => c.status !== 'resolved');
@@ -236,15 +252,32 @@ export function resolveCharacterVisualDNA(
 }
 
 /**
+ * Build a composite merge key for binding markers.
+ * Includes laterality to prevent collapsing distinct left/right markers.
+ * Includes a normalized label fragment for markers in the same region with different descriptions.
+ */
+function markerMergeKey(m: BindingMarker): string {
+  const lat = m.laterality !== 'unknown' ? m.laterality : '_';
+  const labelNorm = m.label.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+  return `${m.markerType}:${m.bodyRegion}:${lat}:${labelNorm}`;
+}
+
+/**
  * Merge existing markers (with approval state) with newly detected ones.
  * Existing approved/rejected markers are preserved. New detections are added only if novel.
+ * 
+ * APPROVAL PERSISTENCE NOTE:
+ * Marker approval state lives in-memory until `serializeDNAForStorage` is called
+ * and the result is written to the database via `useVisualDNA.resolveDNA`.
+ * Approving a marker in the UI panel updates local state only.
+ * The approval becomes canonical ONLY after Save DNA persists it.
  */
 function mergeMarkers(existing: BindingMarker[], detected: BindingMarker[]): BindingMarker[] {
   const merged = [...existing];
-  const existingKeys = new Set(existing.map(m => `${m.markerType}:${m.bodyRegion}`));
+  const existingKeys = new Set(existing.map(markerMergeKey));
   
   for (const d of detected) {
-    const key = `${d.markerType}:${d.bodyRegion}`;
+    const key = markerMergeKey(d);
     if (!existingKeys.has(key)) {
       merged.push(d);
       existingKeys.add(key);

@@ -28,6 +28,67 @@ export interface CharacterTrait {
 export type MarkerType = 'tattoo' | 'scar' | 'wound' | 'prosthetic' | 'birthmark' | 'deformity' | 'glasses' | 'eyepatch' | 'missing_limb' | 'burn' | 'piercing' | 'branding' | 'accessory' | 'other';
 export type MarkerStatus = 'detected' | 'pending_resolution' | 'approved' | 'rejected' | 'archived';
 
+/** Shot types where a body region is typically visible */
+export type ShotTypeApplicability = 'face_closeup' | 'profile' | 'medium' | 'full_body' | 'any';
+
+/**
+ * Mapping from body region keywords to which shot types would show that region.
+ * Used to determine when a binding marker MUST be enforced vs when it is N/A.
+ */
+export const BODY_REGION_VISIBILITY: Record<string, ShotTypeApplicability[]> = {
+  face: ['face_closeup', 'profile', 'medium', 'full_body'],
+  forehead: ['face_closeup', 'profile', 'medium', 'full_body'],
+  cheek: ['face_closeup', 'profile', 'medium', 'full_body'],
+  jaw: ['face_closeup', 'profile', 'medium', 'full_body'],
+  eye: ['face_closeup', 'profile', 'medium', 'full_body'],
+  neck: ['face_closeup', 'profile', 'medium', 'full_body'],
+  arm: ['medium', 'full_body'],
+  hand: ['medium', 'full_body'],
+  shoulder: ['medium', 'full_body'],
+  chest: ['medium', 'full_body'],
+  torso: ['medium', 'full_body'],
+  back: ['full_body'],
+  leg: ['full_body'],
+  foot: ['full_body'],
+  unspecified: ['any'],
+};
+
+/**
+ * Determine whether a binding marker is applicable (should be enforced)
+ * for a given shot type. Returns true if the marker's body region
+ * would be visible in the shot.
+ */
+export function isMarkerApplicableForShot(
+  marker: BindingMarker,
+  shotType: string,
+): boolean {
+  if (marker.status !== 'approved') return false;
+  
+  // Normalize shot type to applicability key
+  const normalizedShot = normalizeShotType(shotType);
+  
+  // Find matching region visibility
+  const regionKey = Object.keys(BODY_REGION_VISIBILITY).find(
+    key => marker.bodyRegion.toLowerCase().includes(key),
+  );
+  
+  const applicableShots = regionKey
+    ? BODY_REGION_VISIBILITY[regionKey]
+    : BODY_REGION_VISIBILITY['unspecified'];
+  
+  return applicableShots.includes('any') || applicableShots.includes(normalizedShot);
+}
+
+/** Map various shot_type strings to our applicability categories */
+function normalizeShotType(shotType: string): ShotTypeApplicability {
+  const s = (shotType || '').toLowerCase();
+  if (s.includes('headshot') || s.includes('close') || s.includes('closeup') || s.includes('face')) return 'face_closeup';
+  if (s.includes('profile')) return 'profile';
+  if (s.includes('full') || s.includes('body')) return 'full_body';
+  if (s.includes('medium') || s.includes('waist') || s.includes('bust') || s.includes('three_quarter')) return 'medium';
+  return 'full_body'; // default: assume most visible
+}
+
 export interface BindingMarker {
   id: string;
   markerType: MarkerType;
