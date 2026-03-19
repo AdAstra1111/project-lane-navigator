@@ -6,6 +6,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from './types';
+import { resolveCharacterTraits, detectTraitContradictions } from './characterTraits';
 
 export interface IdentityLockState {
   locked: boolean;
