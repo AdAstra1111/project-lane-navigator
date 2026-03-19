@@ -571,31 +571,30 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- DO NOT add any typography, lettering, or text overlays of any kind`,
     `- DO NOT render title cards, credit blocks, or any written words`,
     `- Generate ONLY the visual key art / background image — pure artwork, zero text`,
-    `- Text and credits will be composited separately by the rendering system`,
-    `- The bottom 20–25% of the image MUST be either:`,
-    `  (a) a clean atmospheric gradient fading to dark/black, or`,
-    `  (b) a moody out-of-focus negative space zone`,
-    `  This zone is where title typography will be placed — keep it clean and dark`,
+    `- Text, title, and billing block will be composited separately by the rendering system`,
   ].join("\n");
 
-  // Composition instructions — enforce cinematic poster composition
+  // Composition instructions — TRUE cinematic poster composition, NO UI-safe reservations
   const composition = [
     `CINEMATIC POSTER COMPOSITION (MANDATORY):`,
     `- This image is the KEY ART for a theatrical movie poster — treat it with that gravity`,
-    `- The composition must follow the classic cinematic poster structure:`,
-    `  TOP 15%: atmospheric sky, vignette, or environmental context`,
-    `  MIDDLE 40–60%: primary visual subject (character, scene, symbolic element)`,
-    `  LOWER 25%: atmospheric gradient fading to near-black — this is the TITLE ZONE`,
-    `- The lower gradient zone MUST be clean, dark, and uncluttered — no detail, no bright elements`,
+    `- The composition must use the ENTIRE canvas from top to bottom — no empty zones`,
+    `- DO NOT leave a black, dark, or empty area at the bottom of the image`,
+    `- DO NOT create a "safe zone" or "text zone" — the compositor handles all text overlays`,
+    `- Fill the entire frame with cinematic visual storytelling:`,
+    `  TOP: atmospheric sky, vignette, or environmental context`,
+    `  MIDDLE: primary visual subject (character, scene, symbolic element)`,
+    `  BOTTOM: continue the composition — environment, ground, atmosphere, details`,
+    `- Think of classic theatrical movie posters: the artwork goes edge to edge`,
     `- Use dramatic cinematic lighting: motivated sources, depth, atmosphere`,
     `- Strong focal point with clear visual hierarchy`,
     `- Portrait 2:3 aspect ratio`,
-    `- The overall feel must be PREMIUM THEATRICAL — as if this will be printed 27"×40" for a cinema lobby`,
+    `- The overall feel must be PREMIUM THEATRICAL — as if printed 27"×40" for a cinema lobby`,
     ctx.stylePolicy.mode === 'photorealistic_cinematic'
       ? `- Photorealistic 4K quality — shot on ARRI Alexa or RED, professional cinematography`
       : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering — studio quality`,
     `- Color grade should feel cohesive and intentional, not flat or over-saturated`,
-    `- DO NOT place any subject matter in the bottom 20% — that space is reserved for typography`,
+    `- CRITICAL: The image must look complete on its own — a full cinematic painting, not a cropped fragment`,
   ].join("\n");
 
   return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
