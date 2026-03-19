@@ -3,6 +3,7 @@ import { BgGenBanner } from '@/components/devengine/BgGenBanner';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { isValidUUID } from '@/lib/validation/uuid';
 import { supabase } from '@/integrations/supabase/client';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
