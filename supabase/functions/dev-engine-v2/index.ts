@@ -24116,12 +24116,14 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
             });
 
             const parsed = sgParseSlugline(draft.slugline || '');
+            const csCanonLocId = await sgResolveCanonLocationId(supabase, projectId, parsed.location);
             await supabase.from("scene_graph_versions").insert({
               scene_id: scene.id, project_id: projectId, version_number: 1,
               status: applyMode === 'propose' ? 'proposed' : 'draft',
               created_by: user.id,
               slugline: parsed.slugline, location: parsed.location, time_of_day: parsed.time_of_day,
               content: draft.content || '', summary: draft.summary || '',
+              canon_location_id: csCanonLocId,
             });
 
             realInverse = { op_type: 'remove', sceneId: scene.id, order_key: newKey };
