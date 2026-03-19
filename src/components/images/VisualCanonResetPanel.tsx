@@ -771,7 +771,18 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         </CardContent>
       </Card>
 
-      {/* ── Approval Queue ── */}
+      <ResetVisualCanonModal
+        open={showResetModal}
+        onOpenChange={setShowResetModal}
+        images={allImages}
+        resetting={resetting}
+        onReset={resetScopedCanon}
+        onRegenerateAfterReset={(sections) => {
+          handleAutoPopulate(false);
+        }}
+      />
+
+
       {showApprovalQueue && pendingSlots.length > 0 && (
         <Card className="border-border/60">
           <CardContent className="p-3">
