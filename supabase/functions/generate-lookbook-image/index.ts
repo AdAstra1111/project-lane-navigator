@@ -319,8 +319,12 @@ serve(async (req) => {
     };
 
     // Determine shots to generate
-    const shotPack = SHOT_PACKS[assetGroup] || [];
-    const shotsToGenerate: ShotType[] = pack_mode && shotPack.length > 0
+    // base_look_mode guarantees: 2 headshots + 2 full_body + 1 medium
+    const BASE_LOOK_PACK: ShotType[] = ["close_up", "profile", "full_body", "full_body", "medium"];
+    const shotPack = base_look_mode && assetGroup === "character"
+      ? BASE_LOOK_PACK
+      : (SHOT_PACKS[assetGroup] || []);
+    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode
       ? shotPack.slice(0, Math.min(count, shotPack.length))
       : [];
 
