@@ -241,7 +241,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
             </div>
 
             <p className="text-[9px] text-muted-foreground mb-3">
-              Generate candidate images for all unfilled slots. Images are created as candidates — nothing is auto-approved.
+              Generate candidate images for all missing visual slots. Nothing is auto-approved — each image enters the Approval Queue for review.
             </p>
 
             {/* Controls */}
