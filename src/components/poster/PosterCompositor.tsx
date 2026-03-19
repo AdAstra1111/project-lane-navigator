@@ -25,7 +25,9 @@ export type TitleTypographyMode =
 
 export type TitleCaseMode = "uppercase" | "mixed" | "small_caps";
 
-export type TitlePositionMode = "center" | "lower_center" | "lower_third" | "lower_left";
+export type TitlePositionMode = "center" | "lower_center" | "lower_third" | "lower_left" | "auto";
+
+export type TitleBalanceMode = "compact" | "balanced" | "airy";
 
 export interface TitleStyleConfig {
   typographyMode?: TitleTypographyMode;
@@ -33,6 +35,7 @@ export interface TitleStyleConfig {
   colorHex?: string;
   opacity?: number;
   positionMode?: TitlePositionMode;
+  balanceMode?: TitleBalanceMode;
   /** Override weight (100-900) */
   weightOverride?: number;
   /** Override tracking multiplier */
@@ -73,10 +76,17 @@ export const TITLE_CASE_OPTIONS: Record<TitleCaseMode, string> = {
 };
 
 export const TITLE_POSITION_OPTIONS: Record<TitlePositionMode, string> = {
+  auto: "Auto (composition-aware)",
   center: "Center",
   lower_center: "Lower Center",
   lower_third: "Lower Third",
   lower_left: "Lower Left",
+};
+
+export const TITLE_BALANCE_OPTIONS: Record<TitleBalanceMode, string> = {
+  compact: "Compact",
+  balanced: "Balanced",
+  airy: "Airy",
 };
 
 interface PosterCompositorProps {
@@ -188,6 +198,18 @@ const TEMPLATE_TYPOGRAPHY_DEFAULTS: Record<PosterLayoutVariant, TitleTypographyM
   "cinematic-dark": "classic_theatrical_serif",
   "cinematic-light": "classic_theatrical_serif",
   minimal: "minimalist_elegant",
+};
+
+// ── Template → Default auto-position bias ────────────────────────────────────
+
+const TEMPLATE_AUTO_POSITION_BIAS: Record<PosterLayoutVariant, TitlePositionMode> = {
+  "classic-theatrical": "lower_center",
+  "prestige-awards": "lower_third",
+  prestige: "lower_third",
+  commercial: "lower_center",
+  "cinematic-dark": "lower_center",
+  "cinematic-light": "lower_center",
+  minimal: "lower_third",
 };
 
 // ── Template → Default Title Color (warm tones instead of harsh white) ───────
@@ -390,23 +412,109 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
   },
 };
 
-// ── Title Position Resolver ──────────────────────────────────────────────────
+// ── Luminance Analysis — detect bright (face/subject) zones ──────────────────
+
+interface CompositionHint {
+  /** Brightest vertical zone: 'top' | 'upper_mid' | 'center' | 'lower_mid' | 'bottom' */
+  brightZone: string;
+  /** Average luminance of central upper area (face region proxy) */
+  centralUpperLum: number;
+  /** Average luminance of lower third */
+  lowerThirdLum: number;
+  /** Whether central upper area is significantly brighter (likely face) */
+  hasCentralSubject: boolean;
+}
+
+function analyzeComposition(
+  ctx: CanvasRenderingContext2D,
+  dims: { w: number; h: number },
+): CompositionHint {
+  // Sample the image in horizontal bands
+  const bandCount = 5;
+  const bandH = Math.floor(dims.h / bandCount);
+  const sampleW = Math.min(dims.w, 200); // downsample for speed
+  const sampleScale = sampleW / dims.w;
+  const bandLums: number[] = [];
+
+  for (let band = 0; band < bandCount; band++) {
+    const y = band * bandH;
+    const sH = Math.min(bandH, dims.h - y);
+    try {
+      const imageData = ctx.getImageData(
+        Math.floor((dims.w - sampleW) / 2), y,
+        sampleW, Math.min(sH, 40)
+      );
+      const pixels = imageData.data;
+      let totalLum = 0;
+      const pixelCount = pixels.length / 4;
+      for (let i = 0; i < pixels.length; i += 4) {
+        totalLum += (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114);
+      }
+      bandLums.push(pixelCount > 0 ? totalLum / pixelCount : 128);
+    } catch {
+      bandLums.push(128);
+    }
+  }
+
+  const zones = ['top', 'upper_mid', 'center', 'lower_mid', 'bottom'];
+  let maxLum = 0;
+  let brightZone = 'center';
+  bandLums.forEach((lum, i) => {
+    if (lum > maxLum) { maxLum = lum; brightZone = zones[i]; }
+  });
+
+  const centralUpperLum = (bandLums[0] + bandLums[1]) / 2;
+  const lowerThirdLum = (bandLums[3] + bandLums[4]) / 2;
+  const hasCentralSubject = centralUpperLum > lowerThirdLum * 1.3 && centralUpperLum > 100;
+
+  return { brightZone, centralUpperLum, lowerThirdLum, hasCentralSubject };
+}
+
+// ── Title Position Resolver (composition-aware) ─────────────────────────────
 
 function resolveTitlePosition(
   positionMode: TitlePositionMode,
   dims: { w: number; h: number },
   cfg: LayoutConfig,
+  layoutVariant: PosterLayoutVariant,
+  compositionHint?: CompositionHint,
 ): { titleY: number; textAlign: CanvasTextAlign; titleX: number } {
-  switch (positionMode) {
+  // Explicit modes
+  if (positionMode !== "auto") {
+    switch (positionMode) {
+      case "lower_third":
+        return { titleY: dims.h * 0.85, textAlign: "center", titleX: dims.w / 2 };
+      case "lower_center":
+        return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
+      case "lower_left":
+        return { titleY: dims.h * 0.82, textAlign: "left", titleX: dims.w * 0.08 };
+      case "center":
+        return { titleY: dims.h * cfg.titleZoneY, textAlign: "center", titleX: dims.w / 2 };
+    }
+  }
+
+  // ── Auto mode: use composition analysis + template bias ──
+  const templateBias = TEMPLATE_AUTO_POSITION_BIAS[layoutVariant] || "lower_center";
+
+  if (compositionHint?.hasCentralSubject) {
+    // Face/subject detected in upper-center — push title low
+    return { titleY: dims.h * 0.86, textAlign: "center", titleX: dims.w / 2 };
+  }
+
+  if (compositionHint?.brightZone === 'center' || compositionHint?.brightZone === 'upper_mid') {
+    // Bright subject in center — use lower third
+    return { titleY: dims.h * 0.85, textAlign: "center", titleX: dims.w / 2 };
+  }
+
+  // Fall back to template bias
+  switch (templateBias) {
     case "lower_third":
-      return { titleY: dims.h * 0.84, textAlign: "center", titleX: dims.w / 2 };
-    case "lower_center":
-      return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
+      return { titleY: dims.h * 0.85, textAlign: "center", titleX: dims.w / 2 };
     case "lower_left":
-      return { titleY: dims.h * 0.80, textAlign: "left", titleX: dims.w * 0.08 };
-    case "center":
+      return { titleY: dims.h * 0.82, textAlign: "left", titleX: dims.w * 0.08 };
+    case "lower_center":
     default:
-      return { titleY: dims.h * cfg.titleZoneY, textAlign: "center", titleX: dims.w / 2 };
+      return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
   }
 }
 
@@ -451,7 +559,8 @@ function applyLayout(
   const effectiveOpacity = titleStyle?.opacity ?? typo.defaultOpacity;
   const effectiveWeight = titleStyle?.weightOverride ?? typo.weight;
   const effectiveTracking = titleStyle?.trackingOverride ?? typo.tracking;
-  const positionMode = titleStyle?.positionMode || "center";
+  const positionMode = titleStyle?.positionMode || "auto";
+  const balanceMode = titleStyle?.balanceMode || "balanced";
   const enableDepth = titleStyle?.enableDepth ?? false;
 
   // ── Bottom gradient overlay ──
@@ -479,8 +588,11 @@ function applyLayout(
 
   ctx.textBaseline = "alphabetic";
 
-  // ── Resolve title position ──
-  const pos = resolveTitlePosition(positionMode, dims, cfg);
+  // ── Analyze composition for subject avoidance ──
+  const compositionHint = analyzeComposition(ctx, dims);
+
+  // ── Resolve title position (composition-aware) ──
+  const pos = resolveTitlePosition(positionMode, dims, cfg, layoutVariant, compositionHint);
   ctx.textAlign = pos.textAlign;
 
   // ── Calculate title font size ──
@@ -489,8 +601,11 @@ function applyLayout(
   const displayTitle = applyTitleCase(title, effectiveCase);
 
   const maxTextWidth = pos.textAlign === "left" ? w * 0.75 : w * 0.82;
-  const lines = wrapText(ctx, displayTitle, maxTextWidth, fontSpec);
-  const lineHeight = titleFontSize * 1.15;
+  const lines = wrapTextBalanced(ctx, displayTitle, maxTextWidth, fontSpec, balanceMode);
+  
+  // Balance mode affects line height
+  const lineHeightMultiplier = balanceMode === "compact" ? 1.08 : balanceMode === "airy" ? 1.28 : 1.15;
+  const lineHeight = titleFontSize * lineHeightMultiplier;
   const totalTitleHeight = lines.length * lineHeight;
   const startY = pos.titleY - totalTitleHeight / 2;
 
@@ -813,4 +928,107 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number,
   if (currentLine) lines.push(currentLine);
 
   return lines.slice(0, 3);
+}
+
+/**
+ * Balanced text wrapping — avoids ugly orphans and lopsided splits.
+ * 
+ * "balanced" tries to equalize line widths.
+ * "compact" wraps normally (greedy).
+ * "airy" uses a narrower max width to force more lines with breathing room.
+ * 
+ * Punctuation-aware: prefers breaks after commas, colons, em-dashes.
+ */
+function wrapTextBalanced(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  font: string,
+  balance: TitleBalanceMode = "balanced",
+): string[] {
+  ctx.font = font;
+
+  const effectiveMax = balance === "airy" ? maxWidth * 0.78 : maxWidth;
+
+  // First, greedy wrap
+  const greedyLines = wrapText(ctx, text, effectiveMax, font);
+
+  if (greedyLines.length <= 1 || balance === "compact") {
+    return greedyLines;
+  }
+
+  // For balanced mode, try to equalize line widths
+  if (balance === "balanced" || balance === "airy") {
+    const words = text.split(" ");
+    if (words.length <= 1) return greedyLines;
+
+    // For 2-line splits: try each split point, pick most balanced
+    if (greedyLines.length === 2) {
+      let bestSplit = -1;
+      let bestDiff = Infinity;
+
+      for (let i = 1; i < words.length; i++) {
+        const line1 = words.slice(0, i).join(" ");
+        const line2 = words.slice(i).join(" ");
+        const w1 = ctx.measureText(line1).width;
+        const w2 = ctx.measureText(line2).width;
+
+        if (w1 > effectiveMax || w2 > effectiveMax) continue;
+
+        // Prefer splits after punctuation
+        const punctBonus = /[,;:\u2014\u2013–—-]$/.test(line1) ? -20 : 0;
+        const diff = Math.abs(w1 - w2) + punctBonus;
+
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestSplit = i;
+        }
+      }
+
+      if (bestSplit > 0) {
+        return [
+          words.slice(0, bestSplit).join(" "),
+          words.slice(bestSplit).join(" "),
+        ];
+      }
+    }
+
+    // For 3-line splits: try balanced partition
+    if (greedyLines.length >= 3 && words.length >= 3) {
+      let bestI = 1, bestJ = 2;
+      let bestMaxWidth = Infinity;
+
+      for (let i = 1; i < words.length - 1; i++) {
+        for (let j = i + 1; j < words.length; j++) {
+          const l1 = words.slice(0, i).join(" ");
+          const l2 = words.slice(i, j).join(" ");
+          const l3 = words.slice(j).join(" ");
+          const w1 = ctx.measureText(l1).width;
+          const w2 = ctx.measureText(l2).width;
+          const w3 = ctx.measureText(l3).width;
+
+          if (w1 > effectiveMax || w2 > effectiveMax || w3 > effectiveMax) continue;
+
+          const maxW = Math.max(w1, w2, w3);
+          const range = maxW - Math.min(w1, w2, w3);
+
+          if (range < bestMaxWidth) {
+            bestMaxWidth = range;
+            bestI = i;
+            bestJ = j;
+          }
+        }
+      }
+
+      const result = [
+        words.slice(0, bestI).join(" "),
+        words.slice(bestI, bestJ).join(" "),
+        words.slice(bestJ).join(" "),
+      ].filter(l => l.length > 0);
+
+      if (result.length >= 2) return result.slice(0, 3);
+    }
+  }
+
+  return greedyLines;
 }
