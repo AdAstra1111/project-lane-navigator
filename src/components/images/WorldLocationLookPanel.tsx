@@ -28,6 +28,8 @@ interface WorldLocationLookPanelProps {
 }
 
 interface LocationInfo {
+  /** Stable ID from canon_locations table, or a generated stable key for fallback locations */
+  id: string;
   name: string;
   description?: string;
   importance?: number;
@@ -47,7 +49,17 @@ function multiPassExtractLocations(canonJson: any): LocationInfo[] {
     const norm = name.toLowerCase().trim();
     if (!norm || norm === 'unknown' || seen.has(norm)) return;
     seen.add(norm);
-    locations.push({ name: name.trim(), description: desc, type, interior_or_exterior: intExt, importance: importance ?? locations.length, source: 'canon_json' });
+    // Generate a stable ID from normalized name for non-structured locations
+    const stableId = `canon-json-${norm.replace(/[^a-z0-9]+/g, '_')}`;
+    locations.push({
+      id: stableId,
+      name: name.trim(),
+      description: desc,
+      type,
+      interior_or_exterior: intExt,
+      importance: importance ?? locations.length,
+      source: 'canon_json',
+    });
   };
 
   // Pass 1: Structured canon keys
@@ -86,7 +98,6 @@ function multiPassExtractLocations(canonJson: any): LocationInfo[] {
   ].filter(v => typeof v === 'string' && v.length > 10);
 
   for (const field of storyFields) {
-    // Extract INT./EXT. headings
     const headingPattern = /\b(?:INT\.|EXT\.|INT\/EXT\.?)\s+([A-Z][A-Z\s\-']+?)(?:\s*[-–—]\s*|\s*$)/gm;
     let match;
     while ((match = headingPattern.exec(field)) !== null) {
@@ -110,7 +121,6 @@ function multiPassExtractLocations(canonJson: any): LocationInfo[] {
           else if (l?.name) addLoc(l.name, l.description);
         }
       }
-      // Check beats
       const beats = ep.beats || ep.scenes;
       if (Array.isArray(beats)) {
         for (const b of beats) {
@@ -243,6 +253,10 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
   const [canonJson, setCanonJson] = useState<any>(null);
   const [canonLoading, setCanonLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  // Track expanded rows by location ID — only one expanded at a time
+  const [expandedLocationId, setExpandedLocationId] = useState<string | null>(null);
+  // Per-location generation state: { [locationId]: 'idle' | 'generating' | 'error' | 'success' }
+  const [generationState, setGenerationState] = useState<Record<string, { status: string; error?: string }>>({});
 
   useEffect(() => {
     (async () => {
@@ -262,6 +276,7 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
   const locations: LocationInfo[] = useMemo(() => {
     if (structuredLocations.length > 0) {
       return structuredLocations.map((loc, idx) => ({
+        id: loc.id, // Use canonical DB id
         name: loc.canonical_name,
         description: loc.description || undefined,
         importance: loc.story_importance === 'primary' ? -10 + idx : idx,
@@ -280,13 +295,11 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     }
     setSeeding(true);
     try {
-      // Use multi-pass extraction results to seed
       const extracted = multiPassExtractLocations(canonJson);
       if (extracted.length === 0) {
         toast.info('No locations confidently extracted. Try adding manually or using assisted suggestions.');
         return;
       }
-      // Build a synthetic canonJson with locations for the hook
       const syntheticCanon = { ...canonJson, locations: extracted.map(l => ({
         name: l.name,
         description: l.description,
@@ -404,7 +417,17 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
         Generate establishing + atmospheric + detail references per location. Select primary references to anchor world visual identity.
       </p>
       {locations.map(loc => (
-        <LocationLookSection key={loc.name} projectId={projectId} location={loc} />
+        <LocationLookSection
+          key={loc.id}
+          projectId={projectId}
+          location={loc}
+          isExpanded={expandedLocationId === loc.id}
+          onToggleExpand={() => setExpandedLocationId(prev => prev === loc.id ? null : loc.id)}
+          generationStatus={generationState[loc.id]}
+          onGenerationStateChange={(status, error) =>
+            setGenerationState(prev => ({ ...prev, [loc.id]: { status, error } }))
+          }
+        />
       ))}
     </div>
   );
@@ -412,12 +435,28 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
 
 type LocFilter = 'all' | 'active' | 'candidate' | 'archived';
 
-function LocationLookSection({ projectId, location }: { projectId: string; location: LocationInfo }) {
-  const [open, setOpen] = useState(false);
-  const [generating, setGenerating] = useState(false);
+interface LocationLookSectionProps {
+  projectId: string;
+  location: LocationInfo;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  generationStatus?: { status: string; error?: string };
+  onGenerationStateChange: (status: string, error?: string) => void;
+}
+
+function LocationLookSection({
+  projectId,
+  location,
+  isExpanded,
+  onToggleExpand,
+  generationStatus,
+  onGenerationStateChange,
+}: LocationLookSectionProps) {
   const [filter, setFilter] = useState<LocFilter>('all');
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
+
+  const generating = generationStatus?.status === 'generating';
 
   const { data: locImages = [], isLoading } = useProjectImages(projectId, {
     assetGroup: 'world',
@@ -442,40 +481,82 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
   const candidateCount = locImages.filter(i => i.curation_state === 'candidate').length;
   const archivedCount = locImages.filter(i => i.curation_state === 'archived').length;
 
+  // Canon governance check: structured locations have required fields
+  const missingCanonFields = useMemo(() => {
+    if (location.source !== 'structured') return ['Not a structured canon location — seed first'];
+    const missing: string[] = [];
+    if (!location.name) missing.push('canonical_name');
+    if (!location.type) missing.push('location_type');
+    return missing;
+  }, [location]);
+
+  const canGenerate = missingCanonFields.length === 0;
+
   const generateLocationRef = useCallback(async () => {
     if (generating) return;
-    setGenerating(true);
+
+    // Canon governance: block generation if required fields missing
+    if (!canGenerate) {
+      toast.error(`Cannot generate: ${missingCanonFields.join(', ')}`);
+      return;
+    }
+
+    onGenerationStateChange('generating');
     try {
       const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
         body: {
           project_id: projectId,
           section: 'world',
           count: 4,
+          // Location-bound fields
+          location_id: location.id,
           location_name: location.name,
           location_description: location.description,
+          location_type: location.type,
+          interior_or_exterior: location.interior_or_exterior,
           asset_group: 'world',
           pack_mode: true,
           location_ref_mode: true,
         },
       });
-      if (error) throw error;
+
+      if (error) {
+        const msg = error.message || 'Generation request failed';
+        onGenerationStateChange('error', msg);
+        toast.error(`${location.name}: ${msg}`);
+        return;
+      }
+
       const results = data?.results || [];
       const successCount = results.filter((r: any) => r.status === 'ready').length;
+      const failedResults = results.filter((r: any) => r.status !== 'ready');
+
       if (successCount > 0) {
-        toast.success(`Generated ${successCount} images for ${location.name}`);
+        onGenerationStateChange('success');
+        toast.success(`${location.name}: ${successCount} image${successCount > 1 ? 's' : ''} generated`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
+      } else if (failedResults.length > 0) {
+        // Surface the first specific failure reason
+        const firstError = failedResults[0]?.error || failedResults[0]?.reason || 'Unknown generation failure';
+        onGenerationStateChange('error', firstError);
+        toast.error(`${location.name}: ${firstError}`);
+      } else if (results.length === 0) {
+        const msg = data?.error || 'No images returned — check location details';
+        onGenerationStateChange('error', msg);
+        toast.error(`${location.name}: ${msg}`);
       } else {
-        toast.error('No images generated successfully');
+        onGenerationStateChange('error', 'Zero successful variants');
+        toast.error(`${location.name}: No images generated successfully`);
       }
     } catch (e: any) {
-      toast.error(e.message || 'Failed to generate location images');
-    } finally {
-      setGenerating(false);
+      const msg = e.message || 'Failed to generate location images';
+      onGenerationStateChange('error', msg);
+      toast.error(`${location.name}: ${msg}`);
     }
-  }, [projectId, location.name, location.description, generating, qc]);
+  }, [projectId, location, generating, canGenerate, missingCanonFields, qc, onGenerationStateChange]);
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
+    <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
       <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
         <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
           {primaryEstablishing?.signedUrl ? (
@@ -493,6 +574,17 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
             {location.interior_or_exterior && (
               <Badge variant="outline" className="text-[7px] px-1 py-0">{location.interior_or_exterior}</Badge>
             )}
+            {/* Per-row generation status indicator */}
+            {generating && (
+              <Badge variant="secondary" className="text-[7px] px-1 py-0 gap-0.5 animate-pulse">
+                <Loader2 className="h-2 w-2 animate-spin" /> Generating
+              </Badge>
+            )}
+            {generationStatus?.status === 'error' && (
+              <Badge variant="destructive" className="text-[7px] px-1 py-0 gap-0.5">
+                <AlertTriangle className="h-2 w-2" /> Error
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {primaryEstablishing && <Badge variant="secondary" className="text-[8px] px-1 py-0">Primary ✓</Badge>}
@@ -502,11 +594,19 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
             )}
           </div>
         </div>
-        <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-90')} />
+        <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', isExpanded && 'rotate-90')} />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
         {location.description && (
           <p className="text-[10px] text-muted-foreground mb-2 italic line-clamp-2">{location.description}</p>
+        )}
+
+        {/* Show per-row error detail */}
+        {generationStatus?.status === 'error' && generationStatus.error && (
+          <div className="mb-2 px-2 py-1.5 rounded bg-destructive/10 border border-destructive/20">
+            <p className="text-[10px] text-destructive font-medium">Generation failed</p>
+            <p className="text-[10px] text-destructive/80">{generationStatus.error}</p>
+          </div>
         )}
 
         {locImages.length > 0 && (
@@ -591,19 +691,26 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           />
         )}
 
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5 text-xs h-7 w-full mt-2"
-          onClick={generateLocationRef}
-          disabled={generating}
-        >
-          {generating ? (
-            <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
-          ) : (
-            <><Plus className="h-3 w-3" /> Generate Location Pack</>
-          )}
-        </Button>
+        {!canGenerate ? (
+          <div className="mt-2 px-2 py-1.5 rounded bg-amber-500/10 border border-amber-500/20">
+            <p className="text-[10px] text-amber-600 font-medium">Cannot generate location pack</p>
+            <p className="text-[10px] text-amber-600/80">{missingCanonFields.join(', ')}</p>
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-xs h-7 w-full mt-2"
+            onClick={generateLocationRef}
+            disabled={generating}
+          >
+            {generating ? (
+              <><Loader2 className="h-3 w-3 animate-spin" /> Generating {location.name}...</>
+            ) : (
+              <><Plus className="h-3 w-3" /> Generate Location Pack</>
+            )}
+          </Button>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
