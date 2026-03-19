@@ -395,7 +395,7 @@ export async function generateLookBookData(
   }
 
   // ── THEMES ──
-  const themesRaw = (canon.tone_style as string) || tone || '';
+  const themesRaw = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(canon, genre, tone);
     slides.push({
