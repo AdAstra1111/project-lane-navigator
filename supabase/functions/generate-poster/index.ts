@@ -1201,6 +1201,9 @@ serve(async (req) => {
         console.error(`[project_images] legacy insert failed:`, repoErr.message);
       }
 
+      // Persist dependency links
+      await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
+
       return new Response(JSON.stringify({ poster: updatedPoster }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
