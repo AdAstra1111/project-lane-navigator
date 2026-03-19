@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
+import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -84,6 +85,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
     resetActiveCanon, restoreFromArchive, markForReusePool,
     approveIntoCanon, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
+
+  const vs = useVisualSets(projectId);
 
   const { refetch: refetchImages } = useProjectImages(projectId, {
     activeOnly: false,
@@ -204,6 +207,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   }, [canonJson]);
 
   // Progressive auto-populate — slot by slot with live UI updates
+  // Now also wires generated images into governed visual sets
   const handleAutoPopulate = useCallback(async (identityOnly: boolean) => {
     const slots = buildSlotManifest(identityOnly);
     if (slots.length === 0) {
@@ -223,6 +227,24 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
     let generated = 0;
     let failed = 0;
     const completedSlots: Array<{ key: string; status: 'generated' | 'failed'; label: string }> = [];
+
+    // Track visual sets created per target for wiring
+    const visualSetCache = new Map<string, string>(); // "domain:targetName" -> setId
+
+    // Resolve DNA version for character sets
+    let characterDnaVersionId: string | null = null;
+    if (entities.characters.length > 0) {
+      const { data: dnaRow } = await (supabase as any)
+        .from('character_visual_dna')
+        .select('id, character_name')
+        .eq('project_id', projectId)
+        .eq('is_current', true)
+        .limit(10);
+      if (dnaRow?.length) {
+        // Store first match - for per-character DNA we'd need per-character resolution
+        characterDnaVersionId = dnaRow[0]?.id || null;
+      }
+    }
 
     for (let i = 0; i < slots.length; i++) {
       if (abortRef.current) break;
@@ -267,9 +289,43 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
 
         if (error) throw new Error(error.message);
         const firstResult = (data as any)?.results?.[0];
-        if (firstResult?.status === 'ready') {
+        if (firstResult?.status === 'ready' && firstResult?.image_id) {
           generated++;
           completedSlots.push({ key: slotKey, status: 'generated', label: slot.label });
+
+          // ── Wire into governed visual set ──
+          try {
+            const domain = slot.assetGroup === 'character'
+              ? 'character_identity'
+              : slot.assetGroup === 'world'
+                ? 'world_refs'
+                : 'character_identity';
+            const targetName = slot.subject || 'Project';
+            const cacheKey = `${domain}:${targetName}`;
+
+            let setId = visualSetCache.get(cacheKey);
+            if (!setId) {
+              const visualSet = await vs.ensureVisualSetForTarget({
+                domain,
+                targetType: slot.assetGroup === 'character' ? 'character' : slot.assetGroup === 'world' ? 'location' : 'project',
+                targetName,
+                dnaVersionId: slot.assetGroup === 'character' ? characterDnaVersionId : null,
+              });
+              setId = visualSet.id;
+              visualSetCache.set(cacheKey, setId);
+            }
+
+            // Wire image into correct slot
+            await vs.wireImageToSlot({
+              setId,
+              imageId: firstResult.image_id,
+              shotType: slot.shotType,
+              selectForSlot: true,
+            });
+          } catch (wireErr) {
+            console.error(`[auto-populate] Visual set wiring failed for ${slotKey}:`, wireErr);
+            // Non-fatal: image was generated, just not wired into governed set
+          }
         } else {
           failed++;
           completedSlots.push({ key: slotKey, status: 'failed', label: slot.label });
@@ -293,13 +349,14 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
     }
 
     setPopulating(false);
+    vs.invalidate(); // Refresh visual sets after autopopulate
 
     if (generated > 0) {
       toast.success(`Generated ${generated} candidate image${generated !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`);
     } else {
       toast.error(`Generation failed for all ${failed} slots`);
     }
-  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages]);
+  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs]);
 
   if (loading || imagesLoading) {
     return (

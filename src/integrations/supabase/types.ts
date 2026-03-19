@@ -25165,6 +25165,7 @@ export type Database = {
         Returns: string
       }
       is_feature_flag_enabled: { Args: { _key: string }; Returns: boolean }
+      lock_visual_set: { Args: { p_set_id: string }; Returns: Json }
       match_trend_signals: {
         Args: {
           _limit?: number
@@ -25202,6 +25203,10 @@ export type Database = {
           p_propose?: boolean
           p_shot_id: string
         }
+        Returns: Json
+      }
+      resolve_visual_set_readiness: {
+        Args: { p_set_id: string }
         Returns: Json
       }
       safe_delete_version: { Args: { p_version_id: string }; Returns: Json }

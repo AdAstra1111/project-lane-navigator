@@ -1,13 +1,15 @@
 /**
  * VisualSetCurationPanel — Slot-based visual set curation UI.
  * Grid of slots with evaluation badges, approve/reject/replace per slot, global controls.
+ * Uses server-side readiness resolver and transactional lock.
  */
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Lock, CheckCircle, AlertTriangle, XCircle, RotateCcw,
   ShieldCheck, Grid3X3, Loader2, ChevronDown, ChevronRight,
-  Image as ImageIcon, Replace, Archive, Plus,
+  Image as ImageIcon, Replace, Archive, Plus, RefreshCw,
+  Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +27,7 @@ import {
   type VisualSetSlot,
   type VisualSetCandidate,
   type VisualSetStatus,
+  type VisualSetReadiness,
 } from '@/hooks/useVisualSets';
 import { useImageEvaluation } from '@/hooks/useImageEvaluation';
 import { useProjectImages } from '@/hooks/useProjectImages';
@@ -207,28 +210,46 @@ function VisualSetSlotGrid({
   const [slots, setSlots] = useState<VisualSetSlot[]>([]);
   const [candidates, setCandidates] = useState<VisualSetCandidate[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(true);
+  const [readiness, setReadiness] = useState<VisualSetReadiness | null>(null);
+  const [loadingReadiness, setLoadingReadiness] = useState(false);
   const { getEvaluation } = useImageEvaluation(projectId);
   const { data: allImages = [] } = useProjectImages(projectId, { activeOnly: false, curationStates: ['active', 'candidate'] });
 
-  // Load slots and candidates
+  // Load slots, candidates, and readiness
+  const loadData = useCallback(async () => {
+    try {
+      const [s, c] = await Promise.all([
+        vs.fetchSlotsForSet(set.id),
+        vs.fetchCandidatesForSet(set.id),
+      ]);
+      setSlots(s);
+      setCandidates(c);
+    } finally {
+      setLoadingSlots(false);
+    }
+  }, [set.id, vs.fetchSlotsForSet, vs.fetchCandidatesForSet]);
+
+  const loadReadiness = useCallback(async () => {
+    if (set.status === 'locked' || set.status === 'archived') return;
+    setLoadingReadiness(true);
+    try {
+      const r = await vs.resolveReadiness(set.id);
+      setReadiness(r);
+    } catch {
+      setReadiness(null);
+    } finally {
+      setLoadingReadiness(false);
+    }
+  }, [set.id, set.status, vs.resolveReadiness]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const [s, c] = await Promise.all([
-          vs.fetchSlotsForSet(set.id),
-          vs.fetchCandidatesForSet(set.id),
-        ]);
-        if (!cancelled) {
-          setSlots(s);
-          setCandidates(c);
-        }
-      } finally {
-        if (!cancelled) setLoadingSlots(false);
-      }
+      await loadData();
+      if (!cancelled) await loadReadiness();
     })();
     return () => { cancelled = true; };
-  }, [set.id, vs.fetchSlotsForSet, vs.fetchCandidatesForSet]);
+  }, [loadData, loadReadiness]);
 
   const candidatesBySlot = useMemo(() => {
     const map = new Map<string, VisualSetCandidate[]>();
@@ -249,8 +270,10 @@ function VisualSetSlotGrid({
   }, [allImages]);
 
   const isLocked = set.status === 'locked';
+  const isStale = set.status === 'stale' || readiness?.stale === true;
   const unresolvedSlots = slots.filter(s => s.state === 'empty' || s.state === 'needs_replacement');
   const approvedCount = slots.filter(s => s.state === 'approved' || s.state === 'locked').length;
+  const canLock = readiness?.ready_to_lock === true && !isStale;
 
   if (loadingSlots) {
     return <div className="px-3 pb-3"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /></div>;
@@ -258,15 +281,72 @@ function VisualSetSlotGrid({
 
   return (
     <div className="px-3 pb-3 space-y-3 border-t border-border/40">
+      {/* Stale Warning */}
+      {isStale && !isLocked && (
+        <div className="flex items-start gap-2 p-2 rounded-md bg-destructive/10 border border-destructive/20 mt-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[10px] font-medium text-destructive">DNA Changed — Set is Stale</p>
+            <p className="text-[9px] text-destructive/80 mt-0.5">
+              The underlying character DNA has been updated since this set was evaluated.
+              Re-evaluate images and approve again before locking.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Readiness Status */}
+      {readiness && !isLocked && !isStale && (
+        <div className={cn(
+          'flex items-start gap-2 p-2 rounded-md mt-2',
+          readiness.ready_to_lock
+            ? 'bg-emerald-500/10 border border-emerald-500/20'
+            : 'bg-muted/50 border border-border/40',
+        )}>
+          {readiness.ready_to_lock ? (
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+          ) : (
+            <Info className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className={cn(
+              'text-[10px] font-medium',
+              readiness.ready_to_lock ? 'text-emerald-600' : 'text-foreground',
+            )}>
+              {readiness.ready_to_lock
+                ? 'Ready to Lock'
+                : `${readiness.required_slot_approved_count}/${readiness.required_slot_total} required slots approved`
+              }
+            </p>
+            {readiness.blocking_reasons.length > 0 && !readiness.ready_to_lock && (
+              <ul className="mt-1 space-y-0.5">
+                {readiness.blocking_reasons.slice(0, 3).map((r, i) => (
+                  <li key={i} className="text-[8px] text-muted-foreground">• {r}</li>
+                ))}
+                {readiness.blocking_reasons.length > 3 && (
+                  <li className="text-[8px] text-muted-foreground">
+                    • +{readiness.blocking_reasons.length - 3} more issue(s)
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Global Controls */}
       {!isLocked && (
-        <div className="flex items-center gap-2 pt-2 flex-wrap">
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
           <Button
             size="sm"
             variant="outline"
             className="h-7 text-[10px] gap-1"
-            onClick={() => vs.approveAllSafe.mutate({ setId: set.id })}
-            disabled={vs.approveAllSafe.isPending}
+            onClick={async () => {
+              await vs.approveAllSafe.mutateAsync({ setId: set.id });
+              await loadData();
+              await loadReadiness();
+            }}
+            disabled={vs.approveAllSafe.isPending || isStale}
           >
             {vs.approveAllSafe.isPending ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -277,21 +357,27 @@ function VisualSetSlotGrid({
           </Button>
 
           {unresolvedSlots.length > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="secondary" className="text-[9px]">
-                    {unresolvedSlots.length} unresolved
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent className="text-[9px]">
-                  {unresolvedSlots.map(s => s.slot_label).join(', ')}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] gap-1"
+              onClick={async () => {
+                await vs.replaceUnresolved.mutateAsync({ setId: set.id });
+                await loadData();
+                await loadReadiness();
+              }}
+              disabled={vs.replaceUnresolved.isPending}
+            >
+              {vs.replaceUnresolved.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              Replace Unresolved ({unresolvedSlots.length})
+            </Button>
           )}
 
-          {set.status === 'ready_to_lock' && (
+          {canLock && (
             <Button
               size="sm"
               className="h-7 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -307,14 +393,9 @@ function VisualSetSlotGrid({
             </Button>
           )}
 
-          {set.status === 'stale' && (
-            <Badge className="text-[9px] bg-destructive/15 text-destructive border-destructive/30">
-              <AlertTriangle className="h-3 w-3 mr-0.5" /> DNA changed — re-evaluate required
-            </Badge>
-          )}
-
           <span className="text-[9px] text-muted-foreground ml-auto">
             {approvedCount}/{slots.length} approved
+            {loadingReadiness && <Loader2 className="h-2.5 w-2.5 animate-spin inline ml-1" />}
           </span>
         </div>
       )}
@@ -329,8 +410,17 @@ function VisualSetSlotGrid({
             imageMap={imageMap}
             getEvaluation={getEvaluation}
             isSetLocked={isLocked}
-            onDeselect={() => vs.deselectSlot.mutate({ slotId: slot.id })}
-            onSelectCandidate={(candidateId, imageId) => vs.selectCandidate.mutate({ slotId: slot.id, candidateId, imageId })}
+            isSetStale={isStale}
+            onDeselect={async () => {
+              await vs.deselectSlot.mutateAsync({ slotId: slot.id });
+              await loadData();
+              await loadReadiness();
+            }}
+            onSelectCandidate={async (candidateId, imageId) => {
+              await vs.selectCandidate.mutateAsync({ slotId: slot.id, candidateId, imageId });
+              await loadData();
+              await loadReadiness();
+            }}
           />
         ))}
       </div>
@@ -346,6 +436,7 @@ function SlotCard({
   imageMap,
   getEvaluation,
   isSetLocked,
+  isSetStale,
   onDeselect,
   onSelectCandidate,
 }: {
@@ -354,6 +445,7 @@ function SlotCard({
   imageMap: Map<string, any>;
   getEvaluation: (imageId: string) => any;
   isSetLocked: boolean;
+  isSetStale: boolean;
   onDeselect: () => void;
   onSelectCandidate: (candidateId: string, imageId: string) => void;
 }) {
@@ -365,23 +457,36 @@ function SlotCard({
   const evaluation = slot.selected_image_id ? getEvaluation(slot.selected_image_id) : null;
   const otherCandidates = candidates.filter(c => !c.selected_for_slot && c.producer_decision !== 'rejected');
 
+  // Visual stale indicator: if set is stale and slot was approved, show warning
+  const isSlotStaleApproved = isSetStale && slot.state === 'approved';
+
   return (
     <Card className={cn(
       'relative overflow-hidden transition-all',
-      slot.state === 'approved' && 'border-emerald-500/30',
+      slot.state === 'approved' && !isSlotStaleApproved && 'border-emerald-500/30',
       slot.state === 'locked' && 'border-emerald-600/40',
       slot.state === 'needs_replacement' && 'border-amber-500/30',
+      isSlotStaleApproved && 'border-amber-500/40 bg-amber-500/5',
       !slot.is_required && 'opacity-80',
     )}>
       <CardContent className="p-2">
         {/* Header */}
         <div className="flex items-center gap-1 mb-1.5">
-          <StateIcon className={cn('h-3 w-3', stateConfig.color)} />
+          {isSlotStaleApproved ? (
+            <AlertTriangle className="h-3 w-3 text-amber-500" />
+          ) : (
+            <StateIcon className={cn('h-3 w-3', stateConfig.color)} />
+          )}
           <span className="text-[9px] font-medium text-foreground truncate flex-1">{slot.slot_label}</span>
           {slot.is_required && (
             <Badge className="text-[6px] px-0.5 py-0 bg-primary/10 text-primary border-primary/20">REQ</Badge>
           )}
         </div>
+
+        {/* Stale approval warning */}
+        {isSlotStaleApproved && (
+          <p className="text-[7px] text-amber-600 mb-1">Approved under prior DNA — re-evaluate</p>
+        )}
 
         {/* Image Preview */}
         {selectedImage?.signedUrl ? (
