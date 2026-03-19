@@ -5,6 +5,7 @@ import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
+import { isValidUUID } from '@/lib/validation/uuid';
 
 export interface PendingDecision {
   id: string;
