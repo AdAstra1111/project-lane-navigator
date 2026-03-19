@@ -402,16 +402,20 @@ serve(async (req) => {
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,
-            subject: character_name || null,
+            subject: character_name || location_name || null,
             shot_type: shotType,
             curation_state: "candidate",
             subject_type: assetGroup === "character" ? "character"
-              : assetGroup === "world" ? "location"
+              : (assetGroup === "world" && location_name) ? "location"
+              : assetGroup === "world" ? "world"
               : assetGroup === "key_moment" ? "moment"
               : assetGroup === "visual_language" ? "production_design"
               : null,
-            subject_ref: character_name || section || null,
-            generation_purpose: base_look_mode ? "character_reference" : `lookbook_${section}`,
+            subject_ref: character_name || location_name || null,
+            location_ref: location_name || null,
+            generation_purpose: base_look_mode ? "character_reference"
+              : location_ref_mode ? "location_reference"
+              : `lookbook_${section}`,
           })
           .select("id")
           .single();
