@@ -27,6 +27,7 @@ import type { CurationState } from '@/lib/images/types';
 import type { LookBookData } from '@/lib/lookbook/types';
 import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPanel';
 import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPanel';
+import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 
 const SECTIONS = [
   { key: 'world' as const, label: 'World / Setting', icon: Globe, description: 'Establishing shots, atmospheric details, and environmental storytelling', packSize: SHOT_PACKS.world.length },
