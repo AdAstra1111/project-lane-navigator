@@ -121,10 +121,83 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   );
 
   const activeImages = useMemo(() => allImages.filter(i => i.curation_state === 'active'), [allImages]);
+  const candidateImages = useMemo(() => allImages.filter(i => i.curation_state === 'candidate'), [allImages]);
   const archivedImages = useMemo(() => allImages.filter(i => i.curation_state === 'archived'), [allImages]);
   const reusePoolImages = useMemo(() => allImages.filter(i => (i as any).reuse_pool_eligible), [allImages]);
   const pendingSlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length > 0), [requiredSet]);
   const emptySlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0), [requiredSet]);
+
+  // ── Batch Approve All handler ──
+  const handleBatchApprove = useCallback(async () => {
+    if (candidateImages.length === 0) return;
+    setBatchApproving(true);
+    try {
+      await batchApproveAll(candidateImages);
+      refetchImages();
+    } finally {
+      setBatchApproving(false);
+    }
+  }, [candidateImages, batchApproveAll, refetchImages]);
+
+  // ── Download All handler ──
+  const handleDownloadAll = useCallback(async () => {
+    const downloadImages = activeImages.filter(i => i.signedUrl || i.storage_path);
+    if (downloadImages.length === 0) {
+      toast.info('No active images with URLs to download');
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+
+      // Group by asset_group into folders
+      const grouped = new Map<string, ProjectImage[]>();
+      for (const img of downloadImages) {
+        const group = (img as any).asset_group || 'uncategorized';
+        if (!grouped.has(group)) grouped.set(group, []);
+        grouped.get(group)!.push(img);
+      }
+
+      let fetched = 0;
+      for (const [group, images] of grouped) {
+        const folder = zip.folder(group)!;
+        for (const img of images) {
+          const url = img.signedUrl || '';
+          if (!url) continue;
+          try {
+            const resp = await fetch(url);
+            if (!resp.ok) continue;
+            const blob = await resp.blob();
+            const ext = blob.type.includes('png') ? 'png' : 'jpg';
+            const filename = `${img.subject || img.shot_type || img.id}_${img.shot_type || 'image'}.${ext}`;
+            folder.file(filename, blob);
+            fetched++;
+          } catch {
+            console.warn(`[download] Failed to fetch image ${img.id}`);
+          }
+        }
+      }
+
+      if (fetched === 0) {
+        toast.error('No images could be downloaded');
+        return;
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `visual-canon-${projectId.slice(0, 8)}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Downloaded ${fetched} images`);
+    } catch (err: any) {
+      toast.error('Download failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setDownloading(false);
+    }
+  }, [activeImages, projectId]);
 
   // Phase labels
   const PHASE_LABELS: Record<number, string> = {
