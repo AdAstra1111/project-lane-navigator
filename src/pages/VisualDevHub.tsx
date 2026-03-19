@@ -25,6 +25,13 @@ import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
   {
+    title: 'Look Book',
+    description: 'Section-driven visual pitch deck — curate and build your lookbook.',
+    icon: BookOpen,
+    cta: 'Open Look Book',
+    href: (id: string) => `/projects/${id}/lookbook`,
+  },
+  {
     title: 'Visual Units',
     description: 'Canonical visual units extracted from your script.',
     icon: Layers,
