@@ -165,6 +165,20 @@ interface LayoutConfig {
   titleWeight: number;
 }
 
+/** Exported template metadata for UI selection */
+export interface PosterTemplateInfo {
+  label: string;
+  description: string;
+}
+
+export const POSTER_TEMPLATES: Record<PosterLayoutVariant, PosterTemplateInfo> = {
+  prestige: { label: "Prestige", description: "Thin typography, high letter-spacing, condensed billing — festival aesthetic" },
+  commercial: { label: "Commercial", description: "Bold typography, labeled billing sections — mainstream appeal" },
+  "cinematic-dark": { label: "Cinematic Dark", description: "Balanced hierarchy, amber accents, standard billing — default theatrical" },
+  "cinematic-light": { label: "Cinematic Light", description: "Lighter gradient, same structure — for bright key art" },
+  minimal: { label: "Minimal", description: "Elegant, condensed, maximum negative space — auteur style" },
+};
+
 const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
   prestige: {
     titleZoneY: 0.80,

@@ -2,13 +2,19 @@
  * PosterEnginePanel — Multi-concept poster generation with strategic creative directions.
  * Generates 6 distinct poster concepts based on project canon, allows selection.
  * All text/credits are composited deterministically from structured editable fields.
+ * 
+ * Features:
+ * - Template selector (layout variant) per poster
+ * - Live preview on credit changes (debounced auto-save)
+ * - Download composed poster as PNG
  */
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
   Loader2, Sparkles, Star, ChevronDown, User, Mountain,
   Swords, Award, Megaphone, Drama, PenLine, Plus, X,
+  Download, Layout,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,11 +23,18 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { PosterCompositor, type PosterCreditsData } from "@/components/poster/PosterCompositor";
+import { PosterCompositor, type PosterCreditsData, type PosterLayoutVariant, POSTER_TEMPLATES } from "@/components/poster/PosterCompositor";
 import { FramingStrategyPanel } from "@/components/framing/FramingStrategyPanel";
 import {
   useProjectPosters,
@@ -53,15 +66,19 @@ function PosterImage({
   title,
   branding,
   credits,
+  layoutVariant,
   width,
   className,
+  onCanvasReady,
 }: {
   poster: ProjectPoster;
   title: string;
   branding: { companyLogoUrl: string | null; companyName: string | null } | null;
   credits?: PosterCreditsData;
+  layoutVariant?: PosterLayoutVariant;
   width: number;
   className?: string;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 }) {
   const imageUrl = poster.rendered_public_url || poster.key_art_public_url;
 
@@ -70,9 +87,11 @@ function PosterImage({
       keyArtUrl={imageUrl || ""}
       title={title}
       companyLogoUrl={branding?.companyLogoUrl}
-      companyName={branding?.companyName || credits?.producedBy?.[0] ? undefined : undefined}
+      companyName={branding?.companyName}
       credits={credits}
+      layoutVariant={layoutVariant || "cinematic-dark"}
       width={width}
+      onRender={onCanvasReady}
       className={className}
     />
   );
@@ -91,20 +110,36 @@ export default function PosterEnginePanel() {
   const setActivePoster = useSetActivePoster(projectId);
   const deletePoster = useDeletePoster(projectId);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showCreditsEditor, setShowCreditsEditor] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<PosterLayoutVariant>("cinematic-dark");
 
   const isGenerating = generatePoster.isPending;
   const isUploading = uploadPoster.isPending;
   const isBusy = isGenerating || isUploading;
 
-  // Build credits data for compositor
-  const creditsData: PosterCreditsData = {
+  // Build credits data for compositor — use live local state for instant preview
+  const [liveCredits, setLiveCredits] = useState<PosterCreditsData | null>(null);
+
+  const creditsData: PosterCreditsData = liveCredits || {
     writtenBy: posterCredits?.written_by || [],
     producedBy: posterCredits?.produced_by || [],
     createdByCredit: posterCredits?.created_by_credit || null,
     basedOnCredit: posterCredits?.based_on_credit || null,
   };
+
+  // Sync from server when posterCredits loads
+  useEffect(() => {
+    if (posterCredits && !liveCredits) {
+      setLiveCredits({
+        writtenBy: posterCredits.written_by || [],
+        producedBy: posterCredits.produced_by || [],
+        createdByCredit: posterCredits.created_by_credit || null,
+        basedOnCredit: posterCredits.based_on_credit || null,
+      });
+    }
+  }, [posterCredits, liveCredits]);
 
   const companyName = posterCredits?.company_name || branding?.companyName || null;
   const posterTitle = posterCredits?.title_override || project?.title || "Untitled";
@@ -122,6 +157,15 @@ export default function PosterEnginePanel() {
   const handleRegenerateOne = (strategyKey: string) => {
     generatePoster.mutate({ mode: "multi_concept", strategy_key: strategyKey });
   };
+
+  const handleDownloadPoster = useCallback(() => {
+    const canvas = activePosterCanvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `${posterTitle.replace(/\s+/g, "_")}_poster.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }, [posterTitle]);
 
   const readyPosters = posters?.filter(p => p.status === "ready") || [];
   const generatingPosters = posters?.filter(p => p.status === "generating") || [];
@@ -142,6 +186,10 @@ export default function PosterEnginePanel() {
     }
   }
 
+  const brandingData = branding
+    ? { ...branding, companyName }
+    : { companyLogoUrl: null, companyName };
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
       {/* Header */}
@@ -152,7 +200,7 @@ export default function PosterEnginePanel() {
             Poster Engine
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            Generate 6 theatrical poster concepts from your project's story, world, and tone.
+            Generate 6 theatrical poster concepts. Title and credits are composited from your editable billing fields.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -188,33 +236,58 @@ export default function PosterEnginePanel() {
         </div>
       </div>
 
-      {/* ── Poster Credits Editor ── */}
-      <Collapsible open={showCreditsEditor} onOpenChange={setShowCreditsEditor}>
-        <CollapsibleTrigger asChild>
-          <button className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full justify-between px-4 py-2.5 bg-card/50 rounded-lg border border-border/30 hover:border-border/60">
-            <div className="flex items-center gap-2">
-              <PenLine className="w-3.5 h-3.5" />
-              <span className="font-medium text-foreground">Poster Credits & Billing</span>
-              {posterCredits && (
-                <span className="text-muted-foreground">
-                  — {posterCredits.written_by.join(', ')}
-                </span>
-              )}
-            </div>
-            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showCreditsEditor && "rotate-180")} />
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          {posterCredits && (
-            <PosterCreditsEditor
-              credits={posterCredits}
-              projectTitle={project?.title || ''}
-              onUpdate={(updates) => updateCredits.mutate(updates)}
-              isSaving={updateCredits.isPending}
-            />
-          )}
-        </CollapsibleContent>
-      </Collapsible>
+      {/* ── Template Selector + Credits Editor ── */}
+      <div className="flex flex-col gap-3">
+        {/* Template selector */}
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-card/50 rounded-lg border border-border/30">
+          <Layout className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-xs font-medium text-foreground">Layout Template</span>
+          <Select value={selectedTemplate} onValueChange={(v) => setSelectedTemplate(v as PosterLayoutVariant)}>
+            <SelectTrigger className="w-48 h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(POSTER_TEMPLATES).map(([key, tmpl]) => (
+                <SelectItem key={key} value={key} className="text-xs">
+                  {tmpl.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-[10px] text-muted-foreground ml-1">
+            {POSTER_TEMPLATES[selectedTemplate]?.description}
+          </span>
+        </div>
+
+        {/* Credits editor */}
+        <Collapsible open={showCreditsEditor} onOpenChange={setShowCreditsEditor}>
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full justify-between px-4 py-2.5 bg-card/50 rounded-lg border border-border/30 hover:border-border/60">
+              <div className="flex items-center gap-2">
+                <PenLine className="w-3.5 h-3.5" />
+                <span className="font-medium text-foreground">Poster Credits & Billing</span>
+                {posterCredits && (
+                  <span className="text-muted-foreground">
+                    — {posterCredits.written_by.join(', ')}
+                  </span>
+                )}
+              </div>
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showCreditsEditor && "rotate-180")} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            {posterCredits && (
+              <PosterCreditsEditor
+                credits={posterCredits}
+                projectTitle={project?.title || ''}
+                onUpdate={(updates) => updateCredits.mutate(updates)}
+                onLiveChange={setLiveCredits}
+                isSaving={updateCredits.isPending}
+              />
+            )}
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
 
       {/* Generating state */}
       {(isGenerating || generatingPosters.length > 0) && (
@@ -239,10 +312,12 @@ export default function PosterEnginePanel() {
               <PosterImage
                 poster={activePoster}
                 title={posterTitle}
-                branding={branding ? { ...branding, companyName } : { companyLogoUrl: null, companyName }}
+                branding={brandingData}
                 credits={creditsData}
-                width={80}
+                layoutVariant={selectedTemplate}
+                width={120}
                 className="rounded shadow-lg"
+                onCanvasReady={(c) => { activePosterCanvasRef.current = c; }}
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -256,8 +331,19 @@ export default function PosterEnginePanel() {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {activePoster.source_type === "generated" ? "AI Key Art" : "Uploaded"} • Credits composited from structured fields
+                  {activePoster.source_type === "generated" ? "AI Key Art" : "Uploaded"} • Template: {POSTER_TEMPLATES[selectedTemplate]?.label || selectedTemplate}
                 </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={handleDownloadPoster}
+                  >
+                    <Download className="w-3 h-3" />
+                    Download Poster
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -294,8 +380,9 @@ export default function PosterEnginePanel() {
                       <PosterImage
                         poster={poster}
                         title={posterTitle}
-                        branding={branding ? { ...branding, companyName } : { companyLogoUrl: null, companyName }}
+                        branding={brandingData}
                         credits={creditsData}
+                        layoutVariant={selectedTemplate}
                         width={280}
                       />
 
@@ -475,8 +562,9 @@ export default function PosterEnginePanel() {
                   <PosterImage
                     poster={poster}
                     title={posterTitle}
-                    branding={branding ? { ...branding, companyName } : { companyLogoUrl: null, companyName }}
+                    branding={brandingData}
                     credits={creditsData}
+                    layoutVariant={selectedTemplate}
                     width={160}
                   />
                   <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
@@ -508,13 +596,14 @@ export default function PosterEnginePanel() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Poster Credits Editor — inline editable billing fields
+// Poster Credits Editor — inline editable billing fields with live preview
 // ══════════════════════════════════════════════════════════════════════════════
 
 function PosterCreditsEditor({
   credits,
   projectTitle,
   onUpdate,
+  onLiveChange,
   isSaving,
 }: {
   credits: {
@@ -528,6 +617,7 @@ function PosterCreditsEditor({
   };
   projectTitle: string;
   onUpdate: (updates: Record<string, unknown>) => void;
+  onLiveChange: (credits: PosterCreditsData) => void;
   isSaving: boolean;
 }) {
   const [titleOverride, setTitleOverride] = useState(credits.title_override || '');
@@ -537,8 +627,28 @@ function PosterCreditsEditor({
   const [companyName, setCompanyName] = useState(credits.company_name);
   const [newWriter, setNewWriter] = useState('');
   const [newProducer, setNewProducer] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Push live changes for instant preview
+  const pushLive = useCallback((wb: string[], pb: string[]) => {
+    onLiveChange({
+      writtenBy: wb,
+      producedBy: pb,
+      createdByCredit: credits.created_by_credit || null,
+      basedOnCredit: credits.based_on_credit || null,
+    });
+  }, [onLiveChange, credits.created_by_credit, credits.based_on_credit]);
+
+  // Debounced auto-save
+  const scheduleAutoSave = useCallback((updates: Record<string, unknown>) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onUpdate(updates);
+    }, 1500);
+  }, [onUpdate]);
 
   const handleSave = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     onUpdate({
       title_override: titleOverride.trim() || null,
       tagline: tagline.trim() || null,
@@ -551,32 +661,44 @@ function PosterCreditsEditor({
   const addWriter = () => {
     const name = newWriter.trim();
     if (name && !writtenBy.includes(name)) {
-      setWrittenBy([...writtenBy, name]);
+      const updated = [...writtenBy, name];
+      setWrittenBy(updated);
       setNewWriter('');
+      pushLive(updated, producedBy);
+      scheduleAutoSave({ written_by: updated.filter(Boolean) });
     }
   };
 
   const removeWriter = (idx: number) => {
-    setWrittenBy(writtenBy.filter((_, i) => i !== idx));
+    const updated = writtenBy.filter((_, i) => i !== idx);
+    setWrittenBy(updated);
+    pushLive(updated, producedBy);
+    scheduleAutoSave({ written_by: updated.filter(Boolean) });
   };
 
   const addProducer = () => {
     const name = newProducer.trim();
     if (name && !producedBy.includes(name)) {
-      setProducedBy([...producedBy, name]);
+      const updated = [...producedBy, name];
+      setProducedBy(updated);
       setNewProducer('');
+      pushLive(writtenBy, updated);
+      scheduleAutoSave({ produced_by: updated.filter(Boolean) });
     }
   };
 
   const removeProducer = (idx: number) => {
-    setProducedBy(producedBy.filter((_, i) => i !== idx));
+    const updated = producedBy.filter((_, i) => i !== idx);
+    setProducedBy(updated);
+    pushLive(writtenBy, updated);
+    scheduleAutoSave({ produced_by: updated.filter(Boolean) });
   };
 
   return (
     <Card className="mt-2 border-border/30">
       <CardContent className="p-4 space-y-4">
         <p className="text-[11px] text-muted-foreground">
-          These fields control the text composited onto your poster. No names will be invented — only what you enter here appears.
+          These fields control the text composited onto your poster. No names will be invented — only what you enter here appears. Changes preview instantly.
         </p>
 
         {/* Title Override */}
@@ -671,7 +793,7 @@ function PosterCreditsEditor({
         <div className="flex justify-end">
           <Button size="sm" onClick={handleSave} disabled={isSaving} className="gap-1.5 text-xs">
             {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            Save Credits
+            Save All Credits
           </Button>
         </div>
       </CardContent>
