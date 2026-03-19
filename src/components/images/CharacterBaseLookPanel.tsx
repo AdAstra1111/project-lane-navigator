@@ -613,6 +613,8 @@ function CharacterReferenceSection({
           asset_group: 'character',
           pack_mode: true,
           base_look_mode: true,
+          // Inject locked identity anchors for resemblance continuity
+          identity_anchor_paths: identityAnchors,
         },
       });
       if (error) throw error;
