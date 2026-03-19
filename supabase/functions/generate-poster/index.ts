@@ -742,7 +742,7 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
 
 // ── Build final prompt ───────────────────────────────────────────────────────
 
-function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext): string {
+function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext, vsalBlock?: string | null): string {
   const base = strategy.briefing(ctx);
 
   // Style policy enforcement (global)
@@ -802,7 +802,14 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- CRITICAL: The image must look complete on its own — a full cinematic painting, not a cropped fragment`,
   ].join("\n");
 
-  return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
+  const blocks = [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition];
+  
+  // VSAL injection — supersedes generic style when present
+  if (vsalBlock) {
+    blocks.push(vsalBlock);
+  }
+
+  return blocks.filter(Boolean).join("\n\n");
 }
 
 // ── Provider Adapter ─────────────────────────────────────────────────────────
