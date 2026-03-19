@@ -122,8 +122,11 @@ export interface CharacterVisualDNA {
   /** Conflicts between sources */
   contradictions: TraitContradiction[];
   
-  /** Gaps in visual definition — now with resolution status */
+  /** Gaps in visual definition — with resolution status and answer candidates */
   missingClarifications: MissingClarification[];
+  
+  /** Transient visual states — scene-bound, NOT permanent identity */
+  transientStates: TransientVisualState[];
   
   /** Identity signature derived from locked anchors */
   identitySignature: IdentitySignature | null;
