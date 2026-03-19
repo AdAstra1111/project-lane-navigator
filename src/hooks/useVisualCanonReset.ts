@@ -311,12 +311,16 @@ export function useVisualCanonReset(projectId: string) {
     }
 
     let approved = 0;
+    const isIdentitySlot = (shotType: string | null) =>
+      ['identity_headshot', 'identity_profile', 'identity_full_body'].includes(shotType || '');
 
     for (const [_slotKey, slotImages] of slotMap) {
       // Sort by created_at ASC — first candidate becomes primary
       const sorted = [...slotImages].sort((a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
       );
+
+      const identity = isIdentitySlot(sorted[0]?.shot_type ?? null);
 
       for (let i = 0; i < sorted.length; i++) {
         const img = sorted[i];
@@ -335,11 +339,15 @@ export function useVisualCanonReset(projectId: string) {
           await clearQ;
         }
 
+        // Identity slots: only primary becomes active, others stay candidate
+        // Non-identity slots: all become active (backward compat)
+        const shouldBeActive = identity ? isPrimary : true;
+
         await (supabase as any)
           .from('project_images')
           .update({
-            curation_state: 'active' as CurationState,
-            is_active: true,
+            curation_state: shouldBeActive ? ('active' as CurationState) : ('candidate' as CurationState),
+            is_active: shouldBeActive,
             is_primary: isPrimary,
             archived_from_active_at: null,
           })
