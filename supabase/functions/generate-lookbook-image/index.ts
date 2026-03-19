@@ -79,10 +79,10 @@ const SHOT_FRAMING: Record<ShotType, string> = {
   emotional_variant: "Same character, different emotional state. Raw emotional expression — tension, vulnerability, determination, or joy. Character-defining moment.",
   atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling.",
   time_variant: "Same location, different time of day. Dawn/dusk/night variant. Dramatic lighting shift. Temporal contrast.",
-  lighting_ref: "Lighting reference. Demonstrate the project's signature lighting approach — key light direction, color temperature, contrast ratio, shadow quality.",
-  texture_ref: "Texture and surface reference. Close-up on key materials and surfaces. Skin, fabric, architecture, natural elements. Tactile, sensory.",
-  composition_ref: "Composition reference. Demonstrate the project's framing grammar — rule of thirds, leading lines, negative space, symmetry or asymmetry.",
-  color_ref: "Color palette reference. Dominant hues, accent colors, saturation level. The project's visual temperature and chromatic identity.",
+  lighting_ref: "Lighting reference — real film set lighting setup. Show practical and motivated light sources. Key light direction, fill ratio, color temperature, hard vs soft shadows. As seen on a professional film set with cinema-grade lighting fixtures. Real environments, real physics of light.",
+  texture_ref: "Material and surface reference — real-world production design. Close-up on key physical materials: weathered wood, concrete, fabric weave, skin texture, metal patina, natural stone. Shot with macro lens, shallow DOF. Tactile, grounded, zero abstraction.",
+  composition_ref: "Cinematography composition reference — real camera framing. Demonstrate specific framing grammar: rule of thirds, leading lines, negative space, symmetry. Show an actual physical environment framed through a cinema lens. No abstract or symbolic composition.",
+  color_ref: "Color grading reference — real-world color palette in context. Show actual environments and surfaces demonstrating the project's chromatic identity: dominant hues, accent temperature, saturation level. Grounded in physical space, not abstract color fields.",
 };
 
 function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext): string {
