@@ -190,8 +190,8 @@ function ToneContent({ canon, project }: { canon: any; project: any }) {
 }
 
 function FormatContent({ canon, project }: { canon: any; project: any }) {
-  const hasConstraints = canon.format_constraints?.trim();
-  const hasForbidden = canon.forbidden_changes?.trim();
+  const hasConstraints = normalizeCanonText(canon.format_constraints);
+  const hasForbidden = normalizeCanonText(canon.forbidden_changes);
   const format = project?.format;
   const lane = project?.assigned_lane;
   if (!hasConstraints && !format && !lane && !hasForbidden) {
