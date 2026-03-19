@@ -85,6 +85,10 @@ interface ImageSelectorGridProps {
   showProvenance?: boolean;
   /** Section curation policy */
   sectionPolicy?: SectionPolicy;
+  /** Active prestige style filter — only show images matching this style */
+  prestigeStyleFilter?: string;
+  /** Lane key for compliance badges */
+  laneKey?: string;
 }
 
 const STATE_COLORS: Record<CurationState, string> = {
