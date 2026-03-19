@@ -1,22 +1,27 @@
 /**
  * CharacterVisualDNAPanel — Displays the full Visual DNA model for a character.
  * Shows all layers: Script Truth, Narrative Markers, Invariants, Flexible Axes,
- * Producer Guidance (classified), Contradictions, Missing Clarifications.
+ * Producer Guidance (classified), Contradictions, Missing Clarifications,
+ * and AI-extracted Evidence Traits with provenance.
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Shield, Lock, AlertTriangle, Eye, ChevronDown,
   Loader2, RefreshCw, Dna, CheckCircle, XCircle, HelpCircle, Layers,
+  Sparkles, Search, Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useVisualDNA } from '@/hooks/useVisualDNA';
-import { resolveCharacterVisualDNA, type CharacterVisualDNA, type VisualDNATrait, type ProducerGuidanceItem } from '@/lib/images/visualDNA';
+import { resolveCharacterVisualDNA, type CharacterVisualDNA, type VisualDNATrait, type EvidenceTrait, type ProducerGuidanceItem } from '@/lib/images/visualDNA';
 import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
 import type { TraitCategory, TraitSource } from '@/lib/images/characterTraits';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface Props {
   projectId: string;
@@ -47,6 +52,12 @@ const CATEGORY_LABELS: Record<TraitCategory, string> = {
   other: 'Other',
 };
 
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'text-emerald-600 dark:text-emerald-400',
+  medium: 'text-amber-600 dark:text-amber-400',
+  low: 'text-muted-foreground',
+};
+
 function TraitBadge({ trait }: { trait: VisualDNATrait }) {
   return (
     <span className={cn(
@@ -56,6 +67,36 @@ function TraitBadge({ trait }: { trait: VisualDNATrait }) {
       {trait.constraint === 'locked' && <Lock className="h-2.5 w-2.5" />}
       {trait.label}
     </span>
+  );
+}
+
+function EvidenceTraitBadge({ trait }: { trait: EvidenceTrait }) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={cn(
+            'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border cursor-help',
+            SOURCE_COLORS.evidence,
+          )}>
+            <Search className="h-2.5 w-2.5" />
+            {trait.label}
+            <span className={cn('text-[8px]', CONFIDENCE_COLORS[trait.confidence])}>
+              {trait.confidence === 'high' ? '●' : trait.confidence === 'medium' ? '◐' : '○'}
+            </span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold">Source: {trait.evidenceSource}</p>
+            {trait.evidenceExcerpt && (
+              <p className="text-[9px] text-muted-foreground italic">"{trait.evidenceExcerpt}"</p>
+            )}
+            <p className="text-[9px]">Confidence: <span className={CONFIDENCE_COLORS[trait.confidence]}>{trait.confidence}</span></p>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -103,6 +144,9 @@ function DNASection({
 export function CharacterVisualDNAPanel({ projectId, characterName, canonCharacter, canonJson, userNotes }: Props) {
   const { currentDNA, isLoading, resolveDNA } = useVisualDNA(projectId, characterName);
   const [localDNA, setLocalDNA] = useState<CharacterVisualDNA | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [evidenceTraits, setEvidenceTraits] = useState<EvidenceTrait[]>([]);
+  const [evidenceSources, setEvidenceSources] = useState<string[]>([]);
   
   // Resolve DNA locally for immediate display
   useEffect(() => {
@@ -117,6 +161,48 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
     }
     resolve();
   }, [projectId, characterName, canonCharacter, canonJson, userNotes]);
+
+  // Auto-fill from project evidence
+  const handleAutoFill = async () => {
+    setExtracting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('extract-visual-dna', {
+        body: { project_id: projectId, character_name: characterName },
+      });
+
+      if (error) throw error;
+
+      const extracted: EvidenceTrait[] = (data.traits || []).map((t: any) => ({
+        label: t.label,
+        category: t.category,
+        source: 'evidence' as TraitSource,
+        constraint: 'flexible' as const,
+        confidence: t.confidence,
+        evidenceSource: t.evidence_source,
+        evidenceExcerpt: t.evidence_excerpt,
+      }));
+
+      setEvidenceTraits(extracted);
+      setEvidenceSources(data.evidence_sources || []);
+
+      if (localDNA) {
+        setLocalDNA({
+          ...localDNA,
+          evidenceTraits: extracted,
+        });
+      }
+
+      if (extracted.length > 0) {
+        toast.success(`Extracted ${extracted.length} visual traits from ${(data.evidence_sources || []).length} evidence sources`);
+      } else {
+        toast.info('No visual traits found in project evidence for this character');
+      }
+    } catch (e: any) {
+      toast.error(`Evidence extraction failed: ${e.message}`);
+    } finally {
+      setExtracting(false);
+    }
+  };
   
   const dna = localDNA;
   
@@ -131,6 +217,8 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
   
   const hasContradictions = dna.contradictions.length > 0;
   const hasMissing = dna.missingClarifications.length > 0;
+  const hasEvidence = evidenceTraits.length > 0 || dna.evidenceTraits.length > 0;
+  const displayEvidence = evidenceTraits.length > 0 ? evidenceTraits : dna.evidenceTraits;
   
   return (
     <Card className="border-border/60 bg-muted/10">
@@ -144,17 +232,86 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
               {dna.identityStrength === 'strong' ? '🔒 Strong' : dna.identityStrength === 'partial' ? '⚠ Partial' : '○ Weak'}
             </Badge>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[10px] gap-1"
-            onClick={() => resolveDNA.mutate({ canonCharacter, canonJson, userNotes })}
-            disabled={resolveDNA.isPending}
-          >
-            {resolveDNA.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Save DNA
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-[10px] gap-1"
+              onClick={handleAutoFill}
+              disabled={extracting}
+            >
+              {extracting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              Auto-fill
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-[10px] gap-1"
+              onClick={() => resolveDNA.mutate({ canonCharacter, canonJson, userNotes })}
+              disabled={resolveDNA.isPending}
+            >
+              {resolveDNA.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Save DNA
+            </Button>
+          </div>
         </div>
+
+        {/* Evidence Traits — AI-extracted with provenance */}
+        {hasEvidence && (
+          <div className="border border-cyan-500/30 rounded-md p-2 bg-cyan-500/5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Search className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
+              <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wider">
+                Evidence-Extracted Traits
+              </span>
+              <Badge variant="secondary" className="text-[9px] h-4 px-1">{displayEvidence.length}</Badge>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="h-3 w-3 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-[10px]">AI-extracted from {evidenceSources.length} project sources. Hover traits for provenance. These are inferred — confirm by saving DNA.</p>
+                    {evidenceSources.length > 0 && (
+                      <ul className="text-[9px] text-muted-foreground mt-1 space-y-0.5">
+                        {evidenceSources.map((s, i) => <li key={i}>• {s}</li>)}
+                      </ul>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {displayEvidence.map((t, i) => (
+                <EvidenceTraitBadge key={`ev-${t.label}-${i}`} trait={t} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Auto-fill prompt when no evidence and missing clarifications */}
+        {!hasEvidence && hasMissing && (
+          <div className="border border-dashed border-cyan-500/30 rounded-md p-2 bg-cyan-500/5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
+                <span className="text-[10px] text-cyan-700 dark:text-cyan-300">
+                  {dna.missingClarifications.length} missing categories — auto-fill from project evidence?
+                </span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-5 text-[9px] gap-1"
+                onClick={handleAutoFill}
+                disabled={extracting}
+              >
+                {extracting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Search className="h-2.5 w-2.5" />}
+                Extract
+              </Button>
+            </div>
+          </div>
+        )}
         
         {/* Layer 1: Script Truth (locked) */}
         <DNASection
