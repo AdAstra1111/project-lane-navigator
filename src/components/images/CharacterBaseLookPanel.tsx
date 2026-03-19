@@ -69,6 +69,7 @@ function extractCharacters(canonJson: any): CharacterInfo[] {
 
 export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProps) {
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
+  const [canonJson, setCanonJson] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -80,6 +81,7 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         .maybeSingle();
 
       if (data?.canon_json) {
+        setCanonJson(data.canon_json);
         setCharacters(extractCharacters(data.canon_json));
       }
       setLoading(false);
@@ -117,7 +119,7 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         Establish locked visual identity (face + body) before generating scene imagery. Identity anchors ensure continuity across all outputs.
       </p>
       {characters.map(char => (
-        <CharacterSection key={char.name} projectId={projectId} character={char} />
+        <CharacterSection key={char.name} projectId={projectId} character={char} canonJson={canonJson} />
       ))}
     </div>
   );
