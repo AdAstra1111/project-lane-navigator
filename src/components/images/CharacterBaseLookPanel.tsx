@@ -337,6 +337,7 @@ function CharacterIdentitySection({
           identity_anchor_paths: identityAnchorPaths,
           identity_notes: localNotes.trim() || null,
           identity_canon_facts: canonFactsString || null,
+          identity_traits_block: traitsPromptBlock || null,
         },
       });
       if (error) throw error;
