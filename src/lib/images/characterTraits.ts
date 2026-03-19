@@ -23,6 +23,111 @@ export interface CharacterTrait {
   constraint: TraitConstraint;
 }
 
+// ── Binding Marker Types ──
+
+export type MarkerType = 'tattoo' | 'scar' | 'wound' | 'prosthetic' | 'birthmark' | 'deformity' | 'glasses' | 'eyepatch' | 'missing_limb' | 'burn' | 'piercing' | 'branding' | 'accessory' | 'other';
+export type MarkerStatus = 'detected' | 'pending_resolution' | 'approved' | 'rejected' | 'archived';
+
+export interface BindingMarker {
+  id: string;
+  markerType: MarkerType;
+  label: string;
+  bodyRegion: string;
+  laterality: 'left' | 'right' | 'center' | 'bilateral' | 'unknown';
+  size: 'small' | 'medium' | 'large' | 'unknown';
+  visibility: 'always_visible' | 'contextual' | 'covered' | 'unknown';
+  attributes: Record<string, string>;
+  status: MarkerStatus;
+  requiresUserDecision: boolean;
+  unresolvedFields: string[];
+  confidence: TraitConfidence;
+  evidenceSource: string;
+  evidenceExcerpt: string;
+  approvedAt: string | null;
+  approvedBy: string | null;
+}
+
+/** Pattern registry for detecting binding markers from text */
+const MARKER_PATTERNS: { pattern: RegExp; type: MarkerType; bodyRegionExtractor?: RegExp }[] = [
+  { pattern: /\btattoo(?:ed|s)?\b/i, type: 'tattoo', bodyRegionExtractor: /(?:on|across|covering|over)\s+(?:his|her|their)?\s*([\w\s]+?)(?:\.|,|;|$)/i },
+  { pattern: /\bscar(?:red|s)?\b/i, type: 'scar', bodyRegionExtractor: /(?:on|across|over)\s+(?:his|her|their)?\s*([\w\s]+?)(?:\.|,|;|$)/i },
+  { pattern: /\b(?:wound|wounded|injury|injured)\b/i, type: 'wound' },
+  { pattern: /\bprosthetic\b/i, type: 'prosthetic', bodyRegionExtractor: /prosthetic\s+([\w\s]+?)(?:\.|,|;|$)/i },
+  { pattern: /\bbirthmark\b/i, type: 'birthmark' },
+  { pattern: /\b(?:deform|disfigure)[a-z]*\b/i, type: 'deformity' },
+  { pattern: /\b(?:glasses|spectacles|monocle)\b/i, type: 'glasses' },
+  { pattern: /\beyepatch\b/i, type: 'eyepatch' },
+  { pattern: /\b(?:missing\s+(?:arm|leg|hand|finger|eye|limb|ear))\b/i, type: 'missing_limb' },
+  { pattern: /\b(?:burn(?:ed|s)?|burn\s+mark)\b/i, type: 'burn' },
+  { pattern: /\b(?:piercing|pierced)\b/i, type: 'piercing' },
+  { pattern: /\bbranded\b/i, type: 'branding' },
+];
+
+/**
+ * Detect binding markers from a text string.
+ * Returns candidate markers with resolution state.
+ */
+export function detectBindingMarkers(
+  text: string,
+  evidenceSource: string,
+): BindingMarker[] {
+  if (!text || !text.trim()) return [];
+  const markers: BindingMarker[] = [];
+
+  for (const { pattern, type, bodyRegionExtractor } of MARKER_PATTERNS) {
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    let bodyRegion = 'unspecified';
+    if (bodyRegionExtractor) {
+      const regionMatch = text.match(bodyRegionExtractor);
+      if (regionMatch?.[1]) {
+        bodyRegion = regionMatch[1].trim().toLowerCase();
+      }
+    }
+
+    let laterality: BindingMarker['laterality'] = 'unknown';
+    const lateralityMatch = text.match(/\b(left|right)\b/i);
+    if (lateralityMatch) {
+      laterality = lateralityMatch[1].toLowerCase() as 'left' | 'right';
+    }
+
+    const unresolvedFields: string[] = [];
+    if (laterality === 'unknown' && /arm|leg|hand|eye|ear|shoulder|cheek/i.test(bodyRegion)) {
+      unresolvedFields.push('laterality');
+    }
+    if (bodyRegion === 'unspecified') {
+      unresolvedFields.push('body_region');
+    }
+
+    const matchIndex = text.indexOf(match[0]);
+    const excerptStart = Math.max(0, matchIndex - 40);
+    const excerptEnd = Math.min(text.length, matchIndex + match[0].length + 60);
+    const excerpt = text.slice(excerptStart, excerptEnd).trim();
+
+    markers.push({
+      id: `marker_${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      markerType: type,
+      label: `${type}${bodyRegion !== 'unspecified' ? ` on ${bodyRegion}` : ''}`,
+      bodyRegion,
+      laterality,
+      size: 'unknown',
+      visibility: 'always_visible',
+      attributes: {},
+      status: unresolvedFields.length > 0 ? 'pending_resolution' : 'detected',
+      requiresUserDecision: unresolvedFields.length > 0,
+      unresolvedFields,
+      confidence: 'high',
+      evidenceSource,
+      evidenceExcerpt: excerpt.slice(0, 120),
+      approvedAt: null,
+      approvedBy: null,
+    });
+  }
+
+  return markers;
+}
+
 /** Categories that are valid for visual identity */
 const VISUAL_CATEGORIES: Set<TraitCategory> = new Set([
   'age', 'gender', 'build', 'face', 'hair', 'skin', 'clothing', 'posture', 'marker',
