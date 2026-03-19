@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
-  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3,
+  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3, BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPan
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
 import { VisualSetCurationPanel } from '@/components/images/VisualSetCurationPanel';
+import { StoryIngestionPanel } from '@/components/project/StoryIngestionPanel';
 import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
@@ -152,12 +153,22 @@ export default function VisualDevHub() {
         </div>
       </header>
 
-      <main className="max-w-[1200px] mx-auto px-4 py-6 space-y-4">
+        <main className="max-w-[1200px] mx-auto px-4 py-6 space-y-4">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          {/* ═══ STORY INGESTION ═══ */}
+          <WorkSection
+            icon={<BookOpen className="h-4 w-4" />}
+            title="Story Ingestion Engine"
+            subtitle="Parse script into scenes, characters, locations, props, and state variants"
+            defaultOpen={false}
+          >
+            {projectId && <StoryIngestionPanel projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ PRIMARY: Cast Photos & Identity ═══ */}
           <WorkSection
             icon={<Users className="h-4 w-4" />}
