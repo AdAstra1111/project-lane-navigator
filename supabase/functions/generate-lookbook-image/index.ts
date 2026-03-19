@@ -327,6 +327,7 @@ serve(async (req) => {
       identity_anchor_paths = null,
       identity_notes = null,
       identity_canon_facts = null,
+      identity_traits_block = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
