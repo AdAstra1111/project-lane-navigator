@@ -387,9 +387,9 @@ export default function ProjectDetail() {
               className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
               loading="lazy"
             />
-            {/* Strong multi-stop scrim — bottom-heavy for metadata zone */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 to-black/20 pointer-events-none" />
-            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black to-transparent pointer-events-none" />
+            {/* Balanced scrim — poster visible, text readable */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10 pointer-events-none" />
+            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
           </div>
         ) : (
           <div className="relative min-h-[180px] sm:min-h-[240px] bg-gradient-to-b from-card/80 to-background">
