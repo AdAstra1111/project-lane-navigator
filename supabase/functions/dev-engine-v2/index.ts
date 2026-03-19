@@ -21603,6 +21603,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
           setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
           setup_payoff_required: curVer?.setup_payoff_required ?? [],
           metadata: curVer?.metadata ?? {},
+          canon_location_id: curVer?.canon_location_id ?? null,
         }).select().single();
         newVer = fallbackVer;
       }
