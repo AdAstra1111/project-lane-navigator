@@ -615,12 +615,12 @@ serve(async (req) => {
             project_id,
             role: imageRole,
             entity_id: entity_id || null,
-            strategy_key: identity_mode ? "character_identity" : `lookbook_${section}`,
+            strategy_key: isIdentityGeneration ? "character_identity" : `lookbook_${section}`,
             prompt_used: prompt,
-            negative_prompt: identity_mode
+            negative_prompt: isIdentityGeneration
               ? "cinematic scene, environmental context, narrative elements, dramatic lighting, props, costumes, action poses, text, watermarks, illustration, painting, CGI"
               : stylePolicy.negativeStyleConstraints,
-            canon_constraints: { source_feature: identity_mode ? "character_identity_engine" : "lookbook_engine", section },
+            canon_constraints: { source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
             is_primary: false,
