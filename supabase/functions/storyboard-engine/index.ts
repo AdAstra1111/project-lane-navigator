@@ -10,6 +10,7 @@ import { selectCikModel } from "../_shared/cik/modelRouter.ts";
 import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts";
 import { getProjectModality, buildModalityPromptBlock } from "../_shared/productionModality.ts";
 import { getAnimationMeta, buildAnimationMetaPromptBlock } from "../_shared/animationMeta.ts";
+import { resolveVisualStyleProfile } from "../_shared/visualStyleAuthority.ts";
 
 const GATEWAY_URL = "https://openrouter.ai/api/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
