@@ -47,13 +47,22 @@ const SECTION_ICONS: Record<string, typeof BookOpen> = {
   format: Film,
   visual: Eye,
 };
+ 
+/* ── Canon text normalizer ── */
+function normalizeCanonText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return value.map(item => typeof item === 'object' ? JSON.stringify(item) : String(item)).join('\n');
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value);
+  if (value == null) return '';
+  return String(value).trim();
+}
 
 /* ── Section content renderers ── */
 
 function PremiseContent({ canon }: { canon: any }) {
-  const hasLogline = canon.logline?.trim();
-  const hasPremise = canon.premise?.trim();
-  const hasThreads = canon.ongoing_threads?.trim();
+  const hasLogline = normalizeCanonText(canon.logline);
+  const hasPremise = normalizeCanonText(canon.premise);
+  const hasThreads = normalizeCanonText(canon.ongoing_threads);
   if (!hasLogline && !hasPremise) {
     return <p className="text-sm text-muted-foreground/70 italic">No logline or premise has been defined for this project.</p>;
   }
@@ -62,19 +71,19 @@ function PremiseContent({ canon }: { canon: any }) {
       {hasLogline && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Logline</h4>
-          <p className="text-sm text-foreground/90 leading-relaxed">{canon.logline}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{normalizeCanonText(canon.logline)}</p>
         </div>
       )}
       {hasPremise && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Premise</h4>
-          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{canon.premise}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{normalizeCanonText(canon.premise)}</p>
         </div>
       )}
       {hasThreads && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Ongoing Threads</h4>
-          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{canon.ongoing_threads}</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{normalizeCanonText(canon.ongoing_threads)}</p>
         </div>
       )}
     </div>
@@ -109,21 +118,21 @@ function CharactersContent({ canon, linkedCount }: { canon: any; linkedCount: nu
 }
 
 function WorldContent({ canon, locations }: { canon: any; locations: any[] }) {
-  const hasWorldRules = canon.world_rules?.trim();
-  const hasTimeline = canon.timeline?.trim();
+  const hasWorldRules = normalizeCanonText(canon.world_rules);
+  const hasTimeline = normalizeCanonText(canon.timeline);
 
   return (
     <div className="space-y-3">
       {hasWorldRules && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">World Rules</h4>
-          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{canon.world_rules}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{hasWorldRules}</p>
         </div>
       )}
       {hasTimeline && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Timeline</h4>
-          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{canon.timeline}</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{hasTimeline}</p>
         </div>
       )}
       {locations.length > 0 ? (
@@ -148,7 +157,7 @@ function WorldContent({ canon, locations }: { canon: any; locations: any[] }) {
 
 function ToneContent({ canon, project }: { canon: any; project: any }) {
   const genres = project?.genres as string[] | null;
-  const tone = canon.tone_style?.trim() || project?.tone;
+  const tone = normalizeCanonText(canon.tone_style) || project?.tone;
   if (!tone && (!genres || genres.length === 0)) {
     return <p className="text-sm text-muted-foreground/70 italic">No tone or genre information defined.</p>;
   }
@@ -181,8 +190,8 @@ function ToneContent({ canon, project }: { canon: any; project: any }) {
 }
 
 function FormatContent({ canon, project }: { canon: any; project: any }) {
-  const hasConstraints = canon.format_constraints?.trim();
-  const hasForbidden = canon.forbidden_changes?.trim();
+  const hasConstraints = normalizeCanonText(canon.format_constraints);
+  const hasForbidden = normalizeCanonText(canon.forbidden_changes);
   const format = project?.format;
   const lane = project?.assigned_lane;
   if (!hasConstraints && !format && !lane && !hasForbidden) {
@@ -205,13 +214,13 @@ function FormatContent({ canon, project }: { canon: any; project: any }) {
       {hasConstraints && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Format Constraints</h4>
-          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{canon.format_constraints}</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{hasConstraints}</p>
         </div>
       )}
       {hasForbidden && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Forbidden Changes</h4>
-          <p className="text-sm text-destructive/80 leading-relaxed whitespace-pre-wrap">{canon.forbidden_changes}</p>
+          <p className="text-sm text-destructive/80 leading-relaxed whitespace-pre-wrap">{hasForbidden}</p>
         </div>
       )}
     </div>
