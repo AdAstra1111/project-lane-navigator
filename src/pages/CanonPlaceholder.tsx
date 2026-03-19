@@ -118,8 +118,8 @@ function CharactersContent({ canon, linkedCount }: { canon: any; linkedCount: nu
 }
 
 function WorldContent({ canon, locations }: { canon: any; locations: any[] }) {
-  const hasWorldRules = canon.world_rules?.trim();
-  const hasTimeline = canon.timeline?.trim();
+  const hasWorldRules = normalizeCanonText(canon.world_rules);
+  const hasTimeline = normalizeCanonText(canon.timeline);
 
   return (
     <div className="space-y-3">
