@@ -638,15 +638,15 @@ function parseDataUrl(dataUrl: string): ProviderImageResult {
 
 // ── Image generation ─────────────────────────────────────────────────────────
 
-async function generateImage(apiKey: string, prompt: string): Promise<ProviderImageResult> {
-  const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+async function generateImage(apiKey: string, prompt: string, model: string, gatewayUrl: string): Promise<ProviderImageResult> {
+  const aiResponse = await fetch(gatewayUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-3-pro-image-preview",
+      model,
       messages: [{ role: "user", content: prompt }],
       modalities: ["image", "text"],
     }),
