@@ -378,23 +378,25 @@ export default function ProjectDetail() {
       {/* ═══════════════════════════════════════════════════════════════════════
           HERO SECTION — Poster as project identity
           ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="relative w-full bg-black">
+      <div className="relative w-full overflow-hidden">
         {heroImageUrl ? (
-          <div className="relative flex items-center justify-center min-h-[320px] sm:min-h-[420px] max-h-[520px]">
+          <div className="relative min-h-[260px] sm:min-h-[340px]">
             <img
               src={heroImageUrl}
               alt={`${project.title} poster`}
-              className="max-w-full max-h-[520px] object-contain"
+              className="absolute inset-0 w-full h-full object-cover object-top"
               loading="lazy"
             />
-            {/* Gradient overlay at bottom for text legibility */}
-            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none" />
+            {/* Full scrim for text legibility */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30 pointer-events-none" />
           </div>
         ) : (
-          <div className="flex items-center justify-center min-h-[200px] sm:min-h-[280px] bg-gradient-to-b from-card/80 to-background">
-            <div className="text-center space-y-2">
-              <ImagePlus className="h-10 w-10 text-muted-foreground/30 mx-auto" />
-              <p className="text-xs text-muted-foreground/50">No poster generated</p>
+          <div className="relative min-h-[200px] sm:min-h-[260px] bg-gradient-to-b from-card/80 to-background">
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center space-y-2">
+                <ImagePlus className="h-10 w-10 text-muted-foreground/30 mx-auto" />
+                <p className="text-xs text-muted-foreground/50">No poster generated</p>
+              </div>
             </div>
           </div>
         )}
