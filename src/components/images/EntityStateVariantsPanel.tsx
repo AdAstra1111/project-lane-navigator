@@ -142,6 +142,7 @@ export function EntityStateVariantsPanel({
         entityType={entityType}
         entityName={entityName}
         entityDescription={entityDescription}
+        entityCanonId={entityCanonId}
         presets={presets}
         existingStates={allStateKeys}
         onStateCreated={() => {}}
