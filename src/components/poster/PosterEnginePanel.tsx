@@ -869,6 +869,7 @@ export default function PosterEnginePanel() {
                     branding={brandingData}
                     credits={creditsData}
                     layoutVariant={selectedTemplate}
+                    titleStyle={titleStyle}
                     width={480}
                     className="rounded-lg shadow-2xl"
                   />
