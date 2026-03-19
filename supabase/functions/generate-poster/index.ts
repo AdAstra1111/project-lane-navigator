@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shared/imageGenerationResolver.ts";
 import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
+import { resolveVisualStyleProfile, validateStyleOrError } from "../_shared/visualStyleAuthority.ts";
+import type { VisualStyleLock } from "../_shared/visualStyleAuthority.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -740,7 +742,7 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
 
 // ── Build final prompt ───────────────────────────────────────────────────────
 
-function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext): string {
+function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext, vsalBlock?: string | null): string {
   const base = strategy.briefing(ctx);
 
   // Style policy enforcement (global)
@@ -800,7 +802,14 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- CRITICAL: The image must look complete on its own — a full cinematic painting, not a cropped fragment`,
   ].join("\n");
 
-  return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
+  const blocks = [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition];
+  
+  // VSAL injection — supersedes generic style when present
+  if (vsalBlock) {
+    blocks.push(vsalBlock);
+  }
+
+  return blocks.filter(Boolean).join("\n\n");
 }
 
 // ── Provider Adapter ─────────────────────────────────────────────────────────
@@ -942,12 +951,23 @@ serve(async (req) => {
       });
     }
 
+    // ── VSAL: Resolve Visual Style Authority ──
+    const vsalResolution = await resolveVisualStyleProfile(supabase, project_id);
+    const vsalCheck = validateStyleOrError(vsalResolution);
+    if (!vsalCheck.valid) {
+      console.warn(`[IEL:visual_style_authority_violation] Poster generation blocked: ${vsalResolution.error}`);
+      return new Response(JSON.stringify(vsalCheck.body), {
+        status: vsalCheck.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Resolve project truth + branding
     const inputs = await resolveProjectInputs(supabase, project_id);
     const branding = await resolveCompanyBranding(supabase, project_id);
     const strategyCtx = buildStrategyContext(inputs, branding);
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
+    console.log("VSAL lock:", JSON.stringify(vsalResolution.lock, null, 2));
 
     // ── Capture dependency-precise truth snapshot ──
     // Extract character names from resolved prompt inputs for precise scoping
@@ -974,7 +994,7 @@ serve(async (req) => {
 
       // Re-use the source poster's strategy/template — only update truth inputs
       const sourceStrategy = POSTER_STRATEGIES.find(s => s.key === sourcePoster.layout_variant) || POSTER_STRATEGIES[4];
-      const refreshPrompt = buildStrategyPrompt(sourceStrategy, strategyCtx);
+      const refreshPrompt = buildStrategyPrompt(sourceStrategy, strategyCtx, vsalResolution.promptBlock);
 
       const { data: existingPosters } = await supabase
         .from("project_posters")
@@ -1329,7 +1349,7 @@ serve(async (req) => {
         const strategy = strategies[si];
         // Stagger requests to avoid rate limiting
         if (si > 0) await sleep(1500);
-        const prompt = buildStrategyPrompt(strategy, strategyCtx);
+        const prompt = buildStrategyPrompt(strategy, strategyCtx, vsalResolution.promptBlock);
         const versionNum = nextVersion++;
 
         // Resolve provider/model via shared API resolver
@@ -1435,7 +1455,7 @@ serve(async (req) => {
     const primaryGenConfig = resolveImageGenerationConfig(primaryInput);
     const primaryRepoMeta = buildImageRepositoryMeta(primaryGenConfig, primaryInput);
 
-    const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx);
+    const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx, vsalResolution.promptBlock);
 
     const { data: existingPosters } = await supabase
       .from("project_posters")

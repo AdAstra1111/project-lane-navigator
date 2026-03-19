@@ -15429,6 +15429,75 @@ export type Database = {
         }
         Relationships: []
       }
+      project_visual_style: {
+        Row: {
+          camera_philosophy: string
+          color_response: string
+          composition_philosophy: string
+          created_at: string
+          created_by: string | null
+          cultural_context: string
+          environment_realism: string
+          forbidden_traits: string[]
+          id: string
+          is_complete: boolean
+          lighting_philosophy: string
+          period: string
+          project_id: string
+          texture_materiality: string
+          updated_at: string
+        }
+        Insert: {
+          camera_philosophy?: string
+          color_response?: string
+          composition_philosophy?: string
+          created_at?: string
+          created_by?: string | null
+          cultural_context?: string
+          environment_realism?: string
+          forbidden_traits?: string[]
+          id?: string
+          is_complete?: boolean
+          lighting_philosophy?: string
+          period?: string
+          project_id: string
+          texture_materiality?: string
+          updated_at?: string
+        }
+        Update: {
+          camera_philosophy?: string
+          color_response?: string
+          composition_philosophy?: string
+          created_at?: string
+          created_by?: string | null
+          cultural_context?: string
+          environment_realism?: string
+          forbidden_traits?: string[]
+          id?: string
+          is_complete?: boolean
+          lighting_philosophy?: string
+          period?: string
+          project_id?: string
+          texture_materiality?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_visual_style_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_visual_style_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_waterfall_rules: {
         Row: {
           cap_amount: string

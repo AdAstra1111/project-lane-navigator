@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
-  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3, BookOpen,
+  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3, BookOpen, Eye,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel
 import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
 import { VisualSetCurationPanel } from '@/components/images/VisualSetCurationPanel';
 import { StoryIngestionPanel } from '@/components/project/StoryIngestionPanel';
+import { VisualStyleAuthorityPanel, VisualStyleChip } from '@/components/images/VisualStyleAuthorityPanel';
 import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
@@ -144,8 +145,11 @@ export default function VisualDevHub() {
           <Link to={`/projects/${projectId}`}>
             <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
-          <div>
-            <h1 className="text-lg font-semibold">Visual Production Hub</h1>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold">Visual Production Hub</h1>
+              {projectId && <VisualStyleChip projectId={projectId} />}
+            </div>
             <p className="text-xs text-muted-foreground">
               Cast photos, character identity, world references, visual canon management.
             </p>
@@ -159,6 +163,16 @@ export default function VisualDevHub() {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          {/* ═══ VISUAL STYLE AUTHORITY ═══ */}
+          <WorkSection
+            icon={<Eye className="h-4 w-4" />}
+            title="Visual Style Authority"
+            subtitle="Define period, lighting, texture, and style rules for all image generation"
+            defaultOpen={false}
+          >
+            {projectId && <VisualStyleAuthorityPanel projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ STORY INGESTION ═══ */}
           <WorkSection
             icon={<BookOpen className="h-4 w-4" />}

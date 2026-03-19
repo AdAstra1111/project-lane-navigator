@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shared/imageGenerationResolver.ts";
 import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
+import { resolveVisualStyleProfile, validateStyleOrError } from "../_shared/visualStyleAuthority.ts";
+import type { VisualStyleLock } from "../_shared/visualStyleAuthority.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -406,6 +408,18 @@ serve(async (req) => {
       });
     }
 
+    // ── VSAL: Resolve Visual Style Authority ──
+    const styleResolution = await resolveVisualStyleProfile(supabase, project_id);
+    const styleCheck = validateStyleOrError(styleResolution);
+    if (!styleCheck.valid) {
+      console.warn(`[IEL:visual_style_authority_violation] Generation blocked: ${styleResolution.error}`);
+      return new Response(JSON.stringify(styleCheck.body), {
+        status: styleCheck.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const visualStyleLock = styleResolution.lock!;
+    const vsalPromptBlock = styleResolution.promptBlock!;
+
     // Load project context
     const { data: project } = await supabase
       .from("projects")
@@ -593,6 +607,12 @@ serve(async (req) => {
       // Step 7: Shot-type specific identity constraints
       if (identityLockUsed && shotType && SHOT_TYPE_IDENTITY_CONSTRAINTS[shotType as ShotType]) {
         prompt += `\n\nSHOT-TYPE CONSTRAINT: ${SHOT_TYPE_IDENTITY_CONSTRAINTS[shotType as ShotType]}`;
+      }
+
+      // Step 8: VSAL — Visual Style Authority Lock (mandatory, supersedes generic style)
+      prompt += `\n\n${vsalPromptBlock}`;
+      if (visualStyleLock.forbid.length > 0) {
+        prompt += `\n\nADDITIONAL PROHIBITIONS (VSAL): ${visualStyleLock.forbid.join(", ")}`;
       }
 
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
