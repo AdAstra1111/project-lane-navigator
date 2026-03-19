@@ -1,14 +1,14 @@
 /**
  * CharacterVisualDNAPanel — Displays the full Visual DNA model for a character.
- * Shows all layers: Script Truth, Narrative Markers, Invariants, Flexible Axes,
- * Producer Guidance (classified), Contradictions, Missing Clarifications,
+ * Shows all layers: Script Truth, Binding Markers, Narrative Markers, Invariants,
+ * Flexible Axes, Producer Guidance (classified), Contradictions, Missing Clarifications,
  * and AI-extracted Evidence Traits with provenance.
  */
 import { useState, useEffect } from 'react';
 import {
   Shield, Lock, AlertTriangle, Eye, ChevronDown,
   Loader2, RefreshCw, Dna, CheckCircle, XCircle, HelpCircle, Layers,
-  Sparkles, Search, Info,
+  Sparkles, Search, Info, Target, Check, X, Edit3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -16,10 +16,20 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useVisualDNA } from '@/hooks/useVisualDNA';
-import { resolveCharacterVisualDNA, type CharacterVisualDNA, type VisualDNATrait, type EvidenceTrait, type ProducerGuidanceItem } from '@/lib/images/visualDNA';
+import {
+  resolveCharacterVisualDNA,
+  deserializeBindingMarkers,
+  deserializeEvidenceTraits,
+  type CharacterVisualDNA,
+  type VisualDNATrait,
+  type EvidenceTrait,
+  type ProducerGuidanceItem,
+  type ClarificationStatus,
+} from '@/lib/images/visualDNA';
 import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
-import type { TraitCategory, TraitSource } from '@/lib/images/characterTraits';
+import type { TraitCategory, TraitSource, BindingMarker, MarkerStatus } from '@/lib/images/characterTraits';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -56,6 +66,20 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   high: 'text-emerald-600 dark:text-emerald-400',
   medium: 'text-amber-600 dark:text-amber-400',
   low: 'text-muted-foreground',
+};
+
+const MARKER_STATUS_COLORS: Record<MarkerStatus, string> = {
+  detected: 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30',
+  pending_resolution: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30',
+  approved: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+  rejected: 'bg-destructive/20 text-destructive border-destructive/30',
+  archived: 'bg-muted text-muted-foreground border-border',
+};
+
+const CLARIFICATION_STATUS_COLORS: Record<ClarificationStatus, string> = {
+  resolved: 'text-emerald-600 dark:text-emerald-400',
+  partial: 'text-amber-600 dark:text-amber-400',
+  missing: 'text-destructive',
 };
 
 function TraitBadge({ trait }: { trait: VisualDNATrait }) {
@@ -97,6 +121,79 @@ function EvidenceTraitBadge({ trait }: { trait: EvidenceTrait }) {
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+function BindingMarkerCard({
+  marker,
+  onApprove,
+  onReject,
+  onUpdateLaterality,
+}: {
+  marker: BindingMarker;
+  onApprove: () => void;
+  onReject: () => void;
+  onUpdateLaterality: (lat: BindingMarker['laterality']) => void;
+}) {
+  return (
+    <div className={cn(
+      'flex items-start gap-2 px-2 py-1.5 rounded-md border text-[10px]',
+      MARKER_STATUS_COLORS[marker.status],
+    )}>
+      <Target className="h-3 w-3 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-semibold uppercase">{marker.markerType}</span>
+          {marker.bodyRegion !== 'unspecified' && (
+            <span className="opacity-80">on {marker.bodyRegion}</span>
+          )}
+          {marker.laterality !== 'unknown' && (
+            <Badge variant="outline" className="text-[8px] h-3.5 px-1">{marker.laterality}</Badge>
+          )}
+          <Badge variant="outline" className="text-[8px] h-3.5 px-1">{marker.status}</Badge>
+        </div>
+        
+        {marker.evidenceExcerpt && (
+          <p className="text-[9px] opacity-70 italic mt-0.5 truncate">"{marker.evidenceExcerpt}"</p>
+        )}
+        
+        {/* Resolution controls for unresolved fields */}
+        {marker.requiresUserDecision && marker.unresolvedFields.includes('laterality') && marker.status !== 'rejected' && (
+          <div className="flex items-center gap-1 mt-1">
+            <span className="text-[9px] font-medium">Side:</span>
+            <Select
+              value={marker.laterality}
+              onValueChange={(v) => onUpdateLaterality(v as BindingMarker['laterality'])}
+            >
+              <SelectTrigger className="h-5 text-[9px] w-20 px-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="left" className="text-[10px]">Left</SelectItem>
+                <SelectItem value="right" className="text-[10px]">Right</SelectItem>
+                <SelectItem value="center" className="text-[10px]">Center</SelectItem>
+                <SelectItem value="bilateral" className="text-[10px]">Both</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+      
+      {/* Action buttons */}
+      {marker.status !== 'approved' && marker.status !== 'rejected' && (
+        <div className="flex gap-0.5 flex-shrink-0">
+          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={onApprove}>
+            <Check className="h-3 w-3 text-emerald-600" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={onReject}>
+            <X className="h-3 w-3 text-destructive" />
+          </Button>
+        </div>
+      )}
+      {marker.status === 'approved' && (
+        <Lock className="h-3 w-3 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+      )}
+    </div>
   );
 }
 
@@ -147,20 +244,55 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
   const [extracting, setExtracting] = useState(false);
   const [evidenceTraits, setEvidenceTraits] = useState<EvidenceTrait[]>([]);
   const [evidenceSources, setEvidenceSources] = useState<string[]>([]);
+  const [bindingMarkers, setBindingMarkers] = useState<BindingMarker[]>([]);
   
   // Resolve DNA locally for immediate display
   useEffect(() => {
     async function resolve() {
       try {
         const identity = await resolveCharacterIdentity(projectId, characterName);
-        const dna = resolveCharacterVisualDNA(characterName, canonCharacter, canonJson, userNotes, identity.locked);
+        
+        // Load persisted markers and evidence from stored DNA
+        const persistedMarkers = currentDNA?.recipe_json
+          ? deserializeBindingMarkers(currentDNA.recipe_json as Record<string, any>)
+          : [];
+        const persistedEvidence = currentDNA?.recipe_json
+          ? deserializeEvidenceTraits(currentDNA.recipe_json as Record<string, any>)
+          : [];
+        
+        if (persistedMarkers.length > 0 && bindingMarkers.length === 0) {
+          setBindingMarkers(persistedMarkers);
+        }
+        if (persistedEvidence.length > 0 && evidenceTraits.length === 0) {
+          setEvidenceTraits(persistedEvidence);
+        }
+        
+        const dna = resolveCharacterVisualDNA(
+          characterName, canonCharacter, canonJson, userNotes, identity.locked,
+          bindingMarkers.length > 0 ? bindingMarkers : persistedMarkers,
+          evidenceTraits.length > 0 ? evidenceTraits : persistedEvidence,
+        );
         setLocalDNA(dna);
       } catch {
         // Silently fail — DNA panel will show loading state
       }
     }
     resolve();
-  }, [projectId, characterName, canonCharacter, canonJson, userNotes]);
+  }, [projectId, characterName, canonCharacter, canonJson, userNotes, currentDNA]);
+
+  // Re-resolve when markers change
+  useEffect(() => {
+    if (!localDNA) return;
+    const resolveWithMarkers = async () => {
+      const identity = await resolveCharacterIdentity(projectId, characterName);
+      const dna = resolveCharacterVisualDNA(
+        characterName, canonCharacter, canonJson, userNotes, identity.locked,
+        bindingMarkers, evidenceTraits,
+      );
+      setLocalDNA(dna);
+    };
+    resolveWithMarkers();
+  }, [bindingMarkers, evidenceTraits]);
 
   // Auto-fill from project evidence
   const handleAutoFill = async () => {
@@ -182,18 +314,41 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
         evidenceExcerpt: t.evidence_excerpt,
       }));
 
+      // Extract binding marker candidates from AI response
+      const markerCandidates: BindingMarker[] = (data.marker_candidates || []).map((m: any) => ({
+        id: m.id || `marker_${m.marker_type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        markerType: m.marker_type,
+        label: m.label,
+        bodyRegion: m.body_region || 'unspecified',
+        laterality: m.laterality || 'unknown',
+        size: m.size || 'unknown',
+        visibility: m.visibility || 'always_visible',
+        attributes: m.attributes || {},
+        status: (m.unresolved_fields?.length > 0 ? 'pending_resolution' : 'detected') as MarkerStatus,
+        requiresUserDecision: (m.unresolved_fields?.length || 0) > 0,
+        unresolvedFields: m.unresolved_fields || [],
+        confidence: m.confidence || 'high',
+        evidenceSource: m.evidence_source || 'extraction',
+        evidenceExcerpt: m.evidence_excerpt || '',
+        approvedAt: null,
+        approvedBy: null,
+      }));
+
       setEvidenceTraits(extracted);
       setEvidenceSources(data.evidence_sources || []);
-
-      if (localDNA) {
-        setLocalDNA({
-          ...localDNA,
-          evidenceTraits: extracted,
+      
+      // Merge new marker candidates with existing
+      if (markerCandidates.length > 0) {
+        setBindingMarkers(prev => {
+          const existingKeys = new Set(prev.map(m => `${m.markerType}:${m.bodyRegion}`));
+          const novel = markerCandidates.filter((m: BindingMarker) => !existingKeys.has(`${m.markerType}:${m.bodyRegion}`));
+          return [...prev, ...novel];
         });
       }
 
-      if (extracted.length > 0) {
-        toast.success(`Extracted ${extracted.length} visual traits from ${(data.evidence_sources || []).length} evidence sources`);
+      const totalCount = extracted.length + markerCandidates.length;
+      if (totalCount > 0) {
+        toast.success(`Extracted ${extracted.length} traits + ${markerCandidates.length} markers from ${(data.evidence_sources || []).length} sources`);
       } else {
         toast.info('No visual traits found in project evidence for this character');
       }
@@ -202,6 +357,36 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
     } finally {
       setExtracting(false);
     }
+  };
+
+  // Marker actions
+  const handleApproveMarker = (markerId: string) => {
+    setBindingMarkers(prev => prev.map(m =>
+      m.id === markerId
+        ? { ...m, status: 'approved' as MarkerStatus, approvedAt: new Date().toISOString(), requiresUserDecision: false }
+        : m
+    ));
+    toast.success('Marker approved — will be enforced in future images');
+  };
+
+  const handleRejectMarker = (markerId: string) => {
+    setBindingMarkers(prev => prev.map(m =>
+      m.id === markerId ? { ...m, status: 'rejected' as MarkerStatus } : m
+    ));
+  };
+
+  const handleUpdateLaterality = (markerId: string, laterality: BindingMarker['laterality']) => {
+    setBindingMarkers(prev => prev.map(m => {
+      if (m.id !== markerId) return m;
+      const newUnresolved = m.unresolvedFields.filter(f => f !== 'laterality');
+      return {
+        ...m,
+        laterality,
+        unresolvedFields: newUnresolved,
+        requiresUserDecision: newUnresolved.length > 0,
+        status: newUnresolved.length === 0 && m.status === 'pending_resolution' ? 'detected' as MarkerStatus : m.status,
+      };
+    }));
   };
   
   const dna = localDNA;
@@ -219,6 +404,9 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
   const hasMissing = dna.missingClarifications.length > 0;
   const hasEvidence = evidenceTraits.length > 0 || dna.evidenceTraits.length > 0;
   const displayEvidence = evidenceTraits.length > 0 ? evidenceTraits : dna.evidenceTraits;
+  const activeMarkers = bindingMarkers.filter(m => m.status !== 'rejected' && m.status !== 'archived');
+  const approvedMarkers = bindingMarkers.filter(m => m.status === 'approved');
+  const pendingMarkers = bindingMarkers.filter(m => m.status === 'detected' || m.status === 'pending_resolution');
   
   return (
     <Card className="border-border/60 bg-muted/10">
@@ -256,6 +444,38 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
           </div>
         </div>
 
+        {/* Binding Markers Section */}
+        {activeMarkers.length > 0 && (
+          <div className="border border-rose-500/30 rounded-md p-2 bg-rose-500/5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Target className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                Binding Visual Markers
+              </span>
+              {approvedMarkers.length > 0 && (
+                <Badge variant="default" className="text-[8px] h-3.5 px-1 bg-emerald-600">{approvedMarkers.length} enforced</Badge>
+              )}
+              {pendingMarkers.length > 0 && (
+                <Badge variant="secondary" className="text-[8px] h-3.5 px-1">{pendingMarkers.length} pending</Badge>
+              )}
+            </div>
+            <p className="text-[9px] text-muted-foreground mb-1.5">
+              Approved markers are enforced in all generated images when the body region is visible.
+            </p>
+            <div className="space-y-1">
+              {activeMarkers.map(m => (
+                <BindingMarkerCard
+                  key={m.id}
+                  marker={m}
+                  onApprove={() => handleApproveMarker(m.id)}
+                  onReject={() => handleRejectMarker(m.id)}
+                  onUpdateLaterality={(lat) => handleUpdateLaterality(m.id, lat)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Evidence Traits — AI-extracted with provenance */}
         {hasEvidence && (
           <div className="border border-cyan-500/30 rounded-md p-2 bg-cyan-500/5">
@@ -290,13 +510,13 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
         )}
 
         {/* Auto-fill prompt when no evidence and missing clarifications */}
-        {!hasEvidence && hasMissing && (
+        {!hasEvidence && hasMissing && activeMarkers.length === 0 && (
           <div className="border border-dashed border-cyan-500/30 rounded-md p-2 bg-cyan-500/5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="h-3 w-3 text-cyan-600 dark:text-cyan-400" />
                 <span className="text-[10px] text-cyan-700 dark:text-cyan-300">
-                  {dna.missingClarifications.length} missing categories — auto-fill from project evidence?
+                  {dna.missingClarifications.length} gaps — auto-fill from project evidence?
                 </span>
               </div>
               <Button
@@ -417,18 +637,24 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
           </div>
         )}
         
-        {/* Missing Clarifications */}
+        {/* Missing Clarifications — now with resolution status */}
         {hasMissing && (
           <div className="border border-amber-500/30 rounded-md p-2 bg-amber-500/5">
             <div className="flex items-center gap-1.5 mb-1.5">
               <HelpCircle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Missing Clarifications</span>
+              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Clarification Status</span>
             </div>
             <div className="space-y-1">
               {dna.missingClarifications.map((m, i) => (
-                <p key={i} className="text-[10px] text-amber-700 dark:text-amber-300">
-                  <span className="font-medium">[{CATEGORY_LABELS[m.category]}]</span> {m.question}
-                </p>
+                <div key={i} className="flex items-center gap-1.5 text-[10px]">
+                  <span className={cn('text-[8px]', CLARIFICATION_STATUS_COLORS[m.status])}>
+                    {m.status === 'resolved' ? '●' : m.status === 'partial' ? '◐' : '○'}
+                  </span>
+                  <span className="font-medium text-foreground">[{CATEGORY_LABELS[m.category]}]</span>
+                  <span className={m.status === 'missing' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}>
+                    {m.status === 'partial' ? `Partially resolved via ${m.resolvedBy || 'evidence'}` : m.question}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
