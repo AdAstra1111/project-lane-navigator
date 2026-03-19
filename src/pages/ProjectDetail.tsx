@@ -637,34 +637,57 @@ export default function ProjectDetail() {
             sectionKey="visual"
             icon={<Palette className="h-4 w-4" />}
             title="Visual Engine"
-            subtitle="Visualize the project"
+            subtitle="Cast photos, references, poster, and presentation"
             isOpen={openSections.visual}
             onToggle={toggleSection}
           >
-            <div className="flex flex-wrap items-center gap-3">
-              <Link to={`/projects/${id}/poster`} className="flex-1 min-w-[180px]">
-                <Button variant="outline" className="w-full gap-2 h-11">
-                  <ImagePlus className="h-4 w-4 text-primary" />
-                  Poster Engine
-                </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* PRIMARY — Visual Production Hub */}
+              <Link to={`/projects/${id}/visual-dev`} className="sm:col-span-2">
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 hover:bg-primary/10 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Film className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">Visual Production Hub</span>
+                    <Badge variant="default" className="text-[9px] h-4 px-1.5">Primary</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Cast photos, character identity, world references, visual canon, approval queue, and archive.
+                  </p>
+                </div>
               </Link>
-              <Link to={`/projects/${id}/visual-dev`} className="flex-1 min-w-[180px]">
-                <Button variant="outline" className="w-full gap-2 h-11">
-                  <Film className="h-4 w-4 text-primary" />
-                  Visual Production Hub
-                </Button>
+
+              {/* Poster Engine */}
+              <Link to={`/projects/${id}/poster`}>
+                <div className="rounded-lg border border-border/50 bg-card/30 p-3 hover:bg-card/60 transition-colors cursor-pointer h-full">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <ImagePlus className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-sm font-medium text-foreground">Poster Engine</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Create and choose the project poster.</p>
+                </div>
               </Link>
-              <Link to={`/projects/${id}/images`} className="flex-1 min-w-[180px]">
-                <Button variant="outline" className="w-full gap-2 h-11">
-                  <ImagePlus className="h-4 w-4 text-primary" />
-                  Image Library
-                </Button>
+
+              {/* Image Library */}
+              <Link to={`/projects/${id}/images`}>
+                <div className="rounded-lg border border-border/50 bg-card/30 p-3 hover:bg-card/60 transition-colors cursor-pointer h-full">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Eye className="h-3.5 w-3.5 text-primary" />
+                    <span className="text-sm font-medium text-foreground">Image Library</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Browse all generated images.</p>
+                </div>
               </Link>
-              <Link to={`/projects/${id}/pitch-deck`} className="flex-1 min-w-[180px]">
-                <Button variant="outline" className="w-full gap-2 h-11">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Look Book
-                </Button>
+
+              {/* Look Book */}
+              <Link to={`/projects/${id}/pitch-deck`} className="sm:col-span-2">
+                <div className="rounded-lg border border-border/30 bg-card/20 p-3 hover:bg-card/40 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">Look Book</span>
+                    <span className="text-[10px] text-muted-foreground italic">Presentation</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Assemble and review the visual presentation deck. Most useful once cast photos and references are built.</p>
+                </div>
               </Link>
             </div>
           </SystemSection>
