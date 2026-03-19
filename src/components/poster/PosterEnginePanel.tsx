@@ -163,7 +163,7 @@ export default function PosterEnginePanel() {
   const setActivePoster = useSetActivePoster(projectId);
   const deletePoster = useDeletePoster(projectId);
   const { data: freshnessMap } = useProjectPostersFreshness(projectId);
-  const refreshStale = useRefreshStalePoster(projectId);
+  const refreshFromTruth = useRefreshPosterFromTruth(projectId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
