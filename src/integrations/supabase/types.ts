@@ -5918,6 +5918,64 @@ export type Database = {
         }
         Relationships: []
       }
+      entity_aliases: {
+        Row: {
+          alias_name: string
+          canonical_entity_id: string
+          confidence: number
+          created_at: string
+          id: string
+          normalized_alias: string
+          project_id: string
+          review_status: string
+          source: string
+        }
+        Insert: {
+          alias_name: string
+          canonical_entity_id: string
+          confidence?: number
+          created_at?: string
+          id?: string
+          normalized_alias: string
+          project_id: string
+          review_status?: string
+          source?: string
+        }
+        Update: {
+          alias_name?: string
+          canonical_entity_id?: string
+          confidence?: number
+          created_at?: string
+          id?: string
+          normalized_alias?: string
+          project_id?: string
+          review_status?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entity_aliases_canonical_entity_id_fkey"
+            columns: ["canonical_entity_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "entity_aliases_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "entity_aliases_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       entity_visual_states: {
         Row: {
           active: boolean
@@ -8752,6 +8810,7 @@ export type Database = {
           entity_key: string
           entity_type: string
           id: string
+          ingestion_run_id: string | null
           meta_json: Json
           project_id: string
           source_key: string | null
@@ -8765,6 +8824,7 @@ export type Database = {
           entity_key: string
           entity_type?: string
           id?: string
+          ingestion_run_id?: string | null
           meta_json?: Json
           project_id: string
           source_key?: string | null
@@ -8778,6 +8838,7 @@ export type Database = {
           entity_key?: string
           entity_type?: string
           id?: string
+          ingestion_run_id?: string | null
           meta_json?: Json
           project_id?: string
           source_key?: string | null
@@ -8786,6 +8847,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "narrative_entities_ingestion_run_id_fkey"
+            columns: ["ingestion_run_id"]
+            isOneToOne: false
+            referencedRelation: "story_ingestion_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "narrative_entities_project_id_fkey"
             columns: ["project_id"]
@@ -17149,6 +17217,93 @@ export type Database = {
           },
         ]
       }
+      scene_entity_participation: {
+        Row: {
+          confidence: number
+          costume_note: string | null
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          ingestion_run_id: string | null
+          is_primary: boolean
+          project_id: string
+          review_tier: string
+          role_in_scene: string
+          scene_id: string
+          source_reason: string
+          state_note: string | null
+        }
+        Insert: {
+          confidence?: number
+          costume_note?: string | null
+          created_at?: string
+          entity_id: string
+          entity_type?: string
+          id?: string
+          ingestion_run_id?: string | null
+          is_primary?: boolean
+          project_id: string
+          review_tier?: string
+          role_in_scene?: string
+          scene_id: string
+          source_reason?: string
+          state_note?: string | null
+        }
+        Update: {
+          confidence?: number
+          costume_note?: string | null
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          ingestion_run_id?: string | null
+          is_primary?: boolean
+          project_id?: string
+          review_tier?: string
+          role_in_scene?: string
+          scene_id?: string
+          source_reason?: string
+          state_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_entity_participation_entity_id_fkey"
+            columns: ["entity_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_entity_participation_ingestion_run_id_fkey"
+            columns: ["ingestion_run_id"]
+            isOneToOne: false
+            referencedRelation: "story_ingestion_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_entity_participation_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_entity_participation_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_entity_participation_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_graph_actions: {
         Row: {
           action_type: string
@@ -17365,6 +17520,7 @@ export type Database = {
           created_by: string | null
           deprecated_at: string | null
           id: string
+          ingestion_run_id: string | null
           project_id: string
           provenance: Json
           scene_key: string | null
@@ -17375,6 +17531,7 @@ export type Database = {
           created_by?: string | null
           deprecated_at?: string | null
           id?: string
+          ingestion_run_id?: string | null
           project_id: string
           provenance?: Json
           scene_key?: string | null
@@ -17385,12 +17542,20 @@ export type Database = {
           created_by?: string | null
           deprecated_at?: string | null
           id?: string
+          ingestion_run_id?: string | null
           project_id?: string
           provenance?: Json
           scene_key?: string | null
           scene_kind?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "scene_graph_scenes_ingestion_run_id_fkey"
+            columns: ["ingestion_run_id"]
+            isOneToOne: false
+            referencedRelation: "story_ingestion_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "scene_graph_scenes_project_id_fkey"
             columns: ["project_id"]
@@ -19846,6 +20011,170 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      state_transition_candidates: {
+        Row: {
+          confidence: number
+          created_at: string
+          entity_id: string
+          entity_type: string
+          evidence_text: string | null
+          from_state_key: string | null
+          id: string
+          ingestion_run_id: string | null
+          project_id: string
+          promoted_to_evs_id: string | null
+          review_tier: string
+          scene_id: string | null
+          state_category: string
+          to_state_key: string
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          entity_id: string
+          entity_type?: string
+          evidence_text?: string | null
+          from_state_key?: string | null
+          id?: string
+          ingestion_run_id?: string | null
+          project_id: string
+          promoted_to_evs_id?: string | null
+          review_tier?: string
+          scene_id?: string | null
+          state_category?: string
+          to_state_key: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          evidence_text?: string | null
+          from_state_key?: string | null
+          id?: string
+          ingestion_run_id?: string | null
+          project_id?: string
+          promoted_to_evs_id?: string | null
+          review_tier?: string
+          scene_id?: string | null
+          state_category?: string
+          to_state_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "state_transition_candidates_entity_id_fkey"
+            columns: ["entity_id"]
+            isOneToOne: false
+            referencedRelation: "narrative_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "state_transition_candidates_ingestion_run_id_fkey"
+            columns: ["ingestion_run_id"]
+            isOneToOne: false
+            referencedRelation: "story_ingestion_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "state_transition_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "state_transition_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "state_transition_candidates_promoted_to_evs_id_fkey"
+            columns: ["promoted_to_evs_id"]
+            isOneToOne: false
+            referencedRelation: "entity_visual_states"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "state_transition_candidates_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_ingestion_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          failure_reason: string | null
+          id: string
+          manifest_json: Json
+          project_id: string
+          source_document_ids: string[]
+          source_kind: string
+          source_version_ids: string[]
+          stage_summary: Json
+          status: string
+          superseded_by: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          failure_reason?: string | null
+          id?: string
+          manifest_json?: Json
+          project_id: string
+          source_document_ids?: string[]
+          source_kind?: string
+          source_version_ids?: string[]
+          stage_summary?: Json
+          status?: string
+          superseded_by?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          failure_reason?: string | null
+          id?: string
+          manifest_json?: Json
+          project_id?: string
+          source_document_ids?: string[]
+          source_kind?: string
+          source_version_ids?: string[]
+          stage_summary?: Json
+          status?: string
+          superseded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_ingestion_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "story_ingestion_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "story_ingestion_runs_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "story_ingestion_runs"
             referencedColumns: ["id"]
           },
         ]
