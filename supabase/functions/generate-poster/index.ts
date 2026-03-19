@@ -829,8 +829,12 @@ serve(async (req) => {
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
 
-    // ── Capture visual truth snapshot for dependency tracking ──
-    const truthSnapshot = await captureVisualTruthSnapshot(supabase, project_id);
+    // ── Capture dependency-precise truth snapshot ──
+    // Extract character names from resolved prompt inputs for precise scoping
+    const usedCharacterNames = inputs.characters
+      ? inputs.characters.split(",").map((c: string) => c.replace(/\s*\(.*\)/, "").trim()).filter(Boolean)
+      : undefined;
+    const truthSnapshot = await captureVisualTruthSnapshot(supabase, project_id, usedCharacterNames);
 
     // Resolve image generation config via shared API resolver
     const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
