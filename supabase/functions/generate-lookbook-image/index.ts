@@ -408,17 +408,15 @@ serve(async (req) => {
       });
     }
 
-    // ── VSAL: Resolve Visual Style Authority ──
+    // ── VSAL: Resolve Visual Style Authority (soft — warns but does not block) ──
     const styleResolution = await resolveVisualStyleProfile(supabase, project_id);
-    const styleCheck = validateStyleOrError(styleResolution);
-    if (!styleCheck.valid) {
-      console.warn(`[IEL:visual_style_authority_violation] Generation blocked: ${styleResolution.error}`);
-      return new Response(JSON.stringify(styleCheck.body), {
-        status: styleCheck.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let visualStyleLock = styleResolution.lock;
+    let vsalPromptBlock = styleResolution.promptBlock;
+    if (!styleResolution.found || !styleResolution.complete) {
+      console.warn(`[VSAL:soft] No complete visual style profile — proceeding without style authority (${styleResolution.error})`);
+      visualStyleLock = null;
+      vsalPromptBlock = null;
     }
-    const visualStyleLock = styleResolution.lock!;
-    const vsalPromptBlock = styleResolution.promptBlock!;
 
     // Load project context
     const { data: project } = await supabase
