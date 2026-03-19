@@ -256,24 +256,37 @@ export default function PosterEnginePanel() {
       {/* ── Template Selector + Credits Editor ── */}
       <div className="flex flex-col gap-3">
         {/* Template selector */}
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-card/50 rounded-lg border border-border/30">
-          <Layout className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium text-foreground">Layout Template</span>
-          <Select value={selectedTemplate} onValueChange={(v) => setSelectedTemplate(v as PosterLayoutVariant)}>
-            <SelectTrigger className="w-48 h-7 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(POSTER_TEMPLATES).map(([key, tmpl]) => (
-                <SelectItem key={key} value={key} className="text-xs">
-                  {tmpl.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span className="text-[10px] text-muted-foreground ml-1">
-            {POSTER_TEMPLATES[selectedTemplate]?.description}
-          </span>
+        <div className="flex flex-col gap-2 px-4 py-2.5 bg-card/50 rounded-lg border border-border/30">
+          <div className="flex items-center gap-3">
+            <Layout className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium text-foreground">Layout Template</span>
+            <Select value={selectedTemplate} onValueChange={(v) => setSelectedTemplate(v as PosterLayoutVariant)}>
+              <SelectTrigger className="w-48 h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(POSTER_TEMPLATES).map(([key, tmpl]) => (
+                  <SelectItem key={key} value={key} className="text-xs">
+                    {tmpl.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-[10px] text-muted-foreground ml-1">
+              {POSTER_TEMPLATES[selectedTemplate]?.description}
+            </span>
+          </div>
+          <DecisionBadge
+            recommended={posterStyleDecision.recommended}
+            recommendedReason={posterStyleDecision.recommendedReason}
+            selected={posterStyleDecision.selected}
+            effective={posterStyleDecision.effective}
+            isUserSelected={posterStyleDecision.isUserSelected}
+            recommendedLabel={posterStyleDecision.recommended ? POSTER_TEMPLATES[posterStyleDecision.recommended as PosterLayoutVariant]?.label : undefined}
+            selectedLabel={posterStyleDecision.selected ? POSTER_TEMPLATES[posterStyleDecision.selected as PosterLayoutVariant]?.label : undefined}
+            onAcceptRecommendation={() => posterStyleDecision.recommended && posterStyleDecision.select(posterStyleDecision.recommended)}
+            onClearSelection={posterStyleDecision.isUserSelected ? posterStyleDecision.clearSelection : undefined}
+          />
         </div>
 
         {/* Credits editor */}
