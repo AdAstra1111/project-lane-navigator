@@ -4,11 +4,10 @@
  * 2-state layout: EMPTY (CTA only) vs ACTIVE (compact toolbar + full workspace).
  * Visual Asset System with pack generation, curation, provenance, and selection.
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette,
-  ChevronRight, Archive, Filter, Plus, ImageIcon, Info,
+  Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette, ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
