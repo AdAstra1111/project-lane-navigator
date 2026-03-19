@@ -839,6 +839,143 @@ serve(async (req) => {
     // Resolve image generation config via shared API resolver
     const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
 
+    // ── Mode: refresh_poster_from_truth — governed truth refresh (NOT creative edit) ──
+    if (mode === "refresh_poster_from_truth" && source_poster_id) {
+      const { data: sourcePoster, error: srcErr } = await supabase
+        .from("project_posters")
+        .select("*")
+        .eq("id", source_poster_id)
+        .single();
+      if (srcErr || !sourcePoster) {
+        return new Response(JSON.stringify({ error: "Source poster not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Re-use the source poster's strategy/template — only update truth inputs
+      const sourceStrategy = POSTER_STRATEGIES.find(s => s.key === sourcePoster.layout_variant) || POSTER_STRATEGIES[4];
+      const refreshPrompt = buildStrategyPrompt(sourceStrategy, strategyCtx);
+
+      const { data: existingPosters } = await supabase
+        .from("project_posters")
+        .select("version_number")
+        .eq("project_id", project_id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      const nextVersion = (existingPosters?.[0]?.version_number || 0) + 1;
+
+      const refreshGenConfig = resolveImageGenerationConfig({
+        role: 'poster_variant' as ImageRole,
+        styleMode,
+        strategyKey: sourcePoster.layout_variant || 'commercial',
+      });
+
+      const { data: posterRecord, error: insertErr } = await supabase
+        .from("project_posters")
+        .insert({
+          project_id,
+          user_id: user.id,
+          version_number: nextVersion,
+          status: "generating",
+          source_type: "refreshed",
+          aspect_ratio: sourcePoster.aspect_ratio || "2:3",
+          layout_variant: sourcePoster.layout_variant || "cinematic-dark",
+          prompt_text: refreshPrompt,
+          prompt_inputs: {
+            ...inputs,
+            source_poster_id,
+            poster_mode: "refresh_from_truth",
+            strategy_key: sourceStrategy.key,
+            strategy_label: sourceStrategy.label,
+          },
+          provider: refreshGenConfig.provider,
+          model: refreshGenConfig.model,
+          render_status: "key_art_only",
+          is_active: false,
+          truth_snapshot_json: truthSnapshot,
+          dependency_hash: truthSnapshot.canon_hash,
+          freshness_status: "current",
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw new Error(`Failed to create refresh record: ${insertErr.message}`);
+
+      try {
+        const imageResult = await generateImage(LOVABLE_API_KEY, refreshPrompt, refreshGenConfig.model, refreshGenConfig.gatewayUrl);
+
+        const keyArtPath = `${project_id}/key-art/v${nextVersion}-refresh.${imageResult.format}`;
+        const { error: uploadErr } = await supabase.storage
+          .from("project-posters")
+          .upload(keyArtPath, imageResult.rawBytes, {
+            contentType: `image/${imageResult.format}`,
+            upsert: true,
+          });
+
+        if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
+
+        await supabase.from("project_posters")
+          .update({
+            status: "ready",
+            key_art_storage_path: keyArtPath,
+            rendered_storage_path: keyArtPath,
+            render_status: "key_art_only",
+          })
+          .eq("id", posterRecord.id);
+
+        // Mark source poster as historical
+        await supabase.from("project_posters")
+          .update({ freshness_status: "historical_locked" })
+          .eq("id", source_poster_id);
+
+        // Persist dependency links
+        await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
+
+        const repoMeta = buildImageRepositoryMeta(refreshGenConfig, {
+          role: 'poster_variant' as ImageRole,
+          styleMode,
+          strategyKey: sourceStrategy.key,
+        });
+
+        await supabase.from("project_images").insert({
+          project_id,
+          role: "poster_variant",
+          entity_id: null,
+          strategy_key: sourceStrategy.key,
+          prompt_used: refreshPrompt,
+          negative_prompt: strategyCtx.stylePolicy.negativeStyleConstraints || "",
+          canon_constraints: { world_lock: inputs.worldLock, refresh_from: source_poster_id },
+          storage_path: keyArtPath,
+          storage_bucket: "project-posters",
+          is_primary: false,
+          is_active: true,
+          source_poster_id: posterRecord.id,
+          user_id: user.id,
+          created_by: user.id,
+          provider: refreshGenConfig.provider,
+          model: refreshGenConfig.model,
+          style_mode: styleMode,
+          generation_config: { ...repoMeta, poster_mode: "refresh_from_truth", source_poster_id },
+        });
+
+        return new Response(JSON.stringify({
+          poster_id: posterRecord.id,
+          status: "ready",
+          source_poster_id,
+          mode: "refresh_from_truth",
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (genErr: unknown) {
+        const errMsg = genErr instanceof Error ? genErr.message : "Refresh failed";
+        await supabase.from("project_posters").update({ status: "failed", error_message: errMsg }).eq("id", posterRecord.id);
+        return new Response(JSON.stringify({ error: errMsg, poster_id: posterRecord.id }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // ── Mode: edit_poster — prompt-based poster editing / branching ──
     if (mode === "edit_poster" && source_poster_id && edit_prompt) {
       // Fetch source poster
