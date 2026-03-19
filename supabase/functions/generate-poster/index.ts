@@ -785,7 +785,7 @@ serve(async (req) => {
             .eq("id", posterRecord.id);
 
           // Register into canonical project_images repository with resolver metadata
-          await supabase.from("project_images").insert({
+          const { error: repoErr } = await supabase.from("project_images").insert({
             project_id,
             role: "poster_variant",
             entity_id: null,
@@ -805,6 +805,9 @@ serve(async (req) => {
             style_mode: styleMode,
             generation_config: repoMeta,
           });
+          if (repoErr) {
+            console.error(`[project_images] insert failed for strategy=${strategy.key}:`, repoErr.message);
+          }
 
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "ready" });
         } catch (genErr: unknown) {
