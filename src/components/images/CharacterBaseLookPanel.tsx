@@ -614,7 +614,7 @@ function CharacterTraitDisplay({
         className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors mb-1"
       >
         <Tag className="h-2.5 w-2.5" />
-        Visual Traits ({traits.length})
+        Character Visual Truth ({traits.length})
         {contradictions.length > 0 && (
           <Badge variant="destructive" className="text-[7px] px-1 py-0 ml-1">
             {contradictions.length} conflict{contradictions.length !== 1 ? 's' : ''}
