@@ -70,7 +70,7 @@ export async function resolveCharacterIdentity(
 
 /**
  * Check identity notes against canon character data.
- * Returns structured canon check result.
+ * Now uses trait-level contradiction detection for precision.
  */
 export interface CanonCheckResult {
   status: 'pass' | 'uncertain' | 'contradiction';
@@ -85,78 +85,30 @@ export function checkIdentityNotesAgainstCanon(
   if (!notes.trim()) return { status: 'pass', messages: [] };
   if (!canonCharacter && !canonJson) return { status: 'uncertain', messages: ['No canon data available for validation'] };
 
-  const messages: string[] = [];
-  const notesLower = notes.toLowerCase();
+  // Use trait-level detection
+  const { resolveCharacterTraits, detectTraitContradictions } = require('./characterTraits');
+  const allTraits = resolveCharacterTraits(canonCharacter, canonJson, notes);
+  const contradictions = detectTraitContradictions(allTraits);
 
-  // Extract canon constraints
-  const canonTraits = (canonCharacter?.traits || '').toString().toLowerCase();
-  const canonRole = (canonCharacter?.role || '').toString().toLowerCase();
-  const canonDesc = Object.entries(canonCharacter || {})
-    .filter(([k]) => ['description', 'appearance', 'physical', 'age', 'gender', 'ethnicity', 'background'].includes(k))
-    .map(([, v]) => String(v).toLowerCase())
-    .join(' ');
-
-  // World/period constraints from canon
-  const worldRules = String(canonJson?.world_rules || '').toLowerCase();
-  const toneStyle = String(canonJson?.tone_style || '').toLowerCase();
-  const forbiddenChanges = String(canonJson?.forbidden_changes || '').toLowerCase();
-
-  // Age contradiction detection
-  const agePatterns = [
-    { note: /\b(young|youthful|teenage|teen|child|kid)\b/, canon: /\b(old|elderly|aged|mature|senior|middle.?aged)\b/ },
-    { note: /\b(old|elderly|aged|senior)\b/, canon: /\b(young|youthful|teenage|teen|child)\b/ },
-  ];
-  for (const { note, canon } of agePatterns) {
-    if (note.test(notesLower) && canon.test(canonDesc + ' ' + canonTraits)) {
-      messages.push(`Age contradiction: notes suggest "${notesLower.match(note)?.[0]}" but canon describes character differently`);
-    }
-  }
-
-  // Gender presentation contradiction
-  const genderPatterns = [
-    { note: /\b(masculine|male.?presenting|rugged|bearded)\b/, canon: /\b(feminine|female|woman|she\/her)\b/ },
-    { note: /\b(feminine|female.?presenting|delicate)\b/, canon: /\b(masculine|male|man|he\/him|rugged)\b/ },
-  ];
-  for (const { note, canon } of genderPatterns) {
-    if (note.test(notesLower) && canon.test(canonDesc + ' ' + canonTraits + ' ' + canonRole)) {
-      messages.push(`Gender presentation contradiction detected between notes and canon`);
-    }
-  }
-
-  // Build type contradiction (lean vs heavy, etc.)
-  const buildPatterns = [
-    { note: /\b(lean|thin|slim|slender|wiry)\b/, canon: /\b(heavy|large|stocky|muscular|bulky|heavyset)\b/ },
-    { note: /\b(heavy|large|stocky|bulky|heavyset)\b/, canon: /\b(lean|thin|slim|slender|wiry|petite)\b/ },
-  ];
-  for (const { note, canon } of buildPatterns) {
-    if (note.test(notesLower) && canon.test(canonDesc + ' ' + canonTraits)) {
-      messages.push(`Build/body type contradiction detected between notes and canon`);
-    }
-  }
-
-  // Forbidden elements check
-  if (forbiddenChanges) {
-    const forbiddenTerms = forbiddenChanges.split(/[,;.\n]+/).map(t => t.trim()).filter(Boolean);
-    for (const term of forbiddenTerms) {
-      if (term.length > 3 && notesLower.includes(term)) {
-        messages.push(`Notes reference "${term}" which is listed as a forbidden/locked canon element`);
+  if (contradictions.length === 0) {
+    // Check for period/world warnings (non-trait-level)
+    const messages: string[] = [];
+    const notesLower = notes.toLowerCase();
+    const worldRules = String(canonJson?.world_rules || '').toLowerCase();
+    const periodKeywords = ['modern', 'contemporary', 'futuristic', 'medieval', 'victorian', 'period', 'historical'];
+    for (const kw of periodKeywords) {
+      if (notesLower.includes(kw) && worldRules && !worldRules.includes(kw)) {
+        messages.push(`Notes mention "${kw}" — verify this aligns with the project's world/period setting`);
       }
     }
+    if (messages.length > 0) return { status: 'uncertain', messages };
+    return { status: 'pass', messages: [] };
   }
 
-  // Period/world constraint warnings
-  const periodKeywords = ['modern', 'contemporary', 'futuristic', 'medieval', 'victorian', 'period', 'historical'];
-  for (const kw of periodKeywords) {
-    if (notesLower.includes(kw) && worldRules && !worldRules.includes(kw)) {
-      messages.push(`Notes mention "${kw}" — verify this aligns with the project's world/period setting`);
-    }
-  }
-
-  if (messages.some(m => m.includes('contradiction'))) {
-    return { status: 'contradiction', messages };
-  }
-  if (messages.length > 0) {
-    return { status: 'uncertain', messages };
-  }
-  return { status: 'pass', messages: [] };
+  const messages = contradictions.map(c => c.message);
+  const hasHard = contradictions.some(c => c.severity === 'contradiction');
+  return {
+    status: hasHard ? 'contradiction' : 'uncertain',
+    messages,
+  };
 }
