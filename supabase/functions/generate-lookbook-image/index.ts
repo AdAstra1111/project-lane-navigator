@@ -556,6 +556,7 @@ serve(async (req) => {
               identity_anchors_used: identityReferenceUrls.length,
               identity_notes_used: !!identity_notes,
               identity_canon_facts_used: !!identity_canon_facts,
+              identity_traits_used: !!identity_traits_block,
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,
