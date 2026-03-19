@@ -7,7 +7,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, Monitor,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
