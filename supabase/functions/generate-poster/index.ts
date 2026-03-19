@@ -224,18 +224,18 @@ function deriveWorldLock(inputs: Omit<PosterPromptInputs, "worldLock">): WorldLo
 // ── Visual Maps ──────────────────────────────────────────────────────────────
 
 const toneVisuals: Record<string, string> = {
-  dark: "moody shadows, desaturated palette, noir-inspired lighting",
-  light: "warm golden light, hopeful atmosphere, soft focus backgrounds",
-  gritty: "raw textures, urban decay, handheld documentary feel",
-  comedic: "bright colors, dynamic composition, playful energy",
-  thriller: "high contrast, tension-filled composition, cool blue tones",
-  dramatic: "deep cinematic shadows, rich warm tones, emotional weight",
-  horror: "deep blacks, unsettling atmosphere, eerie fog, cold tones",
-  romantic: "soft bokeh, warm sunset tones, intimate framing",
-  epic: "sweeping vista, grand scale, dramatic sky, golden hour",
-  satirical: "bold graphic style, sharp contrast, pop-art influence",
-  whimsical: "dreamy pastels, fantastical elements, storybook quality",
-  suspenseful: "high contrast, silhouettes, tension, atmospheric haze",
+  dark: "moody shadows, desaturated palette, noir-inspired lighting, photorealistic",
+  light: "warm golden light, hopeful atmosphere, soft focus backgrounds, photorealistic",
+  gritty: "raw textures, urban decay, handheld documentary feel, photorealistic",
+  comedic: "bright natural colors, dynamic composition, playful energy, photorealistic",
+  thriller: "high contrast, tension-filled composition, cool blue tones, photorealistic",
+  dramatic: "deep cinematic shadows, rich warm tones, emotional weight, photorealistic",
+  horror: "deep blacks, unsettling atmosphere, eerie fog, cold tones, photorealistic",
+  romantic: "soft bokeh, warm sunset tones, intimate framing, photorealistic",
+  epic: "sweeping vista, grand scale, dramatic sky, golden hour, photorealistic",
+  satirical: "sharp contrast, bold framing, high-saturation photography, photorealistic",
+  whimsical: "warm soft tones, magical-hour lighting, intimate storybook atmosphere, photorealistic",
+  suspenseful: "high contrast, silhouettes, tension, atmospheric haze, photorealistic",
 };
 
 const genreMotifs: Record<string, string> = {
