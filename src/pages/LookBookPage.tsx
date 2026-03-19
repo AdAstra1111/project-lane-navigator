@@ -2,15 +2,16 @@
  * LookBookPage — Section-driven visual pitch deck engine.
  * Route: /projects/:id/lookbook
  * Canonical lookbook_sections are the authoritative runtime model.
- * Auto-bootstraps on first visit. Never blank dead state.
+ * Workspace is always accessible and is the default authoring mode.
  */
 import { useState, useCallback, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, Monitor,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
 import { LookbookSectionPanel } from '@/components/lookbook/LookbookSectionPanel';
@@ -23,16 +24,19 @@ import { toast } from 'sonner';
 import type { LookBookData } from '@/lib/lookbook/types';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 
+type LookbookMode = 'workspace' | 'viewer';
+
 export default function LookBookPage() {
   const { id: projectId } = useParams<{ id: string }>();
+  const location = useLocation();
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [populatingSection, setPopulatingSection] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
 
-  // Canonical section structure — authoritative runtime model
   const {
     sections,
     isLoading: sectionsLoading,
@@ -43,12 +47,23 @@ export default function LookBookPage() {
     updateSectionStatus,
   } = useLookbookSections(projectId);
 
-  // Auto-bootstrap on first visit if no sections exist
   useEffect(() => {
     if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping) {
       bootstrap();
     }
   }, [sectionsLoading, isBootstrapped, projectId, isBootstrapping, bootstrap]);
+
+  useEffect(() => {
+    console.info('[LookBookPage] render_state', {
+      component: 'LookBookPage',
+      route: location.pathname,
+      projectIdPresent: !!projectId,
+      sectionsCount: sections.length,
+      structureStatus,
+      viewMode,
+      viewerDataPresent: !!lookBookData,
+    });
+  }, [location.pathname, projectId, sections.length, structureStatus, viewMode, lookBookData]);
 
   const handleGenerate = useCallback(async () => {
     if (!projectId) return;
@@ -59,7 +74,7 @@ export default function LookBookPage() {
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
       setLookBookData(data);
-      toast.success('Look Book generated');
+      toast.success('Look Book generated — open Viewer to preview slides');
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {
@@ -86,7 +101,6 @@ export default function LookBookPage() {
     }
   }, [lookBookData, projectId]);
 
-  // Section populate handler — triggers upstream pull for each section
   const handlePopulate = useCallback(async (sectionKey: CanonicalSectionKey) => {
     if (!projectId) return;
     setPopulatingSection(sectionKey);
@@ -99,7 +113,7 @@ export default function LookBookPage() {
             : sectionKey === 'atmosphere_lighting' ? 'visual_language'
             : sectionKey === 'texture_detail' ? 'visual_language'
             : sectionKey === 'symbolic_motifs' ? 'key_moment'
-            : 'world', // poster_directions fallback
+            : 'world',
           count: 4,
           asset_group: sectionKey === 'character_identity' ? 'character'
             : sectionKey === 'world_locations' ? 'world'
@@ -134,35 +148,14 @@ export default function LookBookPage() {
     );
   }
 
-  // ── VIEWER MODE: lookbook slides generated ──
-  if (lookBookData) {
-    return (
-      <div className="h-full flex flex-col">
-        <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleGenerate} disabled={generating}>
-            {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Regenerate
-          </Button>
-        </div>
-        {projectId && (
-          <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
-            <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
-          </div>
-        )}
-        <LookBookViewer data={lookBookData} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1" />
-      </div>
-    );
-  }
-
-  // ── WORKSPACE MODE: section-driven ──
   const populatedCount = sections.filter(s => s.section_status !== 'empty_but_bootstrapped').length;
+  const viewerAvailable = !!lookBookData;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar */}
       <div className="px-4 py-2 border-b border-border bg-card/50 shrink-0 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-primary" />
+        <div className="flex items-center gap-2 min-w-0">
+          <BookOpen className="h-4 w-4 text-primary shrink-0" />
           <span className="text-sm font-semibold text-foreground">Look Book</span>
           <Badge variant="secondary" className="text-[10px]">
             {structureStatus === 'fully_populated' ? 'Complete' :
@@ -170,7 +163,7 @@ export default function LookBookPage() {
              structureStatus === 'empty_but_bootstrapped' ? 'Ready' : 'Needs Setup'}
           </Badge>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           {structureStatus === 'invalid_structure' && (
             <Button size="sm" variant="destructive" className="gap-1 text-xs h-7" onClick={bootstrap} disabled={isBootstrapping}>
               {isBootstrapping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
@@ -184,9 +177,24 @@ export default function LookBookPage() {
         </div>
       </div>
 
-      {/* Scrollable workspace */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* Structure warning banner */}
+        <div className="mb-4 rounded-lg border border-border bg-card/40 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Monitor className="h-4 w-4 text-primary" />
+            <p className="text-xs font-medium text-foreground">Lookbook runtime diagnostics</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className="text-[10px]">component: LookBookPage</Badge>
+            <Badge variant="outline" className="text-[10px]">route: {location.pathname}</Badge>
+            <Badge variant="outline" className="text-[10px]">project: {projectId ? 'present' : 'missing'}</Badge>
+            <Badge variant="outline" className="text-[10px]">sections: {sections.length}</Badge>
+            <Badge variant="outline" className="text-[10px]">status: {structureStatus}</Badge>
+            <Badge variant="outline" className="text-[10px]">workspace: {viewMode === 'workspace' ? 'active' : 'inactive'}</Badge>
+            <Badge variant="outline" className="text-[10px]">viewer: {viewMode === 'viewer' ? 'active' : 'inactive'}</Badge>
+            <Badge variant="outline" className="text-[10px]">viewer data: {viewerAvailable ? 'yes' : 'no'}</Badge>
+          </div>
+        </div>
+
         {structureStatus === 'invalid_structure' && (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -199,37 +207,65 @@ export default function LookBookPage() {
           </div>
         )}
 
-        {/* Visual Canon Reset */}
         {projectId && (
           <div className="mb-4">
             <VisualCanonResetPanel projectId={projectId} />
           </div>
         )}
 
-        {/* Canonical Sections — the authoritative runtime model */}
-        {sections.length > 0 && (
-          <div className="space-y-1.5">
-            {sections.map(section => (
-              <LookbookSectionPanel
-                key={section.id}
-                projectId={projectId!}
-                section={section}
-                onPopulate={handlePopulate}
-                isPopulating={populatingSection === section.section_key}
-              />
-            ))}
-          </div>
-        )}
+        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as LookbookMode)} className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="workspace">Workspace</TabsTrigger>
+            <TabsTrigger value="viewer">Viewer</TabsTrigger>
+          </TabsList>
 
-        {/* Empty state when no sections at all (shouldn't happen post-bootstrap) */}
-        {sections.length === 0 && !isBootstrapping && (
-          <div className="text-center py-12">
-            <p className="text-sm text-muted-foreground mb-3">No lookbook sections found.</p>
-            <Button size="sm" variant="outline" onClick={bootstrap}>
-              Bootstrap Structure
-            </Button>
-          </div>
-        )}
+          <TabsContent value="workspace" className="mt-0">
+            {sections.length > 0 ? (
+              <div className="space-y-1.5">
+                {sections.map(section => (
+                  <LookbookSectionPanel
+                    key={section.id}
+                    projectId={projectId!}
+                    section={section}
+                    onPopulate={handlePopulate}
+                    isPopulating={populatingSection === section.section_key}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+                <p className="text-sm text-foreground mb-1">No lookbook sections found.</p>
+                <p className="text-xs text-muted-foreground mb-4">Bootstrap the canonical structure to enter the section workspace.</p>
+                <Button size="sm" variant="outline" onClick={bootstrap} disabled={isBootstrapping}>
+                  {isBootstrapping ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Bootstrap Structure
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="viewer" className="mt-0">
+            {viewerAvailable ? (
+              <div className="overflow-hidden rounded-lg border border-border bg-card/40">
+                {projectId && (
+                  <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
+                    <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
+                  </div>
+                )}
+                <LookBookViewer data={lookBookData!} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1" />
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+                <p className="text-sm text-foreground mb-1">No built lookbook yet.</p>
+                <p className="text-xs text-muted-foreground mb-4">Build the lookbook from the canonical workspace sections first.</p>
+                <Button size="sm" variant="outline" className="gap-1" onClick={handleGenerate} disabled={generating}>
+                  {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  Build Look Book
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

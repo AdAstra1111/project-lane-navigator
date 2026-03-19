@@ -48,7 +48,7 @@ export function LookbookSectionPanel({
 
   const hasImages = images.length > 0;
   const isEmpty = section.section_status === 'empty_but_bootstrapped' || section.section_status === 'repaired';
-  const [open, setOpen] = useState(hasImages || !isEmpty);
+  const [open, setOpen] = useState(!hasImages || section.section_status !== 'fully_populated');
 
   const activeCount = images.filter(i => i.curation_state === 'active').length;
   const candidateCount = images.filter(i => i.curation_state === 'candidate').length;
@@ -90,7 +90,6 @@ export function LookbookSectionPanel({
       </CollapsibleTrigger>
 
       <CollapsibleContent className="px-3 pb-3 pt-2">
-        {/* Empty state with upstream info + blockers + populate CTA */}
         {!hasImages && !isLoading ? (
           <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-4">
             {upstream && (
@@ -132,7 +131,6 @@ export function LookbookSectionPanel({
           </div>
         ) : (
           <>
-            {/* Curation filters */}
             {hasImages && (
               <div className="flex items-center gap-1 mb-2 flex-wrap">
                 {(['all', 'active', 'candidate', 'archived'] as CurationFilter[]).map(f => (
