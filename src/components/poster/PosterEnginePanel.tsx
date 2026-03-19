@@ -9,6 +9,8 @@
  * - Download composed poster as PNG
  */
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useVisualDecision } from "@/hooks/useVisualDecision";
+import { DecisionBadge } from "@/components/visual-decisions/DecisionBadge";
 import { useParams } from "react-router-dom";
 import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
@@ -113,7 +115,22 @@ export default function PosterEnginePanel() {
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showCreditsEditor, setShowCreditsEditor] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<PosterLayoutVariant>("cinematic-dark");
+  // ── Visual Decision: Poster Style ──
+  const posterStyleDecision = useVisualDecision(projectId, 'poster_style');
+  const selectedTemplate = (posterStyleDecision.effective || 'cinematic-dark') as PosterLayoutVariant;
+  const setSelectedTemplate = useCallback((v: string) => {
+    posterStyleDecision.select(v);
+  }, [posterStyleDecision]);
+
+  // Auto-seed recommendation on first load
+  useEffect(() => {
+    if (projectId && !posterStyleDecision.recommended && !posterStyleDecision.isLoading) {
+      posterStyleDecision.refreshRecommendation();
+    }
+  }, [projectId, posterStyleDecision.recommended, posterStyleDecision.isLoading]);
+
+  // ── Visual Decision: Primary Poster ──
+  const posterPrimaryDecision = useVisualDecision(projectId, 'poster_primary');
 
   const isGenerating = generatePoster.isPending;
   const isUploading = uploadPoster.isPending;
@@ -239,24 +256,37 @@ export default function PosterEnginePanel() {
       {/* ── Template Selector + Credits Editor ── */}
       <div className="flex flex-col gap-3">
         {/* Template selector */}
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-card/50 rounded-lg border border-border/30">
-          <Layout className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium text-foreground">Layout Template</span>
-          <Select value={selectedTemplate} onValueChange={(v) => setSelectedTemplate(v as PosterLayoutVariant)}>
-            <SelectTrigger className="w-48 h-7 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(POSTER_TEMPLATES).map(([key, tmpl]) => (
-                <SelectItem key={key} value={key} className="text-xs">
-                  {tmpl.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <span className="text-[10px] text-muted-foreground ml-1">
-            {POSTER_TEMPLATES[selectedTemplate]?.description}
-          </span>
+        <div className="flex flex-col gap-2 px-4 py-2.5 bg-card/50 rounded-lg border border-border/30">
+          <div className="flex items-center gap-3">
+            <Layout className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium text-foreground">Layout Template</span>
+            <Select value={selectedTemplate} onValueChange={(v) => setSelectedTemplate(v as PosterLayoutVariant)}>
+              <SelectTrigger className="w-48 h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(POSTER_TEMPLATES).map(([key, tmpl]) => (
+                  <SelectItem key={key} value={key} className="text-xs">
+                    {tmpl.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-[10px] text-muted-foreground ml-1">
+              {POSTER_TEMPLATES[selectedTemplate]?.description}
+            </span>
+          </div>
+          <DecisionBadge
+            recommended={posterStyleDecision.recommended}
+            recommendedReason={posterStyleDecision.recommendedReason}
+            selected={posterStyleDecision.selected}
+            effective={posterStyleDecision.effective}
+            isUserSelected={posterStyleDecision.isUserSelected}
+            recommendedLabel={posterStyleDecision.recommended ? POSTER_TEMPLATES[posterStyleDecision.recommended as PosterLayoutVariant]?.label : undefined}
+            selectedLabel={posterStyleDecision.selected ? POSTER_TEMPLATES[posterStyleDecision.selected as PosterLayoutVariant]?.label : undefined}
+            onAcceptRecommendation={() => posterStyleDecision.recommended && posterStyleDecision.select(posterStyleDecision.recommended)}
+            onClearSelection={posterStyleDecision.isUserSelected ? posterStyleDecision.clearSelection : undefined}
+          />
         </div>
 
         {/* Credits editor */}

@@ -2,8 +2,9 @@
  * LookBookPage — Studio-quality visual pitch deck / look book.
  * Route: /projects/:id/lookbook
  * Full Visual Asset System with pack generation, curation, and selection.
+ * Uses unified visual decision system: recommend → choose → lock → propagate.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -16,6 +17,8 @@ import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSectionImages } from '@/hooks/useLookbookSectionImages';
+import { useVisualDecision, recommendLookbookSectionImage } from '@/hooks/useVisualDecision';
+import { DecisionBadge } from '@/components/visual-decisions/DecisionBadge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { SHOT_PACKS } from '@/lib/images/types';
@@ -30,10 +33,22 @@ const SECTIONS = [
 
 function SectionImagePanel({ projectId, section }: { projectId: string; section: typeof SECTIONS[number] }) {
   const { sectionImages, generating, generate } = useLookbookSectionImages(projectId, section.key);
+  const decision = useVisualDecision(projectId, 'lookbook_section_image', 'section', section.key);
   const [open, setOpen] = useState(sectionImages.length > 0);
 
   const activeCount = sectionImages.filter(i => i.curation_state === 'active' || i.is_primary).length;
   const candidateCount = sectionImages.filter(i => i.curation_state === 'candidate' && !i.is_primary).length;
+
+  // Auto-seed recommendation when images exist but no decision yet
+  useEffect(() => {
+    if (sectionImages.length > 0 && !decision.recommended && !decision.isLoading) {
+      recommendLookbookSectionImage(projectId, section.key).then(result => {
+        if (result) {
+          decision.select(result.value);
+        }
+      }).catch(() => {});
+    }
+  }, [sectionImages.length, decision.recommended, decision.isLoading, projectId, section.key]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -51,6 +66,14 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
             {sectionImages.length === 0 && (
               <span className="text-[10px] text-muted-foreground/60">empty</span>
             )}
+            <DecisionBadge
+              recommended={decision.recommended}
+              selected={decision.selected}
+              effective={decision.effective}
+              isUserSelected={decision.isUserSelected}
+              onClearSelection={decision.isUserSelected ? decision.clearSelection : undefined}
+              compact
+            />
           </div>
         </div>
         <ChevronRight className={cn(

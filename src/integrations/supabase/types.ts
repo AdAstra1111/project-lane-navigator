@@ -23730,6 +23730,72 @@ export type Database = {
           },
         ]
       }
+      visual_decisions: {
+        Row: {
+          created_at: string
+          decision_domain: string
+          id: string
+          is_locked: boolean
+          project_id: string
+          recommended_at: string | null
+          recommended_reason: string | null
+          recommended_value: string | null
+          selected_at: string | null
+          selected_value: string | null
+          target_key: string | null
+          target_scope: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision_domain: string
+          id?: string
+          is_locked?: boolean
+          project_id: string
+          recommended_at?: string | null
+          recommended_reason?: string | null
+          recommended_value?: string | null
+          selected_at?: string | null
+          selected_value?: string | null
+          target_key?: string | null
+          target_scope?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decision_domain?: string
+          id?: string
+          is_locked?: boolean
+          project_id?: string
+          recommended_at?: string | null
+          recommended_reason?: string | null
+          recommended_value?: string | null
+          selected_at?: string | null
+          selected_value?: string | null
+          target_key?: string | null
+          target_scope?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visual_reference_assets: {
         Row: {
           created_at: string
