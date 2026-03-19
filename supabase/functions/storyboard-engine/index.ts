@@ -545,6 +545,15 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
   const basePrompt = override_prompt || payload.prompt || "A cinematic scene";
   const negativePrompt = override_negative || payload.negative_prompt || "";
 
+  // Resolve VSAL — inject style authority into storyboard frames
+  let vsalBlock = "";
+  const vsalRes = await resolveVisualStyleProfile(db, projectId);
+  if (vsalRes.found && vsalRes.complete && vsalRes.promptBlock) {
+    vsalBlock = `\n${vsalRes.promptBlock}`;
+  } else {
+    console.warn(`[VSAL:storyboard] Style profile not available for ${projectId}: ${vsalRes.error || 'missing'} — using default style`);
+  }
+
   const styleGuide: Record<string, string> = {
     cinematic_realism: "cinematic storyboard frame, film still, high detail, realistic lighting, professional cinematography",
     anime: "anime style storyboard, detailed animation key frame, vivid colors",
@@ -552,7 +561,7 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
     watercolor: "watercolor storyboard sketch, artistic, soft edges, painterly style",
   };
 
-  const finalPrompt = `${basePrompt}. ${styleGuide[stylePreset] || styleGuide.cinematic_realism}. Aspect ratio ${aspectRatio}.${negativePrompt ? ` Avoid: ${negativePrompt}` : ""}`;
+  const finalPrompt = `${basePrompt}. ${styleGuide[stylePreset] || styleGuide.cinematic_realism}. Aspect ratio ${aspectRatio}.${negativePrompt ? ` Avoid: ${negativePrompt}` : ""}${vsalBlock}`;
 
   try {
     const response = await fetch(GATEWAY_URL, {
