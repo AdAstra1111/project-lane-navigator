@@ -51,18 +51,46 @@ export interface ProducerGuidanceItem {
 
 export type ClarificationStatus = 'resolved' | 'partial' | 'missing';
 
+export interface ClarificationAnswer {
+  text: string;
+  confidence: 'high' | 'medium' | 'low';
+  basis: 'direct_evidence' | 'inferred_context' | 'persistent_marker' | 'transient_state' | 'canon';
+}
+
 export interface MissingClarification {
   category: TraitCategory;
   question: string;
   importance: 'high' | 'medium' | 'low';
   status: ClarificationStatus;
   resolvedBy?: string;
+  answerCandidate?: ClarificationAnswer;
 }
 
 export interface EvidenceTrait extends VisualDNATrait {
   evidenceSource: string;
   evidenceExcerpt: string;
 }
+
+/**
+ * Transient Visual State — temporary/situational appearance detail.
+ * Scene-bound, NOT a permanent identity constraint.
+ * Must NOT be enforced as cross-image invariants.
+ */
+export interface TransientVisualState {
+  label: string;
+  category: TraitCategory;
+  bodyRegion: string;
+  confidence: 'high' | 'medium' | 'low';
+  evidenceSource: string;
+  evidenceExcerpt: string;
+  sceneContext?: string;
+}
+
+/**
+ * Patterns that indicate transient/situational states rather than permanent traits.
+ * These should NEVER become binding markers.
+ */
+const TRANSIENT_STATE_PATTERNS = /\b(trembl(?:e|es|ing)|pales?|palid|flush(?:ed|es|ing)?|sweat(?:s|ing|y)?|tears?|crying|bleeding|blood(?:ied|y)?|stain(?:ed|s)?|muddy|dusty|soaked|drenched|dishevell?ed|bruise[ds]?|fresh wound|scratch(?:ed|es)?|limping|exhausted|fatigued|sunburn(?:ed)?|blistered|shiver(?:s|ing)?|goosebumps?|frostbitten|windswept|rain.?soaked|snow.?covered|soot.?covered|dirt(?:y|ied)?|grimy|greasy|tangled|matted|unkempt|tousled|ruffled)\b/i;
 
 export interface CharacterVisualDNA {
   characterName: string;
