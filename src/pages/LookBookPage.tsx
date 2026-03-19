@@ -1,116 +1,27 @@
 /**
- * LookBookPage — Studio-quality visual pitch deck / look book.
+ * LookBookPage — Section-driven visual pitch deck engine.
  * Route: /projects/:id/lookbook
- * Always shows structured section shells. Never blank dead state.
- * Auto-bootstraps canonical sections on first visit.
+ * Canonical lookbook_sections are the authoritative runtime model.
+ * Auto-bootstraps on first visit. Never blank dead state.
  */
 import { useState, useCallback, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette, ChevronRight, AlertTriangle, Wrench,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
-import { LookbookSectionShell } from '@/components/lookbook/LookbookSectionShell';
-import { ImageSelectorGrid } from '@/components/images/ImageSelectorGrid';
+import { LookbookSectionPanel } from '@/components/lookbook/LookbookSectionPanel';
 import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
-import { useLookbookSections } from '@/hooks/useLookbookSections';
-import { useLookbookSectionImages } from '@/hooks/useLookbookSectionImages';
+import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { SHOT_PACKS } from '@/lib/images/types';
-import type { CurationState } from '@/lib/images/types';
 import type { LookBookData } from '@/lib/lookbook/types';
-import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPanel';
-import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPanel';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
-
-// Legacy image section keys mapping to lookbook section images
-const IMAGE_SECTIONS = [
-  { key: 'world' as const, label: 'World / Setting', icon: Globe, description: 'Establishing shots, atmospheric details, and environmental storytelling', packSize: SHOT_PACKS.world.length },
-  { key: 'character' as const, label: 'Characters', icon: User, description: 'Multi-angle character portraits: close-up, medium, full body, profile', packSize: SHOT_PACKS.character.length },
-  { key: 'key_moment' as const, label: 'Key Moments', icon: Zap, description: 'Pivotal dramatic scenes across different framings', packSize: SHOT_PACKS.key_moment.length },
-  { key: 'visual_language' as const, label: 'Visual Language', icon: Palette, description: 'Lighting, texture, composition, and color references', packSize: SHOT_PACKS.visual_language.length },
-] as const;
-
-type CurationFilter = 'active' | 'candidate' | 'archived' | 'all';
-
-function SectionImagePanel({ projectId, section }: { projectId: string; section: typeof IMAGE_SECTIONS[number] }) {
-  const [filter, setFilter] = useState<CurationFilter>('all');
-  const { sectionImages, generating, generate, total, hasMore, loadMore } = useLookbookSectionImages(
-    projectId, section.key, undefined,
-    { curationFilter: filter === 'all' ? 'all' : filter, pageSize: 12 },
-  );
-  const [open, setOpen] = useState(sectionImages.length > 0);
-
-  const activeCount = sectionImages.filter(i => i.curation_state === 'active').length;
-  const candidateCount = sectionImages.filter(i => i.curation_state === 'candidate').length;
-  const archivedCount = sectionImages.filter(i => i.curation_state === 'archived').length;
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2.5 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
-        <section.icon className="h-4 w-4 text-primary shrink-0" />
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-foreground">{section.label}</span>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            {activeCount > 0 && <span className="text-[10px] text-primary font-medium">{activeCount} active</span>}
-            {candidateCount > 0 && <span className="text-[10px] text-muted-foreground">{candidateCount} candidates</span>}
-            {archivedCount > 0 && <span className="text-[10px] text-muted-foreground/50">{archivedCount} archived</span>}
-            {sectionImages.length === 0 && <span className="text-[10px] text-muted-foreground/60">empty</span>}
-            {total > 0 && <span className="text-[10px] text-muted-foreground/40">({total} total)</span>}
-          </div>
-        </div>
-        <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-90')} />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="px-3 pb-3">
-        <p className="text-xs text-muted-foreground mb-2">{section.description}</p>
-        {sectionImages.length > 0 && (
-          <div className="flex items-center gap-1 mb-2 flex-wrap">
-            {(['all', 'active', 'candidate', 'archived'] as CurationFilter[]).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={cn(
-                  'text-[10px] px-2 py-0.5 rounded-full border transition-colors capitalize',
-                  filter === f ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted/30 border-border/50 text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {f}
-                {f === 'active' && activeCount > 0 && ` (${activeCount})`}
-                {f === 'candidate' && candidateCount > 0 && ` (${candidateCount})`}
-                {f === 'archived' && archivedCount > 0 && ` (${archivedCount})`}
-              </button>
-            ))}
-          </div>
-        )}
-        <ImageSelectorGrid
-          projectId={projectId}
-          images={sectionImages}
-          onGenerate={() => generate(section.packSize)}
-          isGenerating={generating}
-          generateLabel={`Generate Pack (${section.packSize} shots)`}
-          emptyLabel={`No ${section.label.toLowerCase()} images yet`}
-          showShotTypes
-          showCurationControls
-          enableCompare
-          showProvenance
-        />
-        {hasMore && (
-          <Button variant="ghost" size="sm" className="w-full mt-2 text-xs text-muted-foreground" onClick={loadMore}>
-            Load More
-          </Button>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
 
 export default function LookBookPage() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -119,8 +30,9 @@ export default function LookBookPage() {
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [populatingSection, setPopulatingSection] = useState<string | null>(null);
 
-  // Canonical section structure
+  // Canonical section structure — authoritative runtime model
   const {
     sections,
     isLoading: sectionsLoading,
@@ -128,6 +40,7 @@ export default function LookBookPage() {
     structureStatus,
     bootstrap,
     isBootstrapping,
+    updateSectionStatus,
   } = useLookbookSections(projectId);
 
   // Auto-bootstrap on first visit if no sections exist
@@ -136,16 +49,6 @@ export default function LookBookPage() {
       bootstrap();
     }
   }, [sectionsLoading, isBootstrapped, projectId, isBootstrapping, bootstrap]);
-
-  // Legacy image counts for backward compat
-  const worldImages = useLookbookSectionImages(projectId, 'world');
-  const charImages = useLookbookSectionImages(projectId, 'character');
-  const momentImages = useLookbookSectionImages(projectId, 'key_moment');
-  const vlImages = useLookbookSectionImages(projectId, 'visual_language');
-  const totalImages = (worldImages.sectionImages?.length || 0) +
-    (charImages.sectionImages?.length || 0) +
-    (momentImages.sectionImages?.length || 0) +
-    (vlImages.sectionImages?.length || 0);
 
   const handleGenerate = useCallback(async () => {
     if (!projectId) return;
@@ -183,6 +86,46 @@ export default function LookBookPage() {
     }
   }, [lookBookData, projectId]);
 
+  // Section populate handler — triggers upstream pull for each section
+  const handlePopulate = useCallback(async (sectionKey: CanonicalSectionKey) => {
+    if (!projectId) return;
+    setPopulatingSection(sectionKey);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
+        body: {
+          project_id: projectId,
+          section: sectionKey === 'character_identity' ? 'character'
+            : sectionKey === 'world_locations' ? 'world'
+            : sectionKey === 'atmosphere_lighting' ? 'visual_language'
+            : sectionKey === 'texture_detail' ? 'visual_language'
+            : sectionKey === 'symbolic_motifs' ? 'key_moment'
+            : 'world', // poster_directions fallback
+          count: 4,
+          asset_group: sectionKey === 'character_identity' ? 'character'
+            : sectionKey === 'world_locations' ? 'world'
+            : sectionKey === 'atmosphere_lighting' ? 'visual_language'
+            : sectionKey === 'texture_detail' ? 'visual_language'
+            : sectionKey === 'symbolic_motifs' ? 'key_moment'
+            : 'poster',
+          pack_mode: true,
+        },
+      });
+      if (error) throw error;
+      const results = data?.results || [];
+      const successCount = results.filter((r: any) => r.status === 'ready').length;
+      if (successCount > 0) {
+        toast.success(`Generated ${successCount} images for ${sectionKey.replace(/_/g, ' ')}`);
+        await updateSectionStatus(sectionKey, { section_status: 'partially_populated' });
+      } else {
+        toast.info('No images generated — check upstream prerequisites');
+      }
+    } catch (e: any) {
+      toast.error(e.message || `Failed to populate ${sectionKey}`);
+    } finally {
+      setPopulatingSection(null);
+    }
+  }, [projectId, updateSectionStatus]);
+
   if (projectLoading || sectionsLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -211,7 +154,9 @@ export default function LookBookPage() {
     );
   }
 
-  // ── WORKSPACE MODE: structured sections + image panels ──
+  // ── WORKSPACE MODE: section-driven ──
+  const populatedCount = sections.filter(s => s.section_status !== 'empty_but_bootstrapped').length;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Toolbar */}
@@ -221,12 +166,9 @@ export default function LookBookPage() {
           <span className="text-sm font-semibold text-foreground">Look Book</span>
           <Badge variant="secondary" className="text-[10px]">
             {structureStatus === 'fully_populated' ? 'Complete' :
-             structureStatus === 'partially_populated' ? 'Partial' :
+             structureStatus === 'partially_populated' ? `${populatedCount}/${sections.length} sections` :
              structureStatus === 'empty_but_bootstrapped' ? 'Ready' : 'Needs Setup'}
           </Badge>
-          {totalImages > 0 && (
-            <Badge variant="outline" className="text-[10px]">{totalImages} images</Badge>
-          )}
         </div>
         <div className="flex items-center gap-1.5">
           {structureStatus === 'invalid_structure' && (
@@ -264,35 +206,28 @@ export default function LookBookPage() {
           </div>
         )}
 
-        {/* Canonical Section Shells — always visible */}
+        {/* Canonical Sections — the authoritative runtime model */}
         {sections.length > 0 && (
-          <div className="space-y-1.5 mb-6">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Lookbook Sections</p>
+          <div className="space-y-1.5">
             {sections.map(section => (
-              <LookbookSectionShell key={section.id} section={section} />
+              <LookbookSectionPanel
+                key={section.id}
+                projectId={projectId!}
+                section={section}
+                onPopulate={handlePopulate}
+                isPopulating={populatingSection === section.section_key}
+              />
             ))}
           </div>
         )}
 
-        {/* Image Pack Panels */}
-        <div className="space-y-0.5">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Image Packs</p>
-          {IMAGE_SECTIONS.map(section => (
-            <SectionImagePanel key={section.key} projectId={projectId!} section={section} />
-          ))}
-        </div>
-
-        {/* World & Location Reference System */}
-        {projectId && (
-          <div className="mt-6 border-t border-border pt-4">
-            <WorldLocationLookPanel projectId={projectId} />
-          </div>
-        )}
-
-        {/* Character Base Look System */}
-        {projectId && (
-          <div className="mt-6 border-t border-border pt-4">
-            <CharacterBaseLookPanel projectId={projectId} />
+        {/* Empty state when no sections at all (shouldn't happen post-bootstrap) */}
+        {sections.length === 0 && !isBootstrapping && (
+          <div className="text-center py-12">
+            <p className="text-sm text-muted-foreground mb-3">No lookbook sections found.</p>
+            <Button size="sm" variant="outline" onClick={bootstrap}>
+              Bootstrap Structure
+            </Button>
           </div>
         )}
       </div>
