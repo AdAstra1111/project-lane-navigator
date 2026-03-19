@@ -269,7 +269,7 @@ export function parseUserNotes(notes: string): CharacterTrait[] {
 
 function deduplicateTraits(traits: CharacterTrait[]): CharacterTrait[] {
   const seen = new Map<string, CharacterTrait>();
-  const SOURCE_PRIORITY: Record<TraitSource, number> = { script: 0, narrative: 1, inferred: 2, user: 3 };
+  const SOURCE_PRIORITY: Record<TraitSource, number> = { script: 0, narrative: 1, evidence: 2, inferred: 3, user: 4 };
   
   for (const t of traits) {
     const key = t.label.toLowerCase().trim();

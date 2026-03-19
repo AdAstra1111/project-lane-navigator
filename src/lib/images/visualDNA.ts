@@ -46,6 +46,11 @@ export interface MissingClarification {
   importance: 'high' | 'medium' | 'low';
 }
 
+export interface EvidenceTrait extends VisualDNATrait {
+  evidenceSource: string;
+  evidenceExcerpt: string;
+}
+
 export interface CharacterVisualDNA {
   characterName: string;
   
@@ -66,6 +71,9 @@ export interface CharacterVisualDNA {
   
   /** Layer 6: Traits allowed to vary */
   flexibleAxes: VisualDNATrait[];
+
+  /** Layer 7: AI-extracted evidence traits — INFERRED, traceable */
+  evidenceTraits: EvidenceTrait[];
   
   /** Conflicts between sources */
   contradictions: TraitContradiction[];
