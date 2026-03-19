@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
-  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw,
+  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPanel';
 import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPanel';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
+import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
+import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
   {
