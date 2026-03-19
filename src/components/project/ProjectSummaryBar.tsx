@@ -15,9 +15,7 @@ import { getFormatMeta } from '@/lib/mode-engine';
 import type { PackagingMode, PackagingStage } from '@/lib/role-gravity-engine';
 import { BEHAVIOR_LABELS, BEHAVIOR_COLORS, type DevelopmentBehavior } from '@/lib/dev-os-config';
 import { getProjectModality, MODALITY_LABELS, type ProductionModality } from '@/config/productionModality';
-import { RenameProjectDialog } from '@/components/project/RenameProjectDialog';
-import { useProjects } from '@/hooks/useProjects';
-import { toast } from 'sonner';
+import { ProjectTitleManager } from '@/components/project/ProjectTitleManager';
 
 interface Props {
   project: Project;
@@ -36,12 +34,7 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
   const behavior = (project.development_behavior as DevelopmentBehavior) || 'market';
   const modality = getProjectModality((project as any).project_features);
   const ModalityIcon = MODALITY_ICONS[modality];
-  const { renameProject } = useProjects();
-
-  const handleRename = async (newTitle: string) => {
-    await renameProject.mutateAsync({ projectId: project.id, title: newTitle });
-    toast.success('Project renamed');
-  };
+  // Rename is now handled by ProjectTitleManager with full history governance
 
   return (
     <div className="sticky top-0 z-30 bg-background/70 backdrop-blur-2xl border-b border-border/20 -mx-4 px-4 py-2.5 mb-4">
@@ -54,9 +47,9 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
           <h2 className="font-display font-bold text-foreground text-lg leading-tight line-clamp-2">
             {project.title}
           </h2>
-          <RenameProjectDialog
+          <ProjectTitleManager
+            projectId={project.id}
             currentTitle={project.title}
-            onRename={handleRename}
           />
         </div>
 
