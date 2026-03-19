@@ -11,8 +11,10 @@ import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
   Loader2, Sparkles, Star, ChevronDown, User, Mountain,
   Swords, Award, Megaphone, Drama, PenLine, Plus, X,
-  Download, Layout, Maximize2, Edit3, Wand2, Send,
+  Download, Layout, Maximize2, Edit3, Wand2, Send, ShieldAlert,
 } from "lucide-react";
+import { useProjectPostersFreshness, useRefreshStalePoster } from "@/hooks/useVisualTruthFreshness";
+import type { FreshnessResult } from "@/lib/visual-truth-dependencies";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -107,6 +109,47 @@ function PosterImage({
   );
 }
 
+// ── Freshness Badge ──
+function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
+  freshness?: FreshnessResult;
+  posterId: string;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  if (!freshness || freshness.status === 'current') return null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Badge
+        variant="outline"
+        className={cn(
+          "text-[9px] gap-1",
+          freshness.status === 'stale' && "border-destructive/40 text-destructive",
+          freshness.status === 'needs_refresh' && "border-amber-500/40 text-amber-500",
+        )}
+      >
+        <ShieldAlert className="w-2.5 h-2.5" />
+        {freshness.status === 'stale' ? 'Stale' : 'Needs Refresh'}
+      </Badge>
+      {freshness.staleReasons.length > 0 && (
+        <span className="text-[9px] text-muted-foreground max-w-[200px] truncate" title={freshness.staleReasons.join('; ')}>
+          {freshness.staleReasons[0]}
+        </span>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-5 text-[9px] px-2 gap-1"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+      >
+        {isRefreshing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
 export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
   const { project } = useProject(projectId || "");
@@ -119,6 +162,8 @@ export default function PosterEnginePanel() {
   const uploadPoster = useUploadPosterKeyArt(projectId);
   const setActivePoster = useSetActivePoster(projectId);
   const deletePoster = useDeletePoster(projectId);
+  const { data: freshnessMap } = useProjectPostersFreshness(projectId);
+  const refreshStale = useRefreshStalePoster(projectId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -381,8 +426,8 @@ export default function PosterEnginePanel() {
                   onCanvasReady={(c) => { activePosterCanvasRef.current = c; }}
                 />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
                   <span className="text-sm font-medium text-foreground">Active Poster</span>
                   <Badge variant="outline" className="text-[9px]">v{activePoster.version_number}</Badge>
@@ -394,6 +439,7 @@ export default function PosterEnginePanel() {
                   {(activePoster.prompt_inputs as any)?.poster_mode === 'edit' && (
                     <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-500">edited</Badge>
                   )}
+                  <FreshnessBadge freshness={freshnessMap?.[activePoster.id]} posterId={activePoster.id} onRefresh={() => refreshStale.mutate(activePoster.id)} isRefreshing={refreshStale.isPending} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {activePoster.source_type === "generated" ? "AI Key Art" : activePoster.source_type === "edited" ? "Edited" : "Uploaded"} • {POSTER_TEMPLATES[selectedTemplate]?.label || selectedTemplate}
@@ -460,6 +506,14 @@ export default function PosterEnginePanel() {
                       {isActive && (
                         <div className="absolute top-2 right-2 bg-primary rounded-full p-0.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-primary-foreground" />
+                        </div>
+                      )}
+
+                      {/* Freshness indicator on card */}
+                      {poster && freshnessMap?.[poster.id]?.status === 'stale' && (
+                        <div className="absolute bottom-2 left-2 bg-destructive/90 backdrop-blur-sm rounded-md px-1.5 py-0.5 flex items-center gap-1">
+                          <ShieldAlert className="w-2.5 h-2.5 text-destructive-foreground" />
+                          <span className="text-[9px] font-medium text-destructive-foreground">Stale</span>
                         </div>
                       )}
 
@@ -685,6 +739,29 @@ export default function PosterEnginePanel() {
                       <Trash2 className="w-3 h-3" /> Delete
                     </Button>
                   </div>
+
+                  {/* Freshness status */}
+                  {freshnessMap?.[expandedPoster.id] && freshnessMap[expandedPoster.id].status !== 'current' && (
+                    <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-[10px] font-medium text-destructive">
+                        <ShieldAlert className="w-3 h-3" />
+                        Upstream Truth Changed
+                      </div>
+                      {freshnessMap[expandedPoster.id].staleReasons.map((r, i) => (
+                        <p key={i} className="text-[9px] text-muted-foreground">• {r}</p>
+                      ))}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[9px] w-full gap-1"
+                        onClick={() => refreshStale.mutate(expandedPoster.id)}
+                        disabled={refreshStale.isPending}
+                      >
+                        {refreshStale.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+                        Refresh with Updated Truth
+                      </Button>
+                    </div>
+                  )}
 
                   {/* Metadata */}
                   <div className="space-y-1.5 text-[10px] text-muted-foreground">

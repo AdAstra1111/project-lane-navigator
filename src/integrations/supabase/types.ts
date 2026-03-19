@@ -13249,6 +13249,7 @@ export type Database = {
           created_by: string | null
           curation_state: Database["public"]["Enums"]["curation_state"]
           entity_id: string | null
+          freshness_status: string
           generation_config: Json
           generation_purpose: string | null
           height: number | null
@@ -13266,6 +13267,7 @@ export type Database = {
           role: Database["public"]["Enums"]["project_image_role"]
           shot_type: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id: string | null
+          stale_reason: string | null
           state_key: string | null
           state_label: string | null
           storage_bucket: string
@@ -13275,6 +13277,7 @@ export type Database = {
           subject: string | null
           subject_ref: string | null
           subject_type: string | null
+          truth_snapshot_json: Json | null
           user_id: string
           width: number | null
         }
@@ -13287,6 +13290,7 @@ export type Database = {
           created_by?: string | null
           curation_state?: Database["public"]["Enums"]["curation_state"]
           entity_id?: string | null
+          freshness_status?: string
           generation_config?: Json
           generation_purpose?: string | null
           height?: number | null
@@ -13304,6 +13308,7 @@ export type Database = {
           role: Database["public"]["Enums"]["project_image_role"]
           shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
+          stale_reason?: string | null
           state_key?: string | null
           state_label?: string | null
           storage_bucket?: string
@@ -13313,6 +13318,7 @@ export type Database = {
           subject?: string | null
           subject_ref?: string | null
           subject_type?: string | null
+          truth_snapshot_json?: Json | null
           user_id: string
           width?: number | null
         }
@@ -13325,6 +13331,7 @@ export type Database = {
           created_by?: string | null
           curation_state?: Database["public"]["Enums"]["curation_state"]
           entity_id?: string | null
+          freshness_status?: string
           generation_config?: Json
           generation_purpose?: string | null
           height?: number | null
@@ -13342,6 +13349,7 @@ export type Database = {
           role?: Database["public"]["Enums"]["project_image_role"]
           shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
+          stale_reason?: string | null
           state_key?: string | null
           state_label?: string | null
           storage_bucket?: string
@@ -13351,6 +13359,7 @@ export type Database = {
           subject?: string | null
           subject_ref?: string | null
           subject_type?: string | null
+          truth_snapshot_json?: Json | null
           user_id?: string
           width?: number | null
         }
@@ -14207,7 +14216,9 @@ export type Database = {
         Row: {
           aspect_ratio: string
           created_at: string
+          dependency_hash: string | null
           error_message: string | null
+          freshness_status: string
           id: string
           is_active: boolean
           key_art_public_url: string | null
@@ -14222,7 +14233,9 @@ export type Database = {
           rendered_public_url: string | null
           rendered_storage_path: string | null
           source_type: string
+          stale_reason: string | null
           status: string
+          truth_snapshot_json: Json | null
           updated_at: string
           user_id: string
           version_number: number
@@ -14230,7 +14243,9 @@ export type Database = {
         Insert: {
           aspect_ratio?: string
           created_at?: string
+          dependency_hash?: string | null
           error_message?: string | null
+          freshness_status?: string
           id?: string
           is_active?: boolean
           key_art_public_url?: string | null
@@ -14245,7 +14260,9 @@ export type Database = {
           rendered_public_url?: string | null
           rendered_storage_path?: string | null
           source_type?: string
+          stale_reason?: string | null
           status?: string
+          truth_snapshot_json?: Json | null
           updated_at?: string
           user_id: string
           version_number?: number
@@ -14253,7 +14270,9 @@ export type Database = {
         Update: {
           aspect_ratio?: string
           created_at?: string
+          dependency_hash?: string | null
           error_message?: string | null
+          freshness_status?: string
           id?: string
           is_active?: boolean
           key_art_public_url?: string | null
@@ -14268,7 +14287,9 @@ export type Database = {
           rendered_public_url?: string | null
           rendered_storage_path?: string | null
           source_type?: string
+          stale_reason?: string | null
           status?: string
+          truth_snapshot_json?: Json | null
           updated_at?: string
           user_id?: string
           version_number?: number
@@ -24592,6 +24613,57 @@ export type Database = {
           },
           {
             foreignKeyName: "visual_decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_dependency_links: {
+        Row: {
+          active: boolean
+          asset_id: string
+          asset_type: string
+          created_at: string
+          dependency_id: string
+          dependency_type: string
+          dependency_version_id: string | null
+          id: string
+          project_id: string
+        }
+        Insert: {
+          active?: boolean
+          asset_id: string
+          asset_type?: string
+          created_at?: string
+          dependency_id: string
+          dependency_type: string
+          dependency_version_id?: string | null
+          id?: string
+          project_id: string
+        }
+        Update: {
+          active?: boolean
+          asset_id?: string
+          asset_type?: string
+          created_at?: string
+          dependency_id?: string
+          dependency_type?: string
+          dependency_version_id?: string | null
+          id?: string
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_dependency_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_dependency_links_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

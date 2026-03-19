@@ -499,6 +499,63 @@ async function resolveCompanyBranding(
   return { companyName, writerCredit: "Written by Sebastian Street" };
 }
 
+// ── Visual Truth Snapshot — captures upstream dependencies at generation time ──
+
+interface TruthRef { id: string; name: string; version_id?: string; updated_at?: string; }
+interface VisualTruthSnapshot {
+  characters: TruthRef[];
+  locations: TruthRef[];
+  visual_states: TruthRef[];
+  dna_versions: TruthRef[];
+  canon_hash: string;
+  captured_at: string;
+}
+
+async function captureVisualTruthSnapshot(
+  sb: ReturnType<typeof createClient>,
+  projectId: string,
+): Promise<VisualTruthSnapshot> {
+  const [charRes, locRes, dnaRes, stateRes] = await Promise.all([
+    sb.from("narrative_entities").select("id, canonical_name, updated_at")
+      .eq("project_id", projectId).eq("entity_type", "character").eq("active", true).limit(50),
+    sb.from("canon_locations").select("id, canonical_name, updated_at")
+      .eq("project_id", projectId).eq("active", true).limit(50),
+    sb.from("character_visual_dna").select("id, character_name, created_at")
+      .eq("project_id", projectId).eq("is_current", true).limit(50),
+    sb.from("entity_visual_states").select("id, state_label, updated_at")
+      .eq("project_id", projectId).limit(100),
+  ]);
+
+  const characters = (charRes.data || []).map((c: any) => ({ id: c.id, name: c.canonical_name, updated_at: c.updated_at }));
+  const locations = (locRes.data || []).map((l: any) => ({ id: l.id, name: l.canonical_name, updated_at: l.updated_at }));
+  const dna_versions = (dnaRes.data || []).map((d: any) => ({ id: d.id, name: d.character_name, version_id: d.id, updated_at: d.created_at }));
+  const visual_states = (stateRes.data || []).map((s: any) => ({ id: s.id, name: s.state_label || "unnamed", updated_at: s.updated_at }));
+
+  const parts = [
+    ...characters.map((c: TruthRef) => `char:${c.id}:${c.updated_at || ""}`),
+    ...locations.map((l: TruthRef) => `loc:${l.id}:${l.updated_at || ""}`),
+    ...dna_versions.map((d: TruthRef) => `dna:${d.id}:${d.version_id || ""}`),
+    ...visual_states.map((s: TruthRef) => `state:${s.id}:${s.updated_at || ""}`),
+  ].sort().join("|");
+  let hash = 0;
+  for (let i = 0; i < parts.length; i++) { hash = ((hash << 5) - hash) + parts.charCodeAt(i); hash |= 0; }
+  const canon_hash = Math.abs(hash).toString(36);
+
+  return { characters, locations, visual_states, dna_versions, canon_hash, captured_at: new Date().toISOString() };
+}
+
+async function persistDependencyLinks(
+  sb: ReturnType<typeof createClient>,
+  projectId: string, assetType: string, assetId: string, snapshot: VisualTruthSnapshot,
+) {
+  const links: any[] = [];
+  for (const c of snapshot.characters) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "narrative_entity", dependency_id: c.id, dependency_version_id: null });
+  for (const l of snapshot.locations) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "canon_location", dependency_id: l.id, dependency_version_id: null });
+  for (const d of snapshot.dna_versions) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "dna_version", dependency_id: d.id, dependency_version_id: d.version_id || null });
+  for (const s of snapshot.visual_states) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "visual_state", dependency_id: s.id, dependency_version_id: null });
+  if (links.length > 0) await sb.from("visual_dependency_links").insert(links);
+}
+
 // ── Build strategy context ───────────────────────────────────────────────────
 
 function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyName: string; writerCredit: string }): StrategyContext {
@@ -720,6 +777,9 @@ serve(async (req) => {
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
 
+    // ── Capture visual truth snapshot for dependency tracking ──
+    const truthSnapshot = await captureVisualTruthSnapshot(supabase, project_id);
+
     // Resolve image generation config via shared API resolver
     const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
 
@@ -799,6 +859,9 @@ serve(async (req) => {
           model: editGenConfig.model,
           render_status: "key_art_only",
           is_active: false,
+          truth_snapshot_json: truthSnapshot,
+          dependency_hash: truthSnapshot.canon_hash,
+          freshness_status: "current",
         })
         .select()
         .single();
@@ -890,6 +953,9 @@ serve(async (req) => {
           generation_config: { ...repoMeta, poster_mode: "edit", source_poster_id },
         });
 
+        // Persist dependency links for edit poster
+        await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
+
         return new Response(JSON.stringify({
           poster_id: posterRecord.id,
           status: "ready",
@@ -955,6 +1021,9 @@ serve(async (req) => {
             model: genConfig.model,
             render_status: "key_art_only",
             is_active: false,
+            truth_snapshot_json: truthSnapshot,
+            dependency_hash: truthSnapshot.canon_hash,
+            freshness_status: "current",
           })
           .select()
           .single();
@@ -1011,6 +1080,9 @@ serve(async (req) => {
             console.error(`[project_images] insert failed for strategy=${strategy.key}:`, repoErr.message);
           }
 
+          // Persist dependency links
+          await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
+
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "ready" });
         } catch (genErr: unknown) {
           const errMsg = genErr instanceof Error ? genErr.message : "Generation failed";
@@ -1056,6 +1128,9 @@ serve(async (req) => {
         provider: primaryGenConfig.provider,
         model: primaryGenConfig.model,
         render_status: "key_art_only",
+        truth_snapshot_json: truthSnapshot,
+        dependency_hash: truthSnapshot.canon_hash,
+        freshness_status: "current",
       })
       .select()
       .single();
@@ -1125,6 +1200,9 @@ serve(async (req) => {
       if (repoErr) {
         console.error(`[project_images] legacy insert failed:`, repoErr.message);
       }
+
+      // Persist dependency links
+      await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
 
       return new Response(JSON.stringify({ poster: updatedPoster }), {
         status: 200,
