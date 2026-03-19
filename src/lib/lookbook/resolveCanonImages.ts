@@ -216,5 +216,5 @@ export async function resolveAllCanonImages(projectId: string): Promise<Resolved
 
   console.log('[LookBook:resolveCanonImages] summary:', Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '));
 
-  return map as ResolvedCanonImages;
+  return map as unknown as ResolvedCanonImages;
 }
