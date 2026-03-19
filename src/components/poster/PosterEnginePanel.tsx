@@ -647,6 +647,7 @@ export default function PosterEnginePanel() {
                         branding={brandingData}
                         credits={creditsData}
                         layoutVariant={selectedTemplate}
+                        titleStyle={titleStyle}
                         width={280}
                       />
 
