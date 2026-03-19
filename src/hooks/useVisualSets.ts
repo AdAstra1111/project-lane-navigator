@@ -32,6 +32,8 @@ export interface VisualSet {
   status: VisualSetStatus;
   required_slot_count: number;
   current_dna_version_id: string | null;
+  entity_state_id: string | null;
+  entity_state_key: string | null;
   locked_at: string | null;
   locked_by: string | null;
   created_at: string;
