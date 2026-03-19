@@ -18266,7 +18266,6 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
         console.warn("[dev-engine-v2] build_narrative_obligations: no canon or docs, building with project_identity provenance");
       }
 
-      const seedId = seedRoot.id as string;
       const builtAt = new Date().toISOString();
 
       // Canonical obligation specifications (deterministic, order-stable)
