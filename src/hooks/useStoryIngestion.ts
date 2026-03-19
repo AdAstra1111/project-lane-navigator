@@ -180,16 +180,16 @@ export function useStoryIngestion(projectId: string | undefined) {
   const reviewAction = useCallback(async (
     target: 'entity' | 'alias' | 'transition' | 'participation',
     targetId: string,
-    action: 'approve' | 'reject' | 'escalate'
+    reviewVerb: 'approve' | 'reject' | 'escalate'
   ) => {
     if (!projectId) return null;
     try {
       const { data, error } = await supabase.functions.invoke('story-ingestion-engine', {
-        body: { action: 'review_action', projectId, target, targetId, action },
+        body: { action: 'review_action', projectId, target, targetId, action: reviewVerb },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      toast.success(`${target} ${action}d`);
+      toast.success(`${target} ${reviewVerb}d`);
       return data;
     } catch (err: any) {
       console.error('[useStoryIngestion] Review action error:', err);
