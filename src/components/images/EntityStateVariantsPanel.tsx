@@ -3,7 +3,7 @@
  * Supports generating and curating state variants for characters and locations.
  * Derives from base references: same entity, different state.
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Layers, Plus, Loader2, Star, Archive, RotateCcw, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
