@@ -1153,6 +1153,12 @@ Deno.serve(async (req: Request) => {
           .eq("ingestion_run_id", runId)
           .eq("review_status", "pending");
 
+        const { count: autoResolvedParticipation } = await supabase.from("scene_entity_participation")
+          .select("*", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .eq("review_tier", "auto_accepted");
+
         // ── Complete ──
         const manifest = {
           scenes_parsed: scenes.length,
@@ -1174,6 +1180,9 @@ Deno.serve(async (req: Request) => {
             aliases: reviewAliases || 0,
             transitions: reviewTransitions || 0,
             participation: reviewParticipation || 0,
+          },
+          auto_resolved: {
+            participation: autoResolvedParticipation || 0,
           },
         };
 
