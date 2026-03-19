@@ -6,6 +6,7 @@ import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { AUTO_RUN_EXECUTION_MODE } from '@/lib/autoRunConfig';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
+import { isValidUUID } from '@/lib/validation/uuid';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
