@@ -25383,6 +25383,15 @@ export type Database = {
         Returns: Json
       }
       safe_delete_version: { Args: { p_version_id: string }; Returns: Json }
+      scene_graph_atomic_write: {
+        Args: {
+          p_created_by: string
+          p_force?: boolean
+          p_project_id: string
+          p_scenes?: Json
+        }
+        Returns: Json
+      }
       search_corpus_chunks: {
         Args: { match_count?: number; p_user_id?: string; search_query: string }
         Returns: {
