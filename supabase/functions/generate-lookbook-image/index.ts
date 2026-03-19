@@ -328,6 +328,8 @@ serve(async (req) => {
       logline,
       stylePolicy,
       characterName: character_name,
+      locationName: location_name,
+      locationDescription: location_description,
     };
 
     // Determine shots to generate
