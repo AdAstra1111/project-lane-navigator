@@ -21237,6 +21237,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
           setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
           setup_payoff_required: curVer?.setup_payoff_required ?? [],
           metadata: curVer?.metadata ?? {},
+          canon_location_id: curVer?.canon_location_id ?? null,
         }).select().single();
         if (vErr) throw vErr;
         const action_id = await sgLogAction(supabase, projectId, user.id, 'update', {
