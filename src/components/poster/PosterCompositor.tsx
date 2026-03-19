@@ -3,11 +3,8 @@
  * Takes key art + structured credits → renders a branded poster with title + billing block.
  * All text is deterministic — NO hallucinated names.
  *
- * Layout system:
- *   Upper 70%  — visual key art
- *   Mid zone   — large title (centered)
- *   Lower zone — credits + billing block
- *   Bottom bar — company branding
+ * Title typography is template-aware with configurable modes:
+ *   prestige_serif, classic_theatrical_serif, commercial_refined, minimalist_elegant
  */
 import { useRef, useEffect, useState } from "react";
 
@@ -20,6 +17,68 @@ export interface PosterCreditsData {
 
 export type PosterLayoutVariant = "classic-theatrical" | "prestige-awards" | "prestige" | "commercial" | "cinematic-dark" | "cinematic-light" | "minimal";
 
+export type TitleTypographyMode =
+  | "prestige_serif"
+  | "classic_theatrical_serif"
+  | "commercial_refined"
+  | "minimalist_elegant";
+
+export type TitleCaseMode = "uppercase" | "mixed" | "small_caps";
+
+export type TitlePositionMode = "center" | "lower_center" | "lower_third" | "lower_left";
+
+export interface TitleStyleConfig {
+  typographyMode?: TitleTypographyMode;
+  caseMode?: TitleCaseMode;
+  colorHex?: string;
+  opacity?: number;
+  positionMode?: TitlePositionMode;
+  /** Override weight (100-900) */
+  weightOverride?: number;
+  /** Override tracking multiplier */
+  trackingOverride?: number;
+  /** Subtle emboss/depth effect */
+  enableDepth?: boolean;
+}
+
+/** Exported metadata for UI */
+export interface TitleTypographyInfo {
+  label: string;
+  description: string;
+}
+
+export const TITLE_TYPOGRAPHY_MODES: Record<TitleTypographyMode, TitleTypographyInfo> = {
+  prestige_serif: {
+    label: "Prestige Serif",
+    description: "Refined serif, light weight, high tracking — festival / awards aesthetic",
+  },
+  classic_theatrical_serif: {
+    label: "Classic Theatrical",
+    description: "Strong serif with gravitas — classic cinema lobby one-sheet",
+  },
+  commercial_refined: {
+    label: "Commercial Refined",
+    description: "Bold but designed sans-serif — mainstream theatrical appeal",
+  },
+  minimalist_elegant: {
+    label: "Minimalist Elegant",
+    description: "Ultra-light, maximum restraint — auteur / A24 style",
+  },
+};
+
+export const TITLE_CASE_OPTIONS: Record<TitleCaseMode, string> = {
+  uppercase: "ALL CAPS",
+  mixed: "Mixed Case",
+  small_caps: "Small Caps",
+};
+
+export const TITLE_POSITION_OPTIONS: Record<TitlePositionMode, string> = {
+  center: "Center",
+  lower_center: "Lower Center",
+  lower_third: "Lower Third",
+  lower_left: "Lower Left",
+};
+
 interface PosterCompositorProps {
   keyArtUrl: string;
   title: string;
@@ -29,6 +88,7 @@ interface PosterCompositorProps {
   credits?: PosterCreditsData;
   aspectRatio?: "2:3" | "1:1" | "16:9";
   layoutVariant?: PosterLayoutVariant;
+  titleStyle?: TitleStyleConfig;
   width?: number;
   onRender?: (canvas: HTMLCanvasElement) => void;
   className?: string;
@@ -42,6 +102,10 @@ const BRAND = {
   amberLight: "#D4A84E",
   amberDim: "#A07830",
   white: "#F5F2ED",
+  ivory: "#F0EBE1",
+  bone: "#E5DFD3",
+  warmGold: "#D4B878",
+  mutedGold: "#B8A06A",
   silver: "#B8B5AE",
   creditGray: "#8A877F",
   billingGray: "#6E6B64",
@@ -53,6 +117,91 @@ const ASPECT_RATIOS: Record<string, { w: number; h: number }> = {
   "16:9": { w: 1280, h: 720 },
 };
 
+// ── Typography Mode → Font Config ────────────────────────────────────────────
+
+interface TitleFontConfig {
+  fontFamily: string;
+  weight: number;
+  tracking: number;
+  defaultCase: TitleCaseMode;
+  defaultColor: string;
+  defaultOpacity: number;
+  shadowBlur: number;
+  shadowAlpha: number;
+  sizeScale: number;
+}
+
+const TYPOGRAPHY_CONFIGS: Record<TitleTypographyMode, TitleFontConfig> = {
+  prestige_serif: {
+    fontFamily: '"Fraunces", "Crimson Pro", Georgia, serif',
+    weight: 300,
+    tracking: 0.18,
+    defaultCase: "mixed",
+    defaultColor: BRAND.ivory,
+    defaultOpacity: 0.92,
+    shadowBlur: 16,
+    shadowAlpha: 0.5,
+    sizeScale: 0.88,
+  },
+  classic_theatrical_serif: {
+    fontFamily: '"Fraunces", "Crimson Pro", Georgia, serif',
+    weight: 600,
+    tracking: 0.12,
+    defaultCase: "uppercase",
+    defaultColor: BRAND.bone,
+    defaultOpacity: 0.95,
+    shadowBlur: 20,
+    shadowAlpha: 0.6,
+    sizeScale: 1.0,
+  },
+  commercial_refined: {
+    fontFamily: '"DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif',
+    weight: 700,
+    tracking: 0.06,
+    defaultCase: "uppercase",
+    defaultColor: BRAND.white,
+    defaultOpacity: 0.97,
+    shadowBlur: 22,
+    shadowAlpha: 0.65,
+    sizeScale: 1.02,
+  },
+  minimalist_elegant: {
+    fontFamily: '"Fraunces", "Crimson Pro", Georgia, serif',
+    weight: 200,
+    tracking: 0.28,
+    defaultCase: "mixed",
+    defaultColor: BRAND.bone,
+    defaultOpacity: 0.82,
+    shadowBlur: 10,
+    shadowAlpha: 0.35,
+    sizeScale: 0.82,
+  },
+};
+
+// ── Template → Default Typography Mode ───────────────────────────────────────
+
+const TEMPLATE_TYPOGRAPHY_DEFAULTS: Record<PosterLayoutVariant, TitleTypographyMode> = {
+  "classic-theatrical": "classic_theatrical_serif",
+  "prestige-awards": "prestige_serif",
+  prestige: "prestige_serif",
+  commercial: "commercial_refined",
+  "cinematic-dark": "classic_theatrical_serif",
+  "cinematic-light": "classic_theatrical_serif",
+  minimal: "minimalist_elegant",
+};
+
+// ── Template → Default Title Color (warm tones instead of harsh white) ───────
+
+const TEMPLATE_COLOR_HINTS: Record<PosterLayoutVariant, string> = {
+  "classic-theatrical": BRAND.bone,
+  "prestige-awards": BRAND.ivory,
+  prestige: BRAND.ivory,
+  commercial: BRAND.white,
+  "cinematic-dark": BRAND.bone,
+  "cinematic-light": BRAND.warmGold,
+  minimal: BRAND.bone,
+};
+
 export function PosterCompositor({
   keyArtUrl,
   title,
@@ -62,6 +211,7 @@ export function PosterCompositor({
   credits,
   aspectRatio = "2:3",
   layoutVariant = "cinematic-dark",
+  titleStyle,
   width,
   onRender,
   className,
@@ -102,7 +252,7 @@ export function PosterCompositor({
       }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dims.w, dims.h);
 
-      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null, credits);
+      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null, credits, titleStyle);
       setLoaded(true);
       onRender?.(canvas);
     };
@@ -115,7 +265,7 @@ export function PosterCompositor({
       ctx.fillStyle = BRAND.dark;
       ctx.fillRect(0, 0, dims.w, dims.h);
       keyArtLoaded = true;
-      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null, credits);
+      applyLayout(ctx, dims, title, tagline, layoutVariant, logoImg, companyName || null, credits, titleStyle);
       setLoaded(true);
     };
     img.src = keyArtUrl;
@@ -127,7 +277,7 @@ export function PosterCompositor({
       logoImg.onerror = () => { logoImg = null; logoLoaded = true; if (keyArtLoaded) tryRender(); };
       logoImg.src = companyLogoUrl;
     }
-  }, [keyArtUrl, title, tagline, aspectRatio, layoutVariant, onRender, companyLogoUrl, companyName, credits]);
+  }, [keyArtUrl, title, tagline, aspectRatio, layoutVariant, titleStyle, onRender, companyLogoUrl, companyName, credits]);
 
   const dims = ASPECT_RATIOS[aspectRatio] || ASPECT_RATIOS["2:3"];
   const displayWidth = width || 320;
@@ -149,19 +299,12 @@ export function PosterCompositor({
 // ── Layout Variant Config ────────────────────────────────────────────────────
 
 interface LayoutConfig {
-  /** Where the title baseline sits (as fraction of canvas height) */
   titleZoneY: number;
-  /** Gradient coverage from bottom (as fraction) */
   gradientCoverage: number;
-  /** Gradient darkness at bottom (0-1) */
   gradientMaxAlpha: number;
-  /** Title tracking (letter-spacing relative to font size) */
   titleTracking: number;
-  /** Whether to show the amber accent line */
   showAccentLine: boolean;
-  /** Billing block condensed mode */
   billingCondensed: boolean;
-  /** Title font weight */
   titleWeight: number;
 }
 
@@ -247,6 +390,40 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
   },
 };
 
+// ── Title Position Resolver ──────────────────────────────────────────────────
+
+function resolveTitlePosition(
+  positionMode: TitlePositionMode,
+  dims: { w: number; h: number },
+  cfg: LayoutConfig,
+): { titleY: number; textAlign: CanvasTextAlign; titleX: number } {
+  switch (positionMode) {
+    case "lower_third":
+      return { titleY: dims.h * 0.84, textAlign: "center", titleX: dims.w / 2 };
+    case "lower_center":
+      return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
+    case "lower_left":
+      return { titleY: dims.h * 0.80, textAlign: "left", titleX: dims.w * 0.08 };
+    case "center":
+    default:
+      return { titleY: dims.h * cfg.titleZoneY, textAlign: "center", titleX: dims.w / 2 };
+  }
+}
+
+// ── Apply Title Case ─────────────────────────────────────────────────────────
+
+function applyTitleCase(text: string, mode: TitleCaseMode): string {
+  switch (mode) {
+    case "uppercase":
+      return text.toUpperCase();
+    case "small_caps":
+      return text.toUpperCase(); // rendered smaller; visual distinction via font size
+    case "mixed":
+    default:
+      return text;
+  }
+}
+
 // ── Deterministic Layout Engine ──────────────────────────────────────────────
 
 function applyLayout(
@@ -258,11 +435,26 @@ function applyLayout(
   logoImg?: HTMLImageElement | null,
   companyName?: string | null,
   credits?: PosterCreditsData,
+  titleStyle?: TitleStyleConfig,
 ) {
   const { w, h } = dims;
   const cfg = LAYOUT_CONFIGS[variant] || LAYOUT_CONFIGS["cinematic-dark"];
+  const layoutVariant = variant as PosterLayoutVariant;
 
-  // ── Bottom gradient overlay — the foundation of the title zone ──
+  // Resolve typography mode
+  const typoMode = titleStyle?.typographyMode || TEMPLATE_TYPOGRAPHY_DEFAULTS[layoutVariant] || "classic_theatrical_serif";
+  const typo = TYPOGRAPHY_CONFIGS[typoMode];
+
+  // Resolve effective values with overrides
+  const effectiveCase = titleStyle?.caseMode || typo.defaultCase;
+  const effectiveColor = titleStyle?.colorHex || TEMPLATE_COLOR_HINTS[layoutVariant] || typo.defaultColor;
+  const effectiveOpacity = titleStyle?.opacity ?? typo.defaultOpacity;
+  const effectiveWeight = titleStyle?.weightOverride ?? typo.weight;
+  const effectiveTracking = titleStyle?.trackingOverride ?? typo.tracking;
+  const positionMode = titleStyle?.positionMode || "center";
+  const enableDepth = titleStyle?.enableDepth ?? false;
+
+  // ── Bottom gradient overlay ──
   const gradientHeight = h * cfg.gradientCoverage;
   const grad = ctx.createLinearGradient(0, h - gradientHeight, 0, h);
   grad.addColorStop(0, "rgba(12, 13, 16, 0)");
@@ -273,7 +465,7 @@ function applyLayout(
   ctx.fillStyle = grad;
   ctx.fillRect(0, h - gradientHeight, w, gradientHeight);
 
-  // ── Solid black strip at very bottom for billing block legibility ──
+  // ── Solid strip at bottom for billing legibility ──
   const stripH = h * 0.12;
   ctx.fillStyle = `rgba(12, 13, 16, ${Math.min(cfg.gradientMaxAlpha + 0.02, 1)})`;
   ctx.fillRect(0, h - stripH, w, stripH);
@@ -285,89 +477,112 @@ function applyLayout(
   ctx.fillStyle = topGrad;
   ctx.fillRect(0, 0, w, h * 0.12);
 
-  ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
 
-  // ── Amber accent line above title ──
-  const titleFontSize = calculateTitleFontSize(title, w, cfg);
-  const titleY = h * cfg.titleZoneY;
+  // ── Resolve title position ──
+  const pos = resolveTitlePosition(positionMode, dims, cfg);
+  ctx.textAlign = pos.textAlign;
 
-  const lines = wrapText(ctx, title.toUpperCase(), w * 0.82, `${cfg.titleWeight} ${titleFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`);
-  const lineHeight = titleFontSize * 1.12;
+  // ── Calculate title font size ──
+  const titleFontSize = calculateTitleFontSize(title, w, cfg, typo.sizeScale, effectiveCase === "small_caps");
+  const fontSpec = `${effectiveWeight} ${titleFontSize}px ${typo.fontFamily}`;
+  const displayTitle = applyTitleCase(title, effectiveCase);
+
+  const maxTextWidth = pos.textAlign === "left" ? w * 0.75 : w * 0.82;
+  const lines = wrapText(ctx, displayTitle, maxTextWidth, fontSpec);
+  const lineHeight = titleFontSize * 1.15;
   const totalTitleHeight = lines.length * lineHeight;
-  const startY = titleY - totalTitleHeight / 2;
-  const titleX = w / 2;
+  const startY = pos.titleY - totalTitleHeight / 2;
 
+  // ── Accent line (only for templates that use it) ──
   if (cfg.showAccentLine) {
     const accentLineY = startY - 14;
     const accentLineW = Math.min(60, w * 0.075);
     ctx.strokeStyle = BRAND.amber;
     ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.5;
+    ctx.globalAlpha = 0.4;
+    ctx.textAlign = "center";
     ctx.beginPath();
-    ctx.moveTo(titleX - accentLineW / 2, accentLineY);
-    ctx.lineTo(titleX + accentLineW / 2, accentLineY);
+    ctx.moveTo(w / 2 - accentLineW / 2, accentLineY);
+    ctx.lineTo(w / 2 + accentLineW / 2, accentLineY);
     ctx.stroke();
     ctx.globalAlpha = 1;
+    ctx.textAlign = pos.textAlign;
   }
 
-  // ── Title treatment ──
-  ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 3;
+  // ── Title rendering ──
+  // Depth / emboss layer (subtle)
+  if (enableDepth) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 2;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.font = fontSpec;
+    lines.forEach((line, i) => {
+      const y = startY + i * lineHeight + titleFontSize;
+      drawTrackedText(ctx, line, pos.titleX, y + 2, effectiveTracking * titleFontSize, pos.textAlign);
+    });
+    ctx.restore();
+  }
 
-  ctx.fillStyle = BRAND.white;
-  ctx.font = `${cfg.titleWeight} ${titleFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  // Main title
+  ctx.shadowColor = `rgba(0, 0, 0, ${typo.shadowAlpha})`;
+  ctx.shadowBlur = typo.shadowBlur;
+  ctx.shadowOffsetY = 2;
+  ctx.shadowOffsetX = 0;
 
-  // Apply letter-spacing via manual character placement
+  ctx.fillStyle = effectiveColor;
+  ctx.globalAlpha = effectiveOpacity;
+  ctx.font = fontSpec;
+
   lines.forEach((line, i) => {
     const y = startY + i * lineHeight + titleFontSize;
-    if (cfg.titleTracking > 0.15) {
-      drawTrackedText(ctx, line, titleX, y, cfg.titleTracking * titleFontSize);
+    if (effectiveTracking > 0.08) {
+      drawTrackedText(ctx, line, pos.titleX, y, effectiveTracking * titleFontSize, pos.textAlign);
     } else {
-      ctx.fillText(line, titleX, y);
+      ctx.fillText(line, pos.titleX, y);
     }
   });
 
+  ctx.globalAlpha = 1;
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
   // ── Tagline ──
+  ctx.textAlign = "center";
   let nextY = startY + lines.length * lineHeight + titleFontSize + 16;
   if (tagline) {
     const tagSize = Math.max(10, Math.round(titleFontSize * 0.26));
-    ctx.font = `400 ${tagSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `400 ${tagSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.amberLight;
     ctx.globalAlpha = 0.85;
-    drawTrackedText(ctx, tagline.toUpperCase(), titleX, nextY, tagSize * 0.15);
+    drawTrackedText(ctx, tagline.toUpperCase(), w / 2, nextY, tagSize * 0.15, "center");
     ctx.globalAlpha = 1;
     nextY += tagSize + 14;
   }
 
-  // ── Billing Block (structured credits) ──
+  // ── Billing Block ──
   const hasCredits = credits && (
     (credits.writtenBy && credits.writtenBy.length > 0) ||
     (credits.producedBy && credits.producedBy.length > 0)
   );
 
   if (hasCredits) {
-    // Position billing block in the solid bottom zone
     const billingStartY = h - stripH + 16;
     let billingY = billingStartY;
 
     if (cfg.billingCondensed) {
-      // ── Condensed billing: single-line format like real theatrical posters ──
       billingY = renderCondensedBilling(ctx, w, billingY, credits);
     } else {
-      // ── Standard billing: labeled sections ──
       billingY = renderStandardBilling(ctx, w, billingY, credits);
     }
 
-    // Created by / Based on (if present)
     const microSize = Math.max(7, Math.round(w * 0.009));
     if (credits.createdByCredit) {
-      ctx.font = `400 ${microSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+      ctx.font = `400 ${microSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
       ctx.fillStyle = BRAND.billingGray;
       ctx.globalAlpha = 0.55;
       ctx.fillText(credits.createdByCredit.toUpperCase(), w / 2, billingY);
@@ -375,7 +590,7 @@ function applyLayout(
       billingY += microSize + 4;
     }
     if (credits.basedOnCredit) {
-      ctx.font = `400 ${microSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+      ctx.font = `400 ${microSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
       ctx.fillStyle = BRAND.billingGray;
       ctx.globalAlpha = 0.55;
       ctx.fillText(credits.basedOnCredit.toUpperCase(), w / 2, billingY);
@@ -383,7 +598,7 @@ function applyLayout(
     }
   }
 
-  // ── Bottom branding: company logo or name ──
+  // ── Bottom branding ──
   const footerY = h - 10;
   if (logoImg && logoImg.naturalWidth > 0) {
     const maxLogoH = Math.max(12, Math.round(h * 0.025));
@@ -395,15 +610,15 @@ function applyLayout(
     ctx.globalAlpha = 1;
   } else if (companyName) {
     const compSize = Math.max(8, Math.round(w * 0.012));
-    ctx.font = `500 ${compSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `500 ${compSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.amber;
     ctx.globalAlpha = 0.45;
-    drawTrackedText(ctx, companyName.toUpperCase(), w / 2, footerY, compSize * 0.25);
+    drawTrackedText(ctx, companyName.toUpperCase(), w / 2, footerY, compSize * 0.25, "center");
     ctx.globalAlpha = 1;
   }
 }
 
-// ── Standard billing block (labeled rows) ────────────────────────────────────
+// ── Standard billing block ───────────────────────────────────────────────────
 
 function renderStandardBilling(
   ctx: CanvasRenderingContext2D,
@@ -416,7 +631,8 @@ function renderStandardBilling(
   const creditFontSize = Math.max(9, Math.round(w * 0.013));
   const labelFontSize = Math.max(7, Math.round(w * 0.008));
 
-  // Thin separator
+  ctx.textAlign = "center";
+
   const sepW = w * 0.35;
   ctx.strokeStyle = BRAND.amberDim;
   ctx.lineWidth = 0.5;
@@ -428,15 +644,14 @@ function renderStandardBilling(
   ctx.globalAlpha = 1;
   y += 12;
 
-  // Written by
   if (credits.writtenBy && credits.writtenBy.length > 0) {
-    ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `400 ${labelFontSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.billingGray;
     ctx.globalAlpha = 0.6;
     ctx.fillText("WRITTEN BY", titleX, y);
     y += labelFontSize + 3;
 
-    ctx.font = `500 ${creditFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `500 ${creditFontSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.silver;
     ctx.globalAlpha = 0.85;
     ctx.fillText(credits.writtenBy.join("  ·  ").toUpperCase(), titleX, y);
@@ -444,15 +659,14 @@ function renderStandardBilling(
     y += creditFontSize + 8;
   }
 
-  // Produced by
   if (credits.producedBy && credits.producedBy.length > 0) {
-    ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `400 ${labelFontSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.billingGray;
     ctx.globalAlpha = 0.6;
     ctx.fillText("PRODUCED BY", titleX, y);
     y += labelFontSize + 3;
 
-    ctx.font = `500 ${creditFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `500 ${creditFontSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.silver;
     ctx.globalAlpha = 0.85;
     const producerText = credits.producedBy.join("  ·  ").toUpperCase();
@@ -468,7 +682,7 @@ function renderStandardBilling(
   return y;
 }
 
-// ── Condensed billing block (prestige / minimal — single dense block) ────────
+// ── Condensed billing block ──────────────────────────────────────────────────
 
 function renderCondensedBilling(
   ctx: CanvasRenderingContext2D,
@@ -478,9 +692,8 @@ function renderCondensedBilling(
 ): number {
   const titleX = w / 2;
   let y = startY;
+  ctx.textAlign = "center";
 
-  // Build a single condensed billing string like real theatrical posters:
-  // WRITTEN BY SEBASTIAN STREET   PRODUCED BY SEBASTIAN STREET  MERLIN MERTON  ALEX CHANG  GREER ELLISON
   const parts: string[] = [];
 
   if (credits.writtenBy && credits.writtenBy.length > 0) {
@@ -492,7 +705,6 @@ function renderCondensedBilling(
 
   if (parts.length === 0) return y;
 
-  // Thin separator
   const sepW = w * 0.3;
   ctx.strokeStyle = BRAND.amberDim;
   ctx.lineWidth = 0.5;
@@ -506,15 +718,14 @@ function renderCondensedBilling(
 
   const billingFontSize = Math.max(7, Math.round(w * 0.0095));
 
-  // Render each credit line in condensed format
   for (const part of parts) {
-    ctx.font = `400 ${billingFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.font = `400 ${billingFontSize}px "DM Sans", "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.creditGray;
     ctx.globalAlpha = 0.7;
 
     const billingLines = wrapText(ctx, part, w * 0.7, ctx.font);
     for (const line of billingLines) {
-      drawTrackedText(ctx, line, titleX, y, billingFontSize * 0.15);
+      drawTrackedText(ctx, line, titleX, y, billingFontSize * 0.15, "center");
       y += billingFontSize + 2;
     }
     y += 2;
@@ -526,7 +737,13 @@ function renderCondensedBilling(
 
 // ── Typography Helpers ───────────────────────────────────────────────────────
 
-function calculateTitleFontSize(title: string, canvasWidth: number, cfg: LayoutConfig): number {
+function calculateTitleFontSize(
+  title: string,
+  canvasWidth: number,
+  cfg: LayoutConfig,
+  sizeScale: number = 1.0,
+  isSmallCaps: boolean = false,
+): number {
   const charCount = title.length;
   const baseSize = canvasWidth * 0.08;
   let size: number;
@@ -536,29 +753,40 @@ function calculateTitleFontSize(title: string, canvasWidth: number, cfg: LayoutC
   else if (charCount <= 40) size = baseSize * 0.7;
   else size = baseSize * 0.55;
 
-  // Prestige / minimal variants use slightly smaller, more elegant titles
-  if (cfg.titleWeight <= 300) {
-    size *= 0.92;
+  size *= sizeScale;
+
+  // Small caps gets slightly larger base to compensate
+  if (isSmallCaps) {
+    size *= 0.85;
   }
+
   return size;
 }
 
 function drawTrackedText(
   ctx: CanvasRenderingContext2D,
   text: string,
-  centerX: number,
+  anchorX: number,
   y: number,
   spacing: number,
+  align: CanvasTextAlign = "center",
 ) {
-  // Measure total width with spacing
   const chars = text.split("");
   let totalWidth = 0;
   for (const ch of chars) {
     totalWidth += ctx.measureText(ch).width + spacing;
   }
-  totalWidth -= spacing; // no trailing space
+  totalWidth -= spacing;
 
-  let x = centerX - totalWidth / 2;
+  let x: number;
+  if (align === "left") {
+    x = anchorX;
+  } else if (align === "right") {
+    x = anchorX - totalWidth;
+  } else {
+    x = anchorX - totalWidth / 2;
+  }
+
   for (const ch of chars) {
     const charW = ctx.measureText(ch).width;
     ctx.fillText(ch, x + charW / 2, y);
