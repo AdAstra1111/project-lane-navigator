@@ -275,3 +275,6 @@ verify_jwt = false
 
 [functions.story-ingestion-engine]
 verify_jwt = false
+
+[functions.extract-visual-dna]
+verify_jwt = false
