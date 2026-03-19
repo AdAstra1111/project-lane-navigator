@@ -29,7 +29,7 @@ export interface ImageStylePolicy {
 
 /** Formats that justify stylised rendering */
 const ANIMATION_FORMATS = ['animation', 'anim-feature', 'anim-series', 'animated'];
-const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga', 'anime'];
+const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga'];
 
 // ── Core style blocks ────────────────────────────────────────────────────────
 

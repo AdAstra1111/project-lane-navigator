@@ -41,7 +41,7 @@ const PHOTOREAL_NEGATIVES = [
 ].join(', ');
 
 const ANIMATION_FORMATS = ['animation', 'anim-feature', 'anim-series', 'animated'];
-const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga', 'anime'];
+const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga'];
 
 function resolveImageStylePolicy(format: string, genres: string[]): ImageStylePolicy {
   const f = format.toLowerCase();
