@@ -4,7 +4,7 @@
  * Manual add is positioned as override, not primary workflow.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon } from 'lucide-react';
+import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon, Link2, Unlink2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
