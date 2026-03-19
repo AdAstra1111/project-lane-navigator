@@ -87,7 +87,6 @@ export function checkIdentityNotesAgainstCanon(
   if (!canonCharacter && !canonJson) return { status: 'uncertain', messages: ['No canon data available for validation'] };
 
   // Use trait-level detection
-  const { resolveCharacterTraits, detectTraitContradictions } = require('./characterTraits');
   const allTraits = resolveCharacterTraits(canonCharacter, canonJson, notes);
   const contradictions = detectTraitContradictions(allTraits);
 
