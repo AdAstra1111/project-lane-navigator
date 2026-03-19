@@ -4,6 +4,8 @@ import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shar
 import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
 import { resolveVisualStyleProfile, validateStyleOrError } from "../_shared/visualStyleAuthority.ts";
 import type { VisualStyleLock } from "../_shared/visualStyleAuthority.ts";
+import { resolveFormatToLane, resolvePrestigeStyle, assemblePrestigePrompt } from "../_shared/prestigeStyleSystem.ts";
+import type { StyleComposite } from "../_shared/prestigeStyleSystem.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -418,13 +420,22 @@ serve(async (req) => {
       vsalPromptBlock = null;
     }
 
-    // Load project context
+    // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
       .from("projects")
-      .select("title, format, genres, tone")
+      .select("title, format, genres, tone, default_prestige_style")
       .eq("id", project_id)
       .single();
     if (!project) throw new Error("Project not found");
+
+    // ── PRESTIGE STYLE SYSTEM: Resolve lane + style ─────────────────────────
+    const resolvedLane = resolveFormatToLane(project.format || "film");
+    const { styleKey: resolvedStyleKey, source: styleSource } = resolvePrestigeStyle({
+      projectDefault: project.default_prestige_style,
+      laneKey: resolvedLane,
+    });
+    const prestigeComposite: StyleComposite = assemblePrestigePrompt(resolvedLane, resolvedStyleKey, styleSource);
+    console.log(`[prestige] lane=${resolvedLane} style=${resolvedStyleKey} source=${styleSource} aspect=${prestigeComposite.aspectRatio}`);
 
     // Load canon
     let worldDescription = "";
@@ -698,6 +709,9 @@ serve(async (req) => {
               : `lookbook_${section}`,
             state_key: state_key || null,
             state_label: state_label || null,
+            // ── PRESTIGE STYLE SYSTEM: persist lane + style metadata ──
+            lane_key: resolvedLane,
+            prestige_style: resolvedStyleKey,
           })
           .select("id")
           .single();

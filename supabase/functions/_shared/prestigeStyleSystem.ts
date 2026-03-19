@@ -1,8 +1,20 @@
 /**
- * Prestige Vertical Style System — Edge function shared module.
+ * Prestige Vertical Style System — CANONICAL DATA CONTRACT
  *
- * Provides lane grammar + style overlay prompt assembly for image generation.
- * Must be imported by all image generation edge functions.
+ * This is the SINGLE SOURCE OF TRUTH for lane grammars, prestige styles,
+ * and prompt assembly. Both frontend and edge functions consume this contract.
+ *
+ * ARCHITECTURE:
+ * - Edge functions import directly from _shared/prestigeStyleSystem.ts
+ * - Frontend mirrors this via src/lib/images/prestigeStyleRegistry.ts (which
+ *   re-exports the same data shapes + adds UI-only helpers)
+ *
+ * STYLE PRECEDENCE (deterministic, highest wins):
+ * 1. Explicit section override (passed per-request)
+ * 2. Explicit UI selection for current action
+ * 3. project.default_prestige_style (DB)
+ * 4. Lane default (romantic_prestige for vertical_drama)
+ * 5. Final safe default: romantic_prestige
  */
 
 // ── Lane Grammar ────────────────────────────────────────────────────────────
@@ -14,6 +26,8 @@ export interface LaneGrammar {
   forbiddenFraming: string[];
   promptDirectives: string;
   negativeDirectives: string;
+  /** Default prestige style for this lane */
+  defaultStyle: string;
 }
 
 export const LANE_GRAMMARS: Record<string, LaneGrammar> = {
@@ -22,6 +36,7 @@ export const LANE_GRAMMARS: Record<string, LaneGrammar> = {
     aspectRatio: '9:16',
     allowedFraming: ['extreme_close_up', 'close_up', 'medium_close', 'medium', 'over_shoulder'],
     forbiddenFraming: ['wide_establishing', 'aerial', 'extreme_wide', 'panoramic'],
+    defaultStyle: 'romantic_prestige',
     promptDirectives: [
       'MANDATORY: Portrait orientation (9:16 aspect ratio)',
       'Character-first composition — subject fills at least 60% of frame',
@@ -42,6 +57,7 @@ export const LANE_GRAMMARS: Record<string, LaneGrammar> = {
     aspectRatio: '16:9',
     allowedFraming: ['close_up', 'medium', 'wide', 'establishing', 'aerial', 'tableau'],
     forbiddenFraming: [],
+    defaultStyle: 'natural_prestige',
     promptDirectives: 'Cinematic widescreen composition (16:9). Full range of shot types. Premium theatrical framing.',
     negativeDirectives: 'portrait orientation, vertical framing, phone-native, TikTok aesthetic',
   },
@@ -50,79 +66,146 @@ export const LANE_GRAMMARS: Record<string, LaneGrammar> = {
     aspectRatio: '16:9',
     allowedFraming: ['close_up', 'medium', 'wide', 'over_shoulder', 'two_shot'],
     forbiddenFraming: [],
+    defaultStyle: 'natural_prestige',
     promptDirectives: 'Television cinematic composition (16:9). Character-driven framing with ensemble coverage.',
     negativeDirectives: 'portrait orientation, vertical framing',
   },
 };
+
+/** Map project format strings to lane keys */
+export function resolveFormatToLane(format: string): string {
+  const f = (format || '').toLowerCase().replace(/[\s\-]+/g, '_');
+  if (f.includes('vertical') || f.includes('short_form')) return 'vertical_drama';
+  if (f.includes('feature') || f.includes('film')) return 'feature_film';
+  if (f.includes('series') || f.includes('limited') || f.includes('tv')) return 'series';
+  return 'feature_film'; // safe default
+}
 
 // ── Prestige Style Definitions ──────────────────────────────────────────────
 
 export interface PrestigeStyleDef {
   key: string;
   label: string;
+  description: string;
   lighting: string;
   palette: string;
   tone: string;
   compositionBias: string;
   texture: string;
+  /** Per-style negatives */
+  negatives: string[];
+  /** HSL swatch for UI */
+  swatchHsl: string;
 }
 
-const STYLES: Record<string, PrestigeStyleDef> = {
+export const PRESTIGE_STYLES: Record<string, PrestigeStyleDef> = {
   romantic_prestige: {
     key: 'romantic_prestige',
     label: 'Romantic Prestige',
+    description: 'Warm golden light, intimate close-ups, soft-focus backgrounds. Bridgerton meets Wong Kar-wai.',
     lighting: 'Warm golden hour light, soft diffused key with gentle fill. Candle-warm practicals. Rim light separating subject from background.',
     palette: 'Warm ambers, deep rose, ivory, champagne gold. Muted jewel tones for accents. Skin tones rendered warm and luminous.',
     tone: 'Intimate, yearning, emotionally charged. Vulnerability and desire.',
     compositionBias: 'Tight framing on eyes and hands. Negative space used for emotional weight. Foreground blur elements for voyeuristic intimacy.',
     texture: 'Soft skin texture, fabric drape, candlelight flicker, condensation, flower petals.',
+    negatives: ['harsh lighting', 'cold tones', 'industrial', 'sterile'],
+    swatchHsl: '35 80% 55%',
   },
   cold_prestige: {
     key: 'cold_prestige',
     label: 'Cold Prestige',
-    lighting: 'Cool daylight through glass. Hard-edged key light with minimal fill. Corporate fluorescent undertone.',
-    palette: 'Steel blue, slate grey, cold white, muted teal. Occasional accent of deep burgundy or black.',
+    description: 'Steel blues, clinical precision, controlled power. Succession meets House of Cards.',
+    lighting: 'Cool daylight through glass. Hard-edged key light with minimal fill. Corporate fluorescent undertone. Blown-out windows.',
+    palette: 'Steel blue, slate grey, cold white, muted teal. Occasional accent of deep burgundy or black. Desaturated skin tones.',
     tone: 'Controlled, calculating, powerful. Tension beneath surface calm.',
-    compositionBias: 'Centered power framing. Symmetry suggesting control. Reflective surfaces.',
-    texture: 'Polished surfaces, glass, steel, tailored fabric, sharp edges.',
+    compositionBias: 'Centered power framing. Symmetry suggesting control. Reflective surfaces. Character isolated in frame.',
+    texture: 'Polished surfaces, glass, steel, tailored fabric, sharp edges, architectural lines.',
+    negatives: ['warm tones', 'soft glow', 'romantic', 'cozy'],
+    swatchHsl: '210 40% 50%',
   },
   dark_prestige: {
     key: 'dark_prestige',
     label: 'Dark Prestige',
-    lighting: 'Low-key with deep shadows. Single hard source with motivated practicals. Chiaroscuro.',
-    palette: 'Near-black, deep forest green, dried blood red, gunmetal. Desaturated.',
+    description: 'Deep shadows, noir-inflected tension, moral ambiguity. Ozark meets Se7en.',
+    lighting: 'Low-key with deep shadows. Single hard source with motivated practicals. Pools of light in darkness. Chiaroscuro.',
+    palette: 'Near-black, deep forest green, dried blood red, gunmetal. Desaturated with occasional warm-cool contrast.',
     tone: 'Threatening, morally complex, suspenseful. Dread and consequence.',
-    compositionBias: 'Shadow-heavy negative space. Subject partially obscured. Dutch angles for unease.',
+    compositionBias: 'Shadow-heavy negative space. Subject partially obscured. Dutch angles for unease. Tight crops implying claustrophobia.',
     texture: 'Wet surfaces, rough concrete, worn leather, smoke, rain on glass, grain.',
+    negatives: ['bright', 'cheerful', 'saturated colors', 'pastel'],
+    swatchHsl: '150 20% 20%',
   },
   royal_prestige: {
     key: 'royal_prestige',
     label: 'Royal Prestige',
-    lighting: 'Motivated by chandeliers and tall windows. Warm interior with cool daylight contrast. Volumetric light.',
-    palette: 'Deep gold, royal purple, emerald, ivory, burgundy. Rich saturated tones.',
+    description: 'Opulent, regal, historically rich. The Crown meets Versailles.',
+    lighting: 'Motivated by chandeliers and tall windows. Warm interior light with cool daylight contrast. Volumetric light through dust.',
+    palette: 'Deep gold, royal purple, emerald, ivory, burgundy. Rich saturated tones. Warm skin rendering.',
     tone: 'Majestic, weighty, ceremonial. Power and legacy.',
-    compositionBias: 'Formal symmetry. Ornamental framing elements. Vertical lines of power.',
-    texture: 'Velvet, brocade, gilt, marble, polished wood.',
+    compositionBias: 'Formal symmetry. Ornamental framing elements. Subject placed with architectural grandeur. Vertical lines of power.',
+    texture: 'Velvet, brocade, gilt, marble, oil-painting-quality skin, crown jewels, polished wood.',
+    negatives: ['casual', 'modern minimalist', 'stripped back', 'industrial'],
+    swatchHsl: '45 70% 45%',
   },
   natural_prestige: {
     key: 'natural_prestige',
     label: 'Natural Prestige',
-    lighting: 'Available natural light. Overcast softness or direct sun with real shadows. No artificial fill.',
-    palette: 'Earth tones — olive, terracotta, sand, stone grey, faded denim.',
+    description: 'Organic light, earthy tones, grounded realism. Normal People meets Nomadland.',
+    lighting: 'Available natural light. Overcast softness or direct sun with real shadows. No artificial fill. Window light interiors.',
+    palette: 'Earth tones — olive, terracotta, sand, stone grey, faded denim. Muted but true-to-life. Natural skin tones.',
     tone: 'Authentic, grounded, emotionally honest. Quiet intensity.',
-    compositionBias: 'Observational framing. Subject slightly off-center. Breathing room.',
-    texture: 'Weathered wood, raw linen, skin imperfections, natural hair, grain.',
+    compositionBias: 'Observational framing. Subject slightly off-center. Breathing room. Handheld intimacy feel even if locked off.',
+    texture: 'Weathered wood, raw linen, skin imperfections, natural hair, outdoor elements, grain.',
+    negatives: ['artificial lighting', 'neon', 'synthetic', 'over-processed'],
+    swatchHsl: '30 30% 50%',
   },
   hyper_stylized_prestige: {
     key: 'hyper_stylized_prestige',
     label: 'Hyper-Stylized Prestige',
+    description: 'Bold color, graphic composition, heightened reality. Euphoria meets Pose.',
     lighting: 'Neon-motivated, colored gels, dramatic backlighting. Mixed color temperature. Theatrical spotlighting.',
-    palette: 'Electric purple, hot pink, cyan, deep black. High saturation contrasts.',
+    palette: 'Electric purple, hot pink, cyan, deep black. High saturation contrasts. Chromatic skin lighting.',
     tone: 'Heightened, expressive, unapologetic. Spectacle and identity.',
-    compositionBias: 'Graphic framing. Bold symmetry or deliberate rule-breaking. Color-blocked zones.',
-    texture: 'Glitter, neon reflection, sequins, wet streets, chrome, holographic.',
+    compositionBias: 'Graphic framing. Bold symmetry or deliberate rule-breaking. Color-blocked zones. Subject as icon.',
+    texture: 'Glitter, neon reflection, sequins, wet streets, chrome, holographic, synthetic fabrics.',
+    negatives: ['naturalistic', 'documentary', 'understated', 'muted'],
+    swatchHsl: '280 70% 50%',
   },
 };
+
+export const PRESTIGE_STYLE_KEYS = Object.keys(PRESTIGE_STYLES);
+
+// ── Style Precedence Resolver ───────────────────────────────────────────────
+
+/**
+ * Deterministic style precedence. Highest wins:
+ * 1. sectionOverride
+ * 2. uiSelection
+ * 3. projectDefault (from projects.default_prestige_style)
+ * 4. laneDefault (from LANE_GRAMMARS[laneKey].defaultStyle)
+ * 5. 'romantic_prestige'
+ */
+export function resolvePrestigeStyle(opts: {
+  sectionOverride?: string | null;
+  uiSelection?: string | null;
+  projectDefault?: string | null;
+  laneKey?: string;
+}): { styleKey: string; source: string } {
+  if (opts.sectionOverride && PRESTIGE_STYLES[opts.sectionOverride]) {
+    return { styleKey: opts.sectionOverride, source: 'section_override' };
+  }
+  if (opts.uiSelection && PRESTIGE_STYLES[opts.uiSelection]) {
+    return { styleKey: opts.uiSelection, source: 'ui_selection' };
+  }
+  if (opts.projectDefault && PRESTIGE_STYLES[opts.projectDefault]) {
+    return { styleKey: opts.projectDefault, source: 'project_default' };
+  }
+  const lane = opts.laneKey ? LANE_GRAMMARS[opts.laneKey] : null;
+  if (lane?.defaultStyle && PRESTIGE_STYLES[lane.defaultStyle]) {
+    return { styleKey: lane.defaultStyle, source: 'lane_default' };
+  }
+  return { styleKey: 'romantic_prestige', source: 'safe_default' };
+}
 
 // ── Composite Prompt Assembly ───────────────────────────────────────────────
 
@@ -131,10 +214,13 @@ export interface StyleComposite {
   negativeBlock: string;
   laneKey: string;
   styleKey: string;
+  styleSource: string;
   aspectRatio: string;
   width: number;
   height: number;
 }
+
+const BASE_NEGATIVES = ['flat lighting', 'stock photo', 'generic', 'amateur'];
 
 /**
  * Assemble composite prompt from lane grammar + style overlay.
@@ -143,10 +229,11 @@ export interface StyleComposite {
 export function assemblePrestigePrompt(
   laneKey: string,
   styleKey: string,
+  styleSource: string,
   maxDim = 1536,
 ): StyleComposite {
-  const grammar = LANE_GRAMMARS[laneKey] ?? LANE_GRAMMARS.vertical_drama;
-  const style = STYLES[styleKey] ?? STYLES.romantic_prestige;
+  const grammar = LANE_GRAMMARS[laneKey] ?? LANE_GRAMMARS.feature_film;
+  const style = PRESTIGE_STYLES[styleKey] ?? PRESTIGE_STYLES.romantic_prestige;
 
   const styleBlock = [
     `[PRESTIGE STYLE: ${style.label.toUpperCase()}]`,
@@ -164,9 +251,10 @@ export function assemblePrestigePrompt(
     styleBlock,
   ].join('\n');
 
-  const negatives = [
+  const negativeBlock = [
     grammar.negativeDirectives,
-    'flat lighting, stock photo, generic, amateur',
+    ...BASE_NEGATIVES,
+    ...style.negatives,
   ].join(', ');
 
   // Calculate dimensions
@@ -180,5 +268,88 @@ export function assemblePrestigePrompt(
     width = Math.round((maxDim * w) / h);
   }
 
-  return { promptBlock, negativeBlock: negatives, laneKey, styleKey, aspectRatio: grammar.aspectRatio, width, height };
+  return { promptBlock, negativeBlock, laneKey, styleKey, styleSource, aspectRatio: grammar.aspectRatio, width, height };
+}
+
+// ── Lane Compliance Validation ──────────────────────────────────────────────
+
+export interface ComplianceResult {
+  score: number;
+  violations: string[];
+  label: string;
+}
+
+/**
+ * Validate image metadata against lane grammar.
+ * Scoring: starts at 100, deducts per violation. Minimum 0.
+ */
+export function validateLaneCompliance(
+  image: { width?: number | null; height?: number | null; shot_type?: string | null },
+  laneKey: string,
+): ComplianceResult {
+  const grammar = LANE_GRAMMARS[laneKey];
+  if (!grammar) return { score: 100, violations: [], label: 'Unknown Lane' };
+
+  const violations: string[] = [];
+  let score = 100;
+
+  // 1. Aspect ratio check (40 points)
+  if (image.width && image.height) {
+    const ratio = image.width / image.height;
+    const [aw, ah] = grammar.aspectRatio.split(':').map(Number);
+    const expected = aw / ah;
+    const tolerance = 0.12;
+    if (Math.abs(ratio - expected) > tolerance) {
+      violations.push(`Aspect ratio ${ratio.toFixed(2)} violates ${grammar.aspectRatio} (expected ~${expected.toFixed(2)})`);
+      score -= 40;
+    }
+
+    // 2. Portrait orientation check for vertical_drama (20 points)
+    if (laneKey === 'vertical_drama' && ratio > 1.0) {
+      violations.push('Image is landscape orientation — vertical drama requires portrait');
+      score -= 20;
+    }
+  }
+
+  // 3. Forbidden framing check (25 points)
+  if (image.shot_type && grammar.forbiddenFraming.includes(image.shot_type)) {
+    violations.push(`Shot type "${image.shot_type}" is forbidden in ${grammar.label}`);
+    score -= 25;
+  }
+
+  // 4. Allowed framing preference (15 points — soft)
+  if (image.shot_type && grammar.allowedFraming.length > 0 && !grammar.allowedFraming.includes(image.shot_type)) {
+    violations.push(`Shot type "${image.shot_type}" is not in preferred framing for ${grammar.label}`);
+    score -= 15;
+  }
+
+  score = Math.max(0, score);
+
+  const label = score >= 90 ? 'Compliant' : score >= 60 ? 'Partial' : 'Non-compliant';
+
+  return { score, violations, label };
+}
+
+// ── Legacy Image Policy ─────────────────────────────────────────────────────
+
+/**
+ * Classify an image for style filtering.
+ * Returns whether it should be included in strict style views.
+ */
+export function classifyImageForStyleFilter(
+  image: { prestige_style?: string | null; lane_key?: string | null },
+  activeStyleFilter: string | null,
+  includeUntagged: boolean,
+): boolean {
+  // No filter active — show everything
+  if (!activeStyleFilter) return true;
+
+  // Image has matching style tag
+  if (image.prestige_style === activeStyleFilter) return true;
+
+  // Image is untagged (legacy) — only include if explicitly opted in
+  if (!image.prestige_style) return includeUntagged;
+
+  // Image has a different style — exclude
+  return false;
 }
