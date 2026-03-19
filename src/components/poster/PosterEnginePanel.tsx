@@ -13,8 +13,8 @@ import {
   Swords, Award, Megaphone, Drama, PenLine, Plus, X,
   Download, Layout, Maximize2, Edit3, Wand2, Send, ShieldAlert,
 } from "lucide-react";
-import { useProjectPostersFreshness, useRefreshStalePoster } from "@/hooks/useVisualTruthFreshness";
-import type { FreshnessResult } from "@/lib/visual-truth-dependencies";
+import { useProjectPostersFreshness, useRefreshPosterFromTruth } from "@/hooks/useVisualTruthFreshness";
+import type { FreshnessResult, DependencyClass } from "@/lib/visual-truth-dependencies";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
