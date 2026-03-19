@@ -78,7 +78,7 @@ export function resolveFormatToLane(format: string): string {
   if (f.includes('vertical') || f.includes('short_form')) return 'vertical_drama';
   if (f.includes('feature') || f.includes('film')) return 'feature_film';
   if (f.includes('series') || f.includes('limited') || f.includes('tv')) return 'series';
-  return 'feature_film'; // safe default
+  return 'feature_film';
 }
 
 // ── Prestige Style Definitions ──────────────────────────────────────────────
@@ -339,17 +339,10 @@ export function validateLaneCompliance(
 export function classifyImageForStyleFilter(
   image: { prestige_style?: string | null; lane_key?: string | null },
   activeStyleFilter: string | null,
-  includeUntagged: boolean,
+  includeUntagged = false,
 ): boolean {
-  // No filter active — show everything
   if (!activeStyleFilter) return true;
-
-  // Image has matching style tag
   if (image.prestige_style === activeStyleFilter) return true;
-
-  // Image is untagged (legacy) — only include if explicitly opted in
   if (!image.prestige_style) return includeUntagged;
-
-  // Image has a different style — exclude
   return false;
 }
