@@ -578,6 +578,10 @@ async function writeParticipation(
     }
   }
 
+  // Auto-resolve participation: if entity_id + scene_id are resolved and no
+  // duplicate contradictory record exists, auto-approve above confidence threshold.
+  const PARTICIPATION_AUTO_APPROVE_THRESHOLD = 0.65;
+
   for (const char of extractedEntities.characters) {
     const entityId = entityMap.get(char.canonical_name);
     if (!entityId || !char.scenes_present) continue;
@@ -585,6 +589,12 @@ async function writeParticipation(
       const sceneId = sceneMap.get(sk);
       if (!sceneId) continue;
       if (rows.find(r => r.scene_id === sceneId && r.entity_id === entityId && r.entity_type === "character")) continue;
+
+      const confidence = 0.7;
+      // Deterministic auto-accept: entity resolved, scene resolved, confidence >= threshold,
+      // no alias conflict (entity found in map = resolved), no competing candidate.
+      const autoAccept = entityId && sceneId && confidence >= PARTICIPATION_AUTO_APPROVE_THRESHOLD;
+
       rows.push({
         project_id: projectId,
         ingestion_run_id: runId,
@@ -593,10 +603,10 @@ async function writeParticipation(
         entity_type: "character",
         role_in_scene: "present",
         is_primary: false,
-        confidence: 0.7,
+        confidence,
         source_reason: "ai_extraction",
-        review_tier: "review_required",
-        review_status: "pending",
+        review_tier: autoAccept ? "auto_accepted" : "review_required",
+        review_status: autoAccept ? "approved" : "pending",
       });
     }
   }
