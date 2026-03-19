@@ -91,67 +91,117 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
 
       <Link
         to={`/projects/${project.id}`}
-        className={`group block glass-card rounded-xl overflow-hidden transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 ${
+        className={`group block rounded-xl overflow-hidden transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 ${
           selected ? 'ring-1 ring-primary/40' : ''
-        } ${project.pinned ? 'border-primary/15' : ''}`}
+        } ${project.pinned ? 'border-primary/15' : ''} ${
+          posterUrl ? 'border border-border/30' : 'glass-card'
+        }`}
       >
-        {/* Poster band — cinematic top strip */}
-        {posterUrl && (
-          <div className="relative h-28 overflow-hidden">
+        {posterUrl ? (
+          /* ── Poster-backed card: image fills entire card ── */
+          <div className="relative min-h-[220px]">
             <img
               src={posterUrl}
               alt=""
-              className="w-full h-full object-cover object-top"
+              className="absolute inset-0 w-full h-full object-cover"
               loading="lazy"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
-          </div>
-        )}
+            {/* Scrim: light at top, stronger at bottom for text */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10 pointer-events-none" />
 
-        <div className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <FormatIcon className={`h-4 w-4 shrink-0 ${formatMeta.color}`} />
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                  {formatMeta.shortLabel}
-                </span>
-                <RecencyPulse updatedAt={project.updated_at} />
-                {project.pinned && (
-                  <span className="text-[10px] text-primary font-medium">Pinned</span>
+            {/* Content overlay */}
+            <div className="relative z-[1] flex flex-col justify-end h-full min-h-[220px] p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <FormatIcon className="h-3.5 w-3.5 shrink-0 text-white/70" />
+                    <span className="text-[10px] text-white/60 uppercase tracking-wider">
+                      {formatMeta.shortLabel}
+                    </span>
+                    <RecencyPulse updatedAt={project.updated_at} />
+                    {project.pinned && (
+                      <span className="text-[10px] text-primary font-medium">Pinned</span>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-display font-semibold text-white truncate group-hover:text-primary transition-colors">
+                    {project.title}
+                  </h3>
+                  {project.genres && project.genres.length > 0 && (
+                    <p className="text-sm text-white/60 mt-0.5 truncate">
+                      {project.genres.join(' · ')}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {readinessScore != null && (
+                    <div className="flex flex-col items-center gap-0.5" title="Readiness Score">
+                      <MiniScoreRing score={readinessScore} />
+                      <span className="text-[8px] text-white/50">Ready</span>
+                    </div>
+                  )}
+                  {financeReadinessScore != null && (
+                    <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
+                      <MiniScoreRing score={financeReadinessScore} />
+                      <span className="text-[8px] text-white/50">GP</span>
+                    </div>
+                  )}
+                  <ArrowRight className="h-4 w-4 text-white/40 opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
+                </div>
+              </div>
+              {project.assigned_lane && (
+                <div className="mt-3">
+                  <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* ── No poster: standard card layout ── */
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <FormatIcon className={`h-4 w-4 shrink-0 ${formatMeta.color}`} />
+                  <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                    {formatMeta.shortLabel}
+                  </span>
+                  <RecencyPulse updatedAt={project.updated_at} />
+                  {project.pinned && (
+                    <span className="text-[10px] text-primary font-medium">Pinned</span>
+                  )}
+                </div>
+                <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                  {project.title}
+                </h3>
+                {project.genres && project.genres.length > 0 && (
+                  <p className="text-sm text-muted-foreground mt-1 truncate">
+                    {project.genres.join(' · ')}
+                  </p>
                 )}
               </div>
-              <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                {project.title}
-              </h3>
-              {project.genres && project.genres.length > 0 && (
-                <p className="text-sm text-muted-foreground mt-1 truncate">
-                  {project.genres.join(' · ')}
-                </p>
-              )}
+              <div className="flex items-center gap-2 shrink-0">
+                {readinessScore != null && (
+                  <div className="flex flex-col items-center gap-0.5" title="Readiness Score">
+                    <MiniScoreRing score={readinessScore} />
+                    <span className="text-[8px] text-muted-foreground">Ready</span>
+                  </div>
+                )}
+                {financeReadinessScore != null && (
+                  <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
+                    <MiniScoreRing score={financeReadinessScore} />
+                    <span className="text-[8px] text-muted-foreground">GP</span>
+                  </div>
+                )}
+                <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {readinessScore != null && (
-                <div className="flex flex-col items-center gap-0.5" title="Readiness Score">
-                  <MiniScoreRing score={readinessScore} />
-                  <span className="text-[8px] text-muted-foreground">Ready</span>
-                </div>
-              )}
-              {financeReadinessScore != null && (
-                <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
-                  <MiniScoreRing score={financeReadinessScore} />
-                  <span className="text-[8px] text-muted-foreground">GP</span>
-                </div>
-              )}
-              <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />
-            </div>
+            {project.assigned_lane && (
+              <div className="mt-4">
+                <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
+              </div>
+            )}
           </div>
-          {project.assigned_lane && (
-            <div className="mt-4">
-              <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
-            </div>
-          )}
-        </div>
+        )}
       </Link>
     </motion.div>
   );
