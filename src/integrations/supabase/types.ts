@@ -1678,6 +1678,81 @@ export type Database = {
           },
         ]
       }
+      character_visual_dna: {
+        Row: {
+          character_name: string
+          contradiction_flags: Json
+          created_at: string
+          created_by: string | null
+          flexible_axes: Json
+          id: string
+          identity_signature: Json | null
+          identity_strength: string | null
+          inferred_guidance: Json
+          is_current: boolean
+          locked_invariants: Json
+          missing_clarifications: Json
+          narrative_markers: Json
+          producer_guidance: Json
+          project_id: string
+          script_truth: Json
+          version_number: number
+        }
+        Insert: {
+          character_name: string
+          contradiction_flags?: Json
+          created_at?: string
+          created_by?: string | null
+          flexible_axes?: Json
+          id?: string
+          identity_signature?: Json | null
+          identity_strength?: string | null
+          inferred_guidance?: Json
+          is_current?: boolean
+          locked_invariants?: Json
+          missing_clarifications?: Json
+          narrative_markers?: Json
+          producer_guidance?: Json
+          project_id: string
+          script_truth?: Json
+          version_number?: number
+        }
+        Update: {
+          character_name?: string
+          contradiction_flags?: Json
+          created_at?: string
+          created_by?: string | null
+          flexible_axes?: Json
+          id?: string
+          identity_signature?: Json | null
+          identity_strength?: string | null
+          inferred_guidance?: Json
+          is_current?: boolean
+          locked_invariants?: Json
+          missing_clarifications?: Json
+          narrative_markers?: Json
+          producer_guidance?: Json
+          project_id?: string
+          script_truth?: Json
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "character_visual_dna_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "character_visual_dna_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cinematic_quality_attempts: {
         Row: {
           adapter_metrics_json: Json
@@ -7083,6 +7158,109 @@ export type Database = {
             columns: ["source_dna_profile_id"]
             isOneToOne: false
             referencedRelation: "narrative_dna_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_evaluations: {
+        Row: {
+          canon_match: string
+          continuity_match: string
+          contradiction_flags: Json
+          created_at: string
+          created_by: string | null
+          decided_at: string | null
+          decided_by: string | null
+          decision_note: string | null
+          decision_reason: string | null
+          decision_type: string | null
+          destination: string | null
+          dna_version_id: string | null
+          drift_risk: string
+          evaluation_method: string
+          evaluation_summary: string | null
+          id: string
+          image_id: string
+          lore_compatibility: string | null
+          narrative_fit: string
+          period_plausibility: string | null
+          project_id: string
+          traits_satisfied: Json
+          traits_violated: Json
+          wardrobe_fit: string
+        }
+        Insert: {
+          canon_match?: string
+          continuity_match?: string
+          contradiction_flags?: Json
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          decision_reason?: string | null
+          decision_type?: string | null
+          destination?: string | null
+          dna_version_id?: string | null
+          drift_risk?: string
+          evaluation_method?: string
+          evaluation_summary?: string | null
+          id?: string
+          image_id: string
+          lore_compatibility?: string | null
+          narrative_fit?: string
+          period_plausibility?: string | null
+          project_id: string
+          traits_satisfied?: Json
+          traits_violated?: Json
+          wardrobe_fit?: string
+        }
+        Update: {
+          canon_match?: string
+          continuity_match?: string
+          contradiction_flags?: Json
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          decision_reason?: string | null
+          decision_type?: string | null
+          destination?: string | null
+          dna_version_id?: string | null
+          drift_risk?: string
+          evaluation_method?: string
+          evaluation_summary?: string | null
+          id?: string
+          image_id?: string
+          lore_compatibility?: string | null
+          narrative_fit?: string
+          period_plausibility?: string | null
+          project_id?: string
+          traits_satisfied?: Json
+          traits_violated?: Json
+          wardrobe_fit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_evaluations_dna_version_id_fkey"
+            columns: ["dna_version_id"]
+            isOneToOne: false
+            referencedRelation: "character_visual_dna"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "image_evaluations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "image_evaluations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -23982,6 +24160,84 @@ export type Database = {
           },
           {
             foreignKeyName: "visual_reference_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_scenarios: {
+        Row: {
+          canon_compatibility: string | null
+          change_json: Json
+          classification: string | null
+          created_at: string
+          created_by: string | null
+          domain: string
+          historical_compatibility: string | null
+          id: string
+          impact_summary: string | null
+          impacted_systems: Json
+          lore_compatibility: string | null
+          material_compatibility: string | null
+          project_id: string
+          query_text: string
+          recommended_path: string | null
+          state: string
+          target: string
+          updated_at: string
+        }
+        Insert: {
+          canon_compatibility?: string | null
+          change_json?: Json
+          classification?: string | null
+          created_at?: string
+          created_by?: string | null
+          domain?: string
+          historical_compatibility?: string | null
+          id?: string
+          impact_summary?: string | null
+          impacted_systems?: Json
+          lore_compatibility?: string | null
+          material_compatibility?: string | null
+          project_id: string
+          query_text?: string
+          recommended_path?: string | null
+          state?: string
+          target?: string
+          updated_at?: string
+        }
+        Update: {
+          canon_compatibility?: string | null
+          change_json?: Json
+          classification?: string | null
+          created_at?: string
+          created_by?: string | null
+          domain?: string
+          historical_compatibility?: string | null
+          id?: string
+          impact_summary?: string | null
+          impacted_systems?: Json
+          lore_compatibility?: string | null
+          material_compatibility?: string | null
+          project_id?: string
+          query_text?: string
+          recommended_path?: string | null
+          state?: string
+          target?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_scenarios_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
