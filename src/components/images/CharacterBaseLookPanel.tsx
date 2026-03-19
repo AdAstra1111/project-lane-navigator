@@ -605,6 +605,15 @@ function CharacterIdentitySection({
       {/* PART C: Character Visual Truth — promoted, expanded by default, ABOVE grids */}
       <CharacterVisualTruthPanel traits={resolvedTraits} contradictions={traitContradictions} />
 
+      {/* PART C2: Visual DNA Panel — full structured DNA model */}
+      <CharacterVisualDNAPanel
+        projectId={projectId}
+        characterName={character.name}
+        canonCharacter={canonCharacter as any}
+        canonJson={canonJson}
+        userNotes={localNotes}
+      />
+
       {/* Identity Notes */}
       <div className="mb-3">
         <button
