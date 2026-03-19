@@ -127,10 +127,12 @@ export const ROLE_LIMITS: Record<ProjectImageRole, number> = {
   marketing_variant: 6,
 };
 
-/** Roles that are scoped per entity (e.g., per character) */
+/** Roles that are scoped per entity (e.g., per character, per location) */
 export const PER_ENTITY_ROLES: ProjectImageRole[] = [
   'character_primary',
   'character_variant',
+  'world_establishing',
+  'world_detail',
 ];
 
 /** Which roles each document type consumes */
