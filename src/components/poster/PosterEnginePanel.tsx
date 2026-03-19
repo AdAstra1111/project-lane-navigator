@@ -458,7 +458,7 @@ export default function PosterEnginePanel() {
                   {(activePoster.prompt_inputs as any)?.poster_mode === 'edit' && (
                     <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-500">edited</Badge>
                   )}
-                  <FreshnessBadge freshness={freshnessMap?.[activePoster.id]} posterId={activePoster.id} onRefresh={() => refreshStale.mutate(activePoster.id)} isRefreshing={refreshStale.isPending} />
+                  <FreshnessBadge freshness={freshnessMap?.[activePoster.id]} posterId={activePoster.id} onRefreshFromTruth={() => refreshFromTruth.mutate(activePoster.id)} isRefreshing={refreshFromTruth.isPending} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {activePoster.source_type === "generated" ? "AI Key Art" : activePoster.source_type === "edited" ? "Edited" : "Uploaded"} • {POSTER_TEMPLATES[selectedTemplate]?.label || selectedTemplate}
