@@ -568,6 +568,17 @@ function CharacterReferenceSection({
   referenceImages: ProjectImage[];
   identityLocked: boolean;
 }) {
+  const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
+
+  // Resolve identity anchors for injection into cinematic reference generation
+  useEffect(() => {
+    if (!identityLocked) { setIdentityAnchors(null); return; }
+    resolveCharacterIdentity(projectId, character.name).then(state => {
+      if (state.locked && state.headshot && state.fullBody) {
+        setIdentityAnchors({ headshot: state.headshot.storage_path, fullBody: state.fullBody.storage_path });
+      }
+    });
+  }, [projectId, character.name, identityLocked]);
   const [generating, setGenerating] = useState(false);
   const [filter, setFilter] = useState<CharFilter>('all');
   const qc = useQueryClient();
