@@ -380,18 +380,19 @@ export default function ProjectDetail() {
           ═══════════════════════════════════════════════════════════════════════ */}
       <div className="relative w-full overflow-hidden">
         {heroImageUrl ? (
-          <div className="relative min-h-[260px] sm:min-h-[340px]">
+          <div className="relative min-h-[240px] sm:min-h-[320px]">
             <img
               src={heroImageUrl}
               alt={`${project.title} poster`}
-              className="absolute inset-0 w-full h-full object-cover object-top"
+              className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
               loading="lazy"
             />
-            {/* Full scrim for text legibility */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30 pointer-events-none" />
+            {/* Strong multi-stop scrim — bottom-heavy for metadata zone */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 to-black/20 pointer-events-none" />
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black to-transparent pointer-events-none" />
           </div>
         ) : (
-          <div className="relative min-h-[200px] sm:min-h-[260px] bg-gradient-to-b from-card/80 to-background">
+          <div className="relative min-h-[180px] sm:min-h-[240px] bg-gradient-to-b from-card/80 to-background">
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center space-y-2">
                 <ImagePlus className="h-10 w-10 text-muted-foreground/30 mx-auto" />
