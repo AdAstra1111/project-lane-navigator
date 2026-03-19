@@ -494,6 +494,12 @@ export default function ProjectDetail() {
                 Poster Engine
               </Button>
             </Link>
+            <Link to={`/projects/${id}/images`} className="flex-1">
+              <Button variant="outline" className="w-full gap-2 h-11">
+                <ImagePlus className="h-4 w-4 text-primary" />
+                Image Library
+              </Button>
+            </Link>
           </div>
 
           {/* Mode-based content */}
