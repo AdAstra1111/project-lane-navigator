@@ -9,7 +9,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Style Policy (inline, mirrors src/lib/images/stylePolicy.ts) ─────────
+// ── Style Policy ─────────────────────────────────────────────────────────────
 
 type LocalImageStyleMode = "photorealistic_cinematic" | "stylised_animation" | "stylised_graphic" | "stylised_experimental" | "stylised_period_painterly";
 
@@ -20,9 +20,9 @@ interface ImageStylePolicy {
 }
 
 const PHOTOREAL_DIRECTIVES =
-  "Photorealistic cinematic imagery. Shot on high-end cinema camera. Real-world materials, textures, surfaces. Believable natural or motivated lighting. Cinematic depth of field. Premium theatrical realism.";
+  "Photorealistic cinematic imagery. Live-action film still. Shot on ARRI Alexa or RED cinema camera with premium anamorphic lenses. Real-world materials, textures, surfaces. Believable natural or motivated cinematic lighting. Real lens behaviour including subtle flares, bokeh, and depth of field. Premium theatrical realism. No illustration, no concept art, no digital painting, no CGI render look.";
 const PHOTOREAL_NEGATIVES =
-  "painterly, illustrative, cartoon, anime, graphic-novel style, concept art rendering, abstract, surreal, watercolor, oil painting, sketch, line art, cel-shaded, pop art, storybook illustration, digital painting, CGI render look, stock photo aesthetic";
+  "painterly, illustrative, cartoon, anime, graphic-novel style, concept art rendering, abstract, surreal, watercolor, oil painting, sketch, line art, cel-shaded, pop art, storybook illustration, digital painting, CGI render look, stock photo aesthetic, 3D render, Unreal Engine, video game screenshot";
 
 const ANIMATION_FORMATS = ["animation", "anim-feature", "anim-series", "animated"];
 const GRAPHIC_GENRES = ["graphic-novel", "comic", "manga"];
@@ -39,9 +39,19 @@ function resolveStylePolicy(format: string, genres: string[]): ImageStylePolicy 
   return { mode: "photorealistic_cinematic", styleDirectives: PHOTOREAL_DIRECTIVES, negativeStyleConstraints: PHOTOREAL_NEGATIVES };
 }
 
-// ── Section prompt builders ──────────────────────────────────────────────────
+// ── Shot taxonomy prompt builders ────────────────────────────────────────────
 
+type AssetGroup = "character" | "world" | "key_moment" | "visual_language" | "poster";
+type ShotType = "close_up" | "medium" | "wide" | "full_body" | "profile" | "over_shoulder" | "detail" | "tableau" | "emotional_variant" | "atmospheric" | "time_variant" | "lighting_ref" | "texture_ref" | "composition_ref" | "color_ref";
 type LookbookSection = "world" | "character" | "key_moment" | "visual_language";
+
+const SHOT_PACKS: Record<AssetGroup, ShotType[]> = {
+  character: ["close_up", "medium", "full_body", "profile", "emotional_variant"],
+  world: ["wide", "atmospheric", "detail", "time_variant"],
+  key_moment: ["tableau", "medium", "close_up", "wide"],
+  visual_language: ["lighting_ref", "texture_ref", "composition_ref", "color_ref"],
+  poster: [],
+};
 
 interface SectionContext {
   title: string;
@@ -57,46 +67,74 @@ interface SectionContext {
   characterName?: string;
 }
 
-function buildSectionPrompt(section: LookbookSection, ctx: SectionContext, variantIndex: number): string {
-  const variation = [`angle A — wide establishing shot`, `angle B — atmospheric detail`, `angle C — immersive perspective`, `angle D — dramatic composition`, `angle E — intimate focus`, `angle F — environmental portrait`];
-  const varHint = variation[variantIndex % variation.length];
+const SHOT_FRAMING: Record<ShotType, string> = {
+  close_up: "Extreme close-up or tight close-up. Face filling the frame. Intimate, emotional, every pore visible. Shallow depth of field.",
+  medium: "Medium shot, waist-up. Character in environment context. Balanced composition. Clear facial expression with setting visible.",
+  wide: "Wide establishing shot. Sweeping, immersive cinematic scale. Characters small in frame against vast environment. Epic scope.",
+  full_body: "Full body shot, head to toe. Character standing in environment. Clear silhouette and posture. Fashion editorial quality.",
+  profile: "Profile view, side-on. Dramatic rim lighting. Strong silhouette against atmospheric background. Contemplative mood.",
+  over_shoulder: "Over-the-shoulder perspective. Looking past one figure toward another or toward the scene. Creates depth and narrative tension.",
+  detail: "Macro or detail shot. Close focus on a specific texture, object, or environmental detail. Shallow depth of field, rich texture.",
+  tableau: "Tableau composition. Multiple figures arranged in a dramatic, almost painterly arrangement. Stage-like, deliberate blocking.",
+  emotional_variant: "Same character, different emotional state. Raw emotional expression — tension, vulnerability, determination, or joy. Character-defining moment.",
+  atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling.",
+  time_variant: "Same location, different time of day. Dawn/dusk/night variant. Dramatic lighting shift. Temporal contrast.",
+  lighting_ref: "Lighting reference. Demonstrate the project's signature lighting approach — key light direction, color temperature, contrast ratio, shadow quality.",
+  texture_ref: "Texture and surface reference. Close-up on key materials and surfaces. Skin, fabric, architecture, natural elements. Tactile, sensory.",
+  composition_ref: "Composition reference. Demonstrate the project's framing grammar — rule of thirds, leading lines, negative space, symmetry or asymmetry.",
+  color_ref: "Color palette reference. Dominant hues, accent colors, saturation level. The project's visual temperature and chromatic identity.",
+};
 
-  let base = "";
-  switch (section) {
-    case "world":
-      base = `A cinematic establishing shot for "${ctx.title}" — ${varHint}. ` +
-        `${ctx.worldDescription || "The story's world rendered with atmospheric depth"}. ` +
-        `Sweeping, immersive, with cinematic scale and presence. ` +
-        `Tone: ${ctx.tone}. No text, no titles, no watermarks.`;
-      break;
+function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext): string {
+  const framing = SHOT_FRAMING[shotType];
+
+  let subjectDescription = "";
+  switch (assetGroup) {
     case "character":
-      base = `A cinematic character portrait for "${ctx.title}" — ${ctx.characterName || "the protagonist"}. ` +
-        `${varHint}. ` +
-        `${ctx.characters || "A compelling character rendered with emotional depth"}. ` +
-        `In the world of the story. Tone: ${ctx.tone}. No text, no titles, no watermarks.`;
+      subjectDescription = ctx.characterName
+        ? `Character: ${ctx.characterName}. ${ctx.characters || "A compelling screen presence with emotional depth."}`
+        : ctx.characters || "The protagonist — a compelling screen presence with emotional depth.";
+      break;
+    case "world":
+      subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
       break;
     case "key_moment":
-      base = `A key dramatic moment from "${ctx.title}" — ${varHint}. ` +
-        `${ctx.conflict || ctx.logline || "A pivotal scene of tension and stakes"}. ` +
-        `Cinematic framing, emotional intensity. Tone: ${ctx.tone}. No text, no titles, no watermarks.`;
+      subjectDescription = ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.";
       break;
     case "visual_language":
-      base = `A visual language reference image for "${ctx.title}" — ${varHint}. ` +
-        `Demonstrating the project's visual approach: ${ctx.themes || "cinematic atmosphere and texture"}. ` +
-        `Focus on lighting, color palette, texture, and composition style. ` +
-        `Tone: ${ctx.tone}. No text, no titles, no watermarks.`;
+      subjectDescription = `Visual style reference for "${ctx.title}". ${ctx.themes || "Cinematic atmosphere, texture, and composition."}`;
       break;
   }
 
   return [
-    base,
-    `IMAGE STYLE POLICY: ${ctx.stylePolicy.styleDirectives}`,
-    `DO NOT: ${ctx.stylePolicy.negativeStyleConstraints}`,
-    `REQUIREMENTS: 16:9 landscape composition. Premium cinematic quality. No text or typography.`,
-  ].join("\n\n");
+    `A cinematic film still for "${ctx.title}".`,
+    ``,
+    `SHOT TYPE: ${framing}`,
+    ``,
+    `SUBJECT: ${subjectDescription}`,
+    ``,
+    `TONE: ${ctx.tone || "dramatic"}. Genre: ${ctx.genres?.join(", ") || "drama"}.`,
+    ``,
+    `PHOTOREALISM MANDATE: ${ctx.stylePolicy.styleDirectives}`,
+    ``,
+    `ABSOLUTE PROHIBITIONS:`,
+    `- ${ctx.stylePolicy.negativeStyleConstraints}`,
+    `- No text, titles, watermarks, or typography of any kind`,
+    `- No illustrated or painted look`,
+    `- Must look indistinguishable from a still frame from a theatrically released film`,
+    ``,
+    `TECHNICAL: 16:9 landscape. Premium cinematic quality. Anamorphic lens characteristics.`,
+  ].join("\n");
 }
 
-// ── Image generation (same pattern as generate-poster) ───────────────────────
+// Legacy section prompt for backward compat when pack_mode is off
+function buildSectionPrompt(section: LookbookSection, ctx: SectionContext, variantIndex: number): string {
+  const pack = SHOT_PACKS[section === "character" ? "character" : section === "world" ? "world" : section === "key_moment" ? "key_moment" : "visual_language"];
+  const shotType = pack[variantIndex % pack.length];
+  return buildPackPrompt(section as AssetGroup, shotType, ctx);
+}
+
+// ── Image generation ─────────────────────────────────────────────────────────
 
 interface ProviderImageResult {
   imageDataUrl: string;
@@ -161,6 +199,13 @@ const SECTION_TO_ROLE: Record<LookbookSection, string> = {
   visual_language: "visual_reference",
 };
 
+const SECTION_TO_ASSET_GROUP: Record<LookbookSection, AssetGroup> = {
+  world: "world",
+  character: "character",
+  key_moment: "key_moment",
+  visual_language: "visual_language",
+};
+
 // ── Main handler ─────────────────────────────────────────────────────────────
 
 serve(async (req) => {
@@ -187,12 +232,17 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { project_id, section, count = 3, entity_id, character_name } = body as {
+    const {
+      project_id, section, count = 4, entity_id, character_name,
+      asset_group: requestedAssetGroup, pack_mode = false,
+    } = body as {
       project_id: string;
       section: LookbookSection;
       count?: number;
       entity_id?: string;
       character_name?: string;
+      asset_group?: AssetGroup;
+      pack_mode?: boolean;
     };
 
     if (!project_id || !section) {
@@ -242,6 +292,7 @@ serve(async (req) => {
     const stylePolicy = resolveStylePolicy(project.format || "film", project.genres || []);
     const imageRole = SECTION_TO_ROLE[section] as ImageRole;
     const styleMode = stylePolicy.mode as ImageStyleMode;
+    const assetGroup = requestedAssetGroup || SECTION_TO_ASSET_GROUP[section];
 
     const ctx: SectionContext = {
       title: project.title || "Untitled",
@@ -257,11 +308,23 @@ serve(async (req) => {
       characterName: character_name,
     };
 
-    const genCount = Math.min(Math.max(count, 1), 6);
-    const results: Array<{ image_id: string; status: string; error?: string }> = [];
+    // Determine shots to generate
+    const shotPack = SHOT_PACKS[assetGroup] || [];
+    const shotsToGenerate: ShotType[] = pack_mode && shotPack.length > 0
+      ? shotPack.slice(0, Math.min(count, shotPack.length))
+      : [];
+
+    // If not pack_mode or no pack, fall back to count-based generation
+    const genCount = shotsToGenerate.length > 0 ? shotsToGenerate.length : Math.min(Math.max(count, 1), 6);
+
+    const results: Array<{ image_id: string; status: string; shot_type?: string; error?: string }> = [];
 
     for (let i = 0; i < genCount; i++) {
-      const prompt = buildSectionPrompt(section, ctx, i);
+      const shotType = shotsToGenerate[i] || null;
+      const prompt = shotType
+        ? buildPackPrompt(assetGroup, shotType, ctx)
+        : buildSectionPrompt(section, ctx, i);
+
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
@@ -269,7 +332,7 @@ serve(async (req) => {
       try {
         const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl);
 
-        const storagePath = `${project_id}/lookbook/${section}/${Date.now()}-v${i}.${imageResult.format}`;
+        const storagePath = `${project_id}/lookbook/${section}/${Date.now()}-${shotType || `v${i}`}.${imageResult.format}`;
         const { error: uploadErr } = await supabase.storage
           .from("project-posters")
           .upload(storagePath, imageResult.rawBytes, {
@@ -298,25 +361,36 @@ serve(async (req) => {
             provider: genConfig.provider,
             model: genConfig.model,
             style_mode: styleMode,
-            generation_config: { ...repoMeta, source_feature: "lookbook_engine", section, variant_index: i },
+            generation_config: {
+              ...repoMeta,
+              source_feature: "lookbook_engine",
+              section,
+              variant_index: i,
+              shot_type: shotType,
+            },
+            // New Visual Asset System fields
+            asset_group: assetGroup,
+            subject: character_name || null,
+            shot_type: shotType,
+            curation_state: "candidate",
           })
           .select("id")
           .single();
 
         if (insertErr) {
           console.error(`[lookbook-image] repo insert error for variant ${i}:`, insertErr.message);
-          results.push({ image_id: "", status: "stored_no_repo", error: insertErr.message });
+          results.push({ image_id: "", status: "stored_no_repo", shot_type: shotType || undefined, error: insertErr.message });
         } else {
-          results.push({ image_id: imgRecord.id, status: "ready" });
+          results.push({ image_id: imgRecord.id, status: "ready", shot_type: shotType || undefined });
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        console.error(`[lookbook-image] generation error for ${section} variant ${i}:`, msg);
-        results.push({ image_id: "", status: "failed", error: msg });
+        console.error(`[lookbook-image] generation error for ${section} ${shotType || `variant ${i}`}:`, msg);
+        results.push({ image_id: "", status: "failed", shot_type: shotType || undefined, error: msg });
       }
     }
 
-    return new Response(JSON.stringify({ section, results }), {
+    return new Response(JSON.stringify({ section, asset_group: assetGroup, results }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
