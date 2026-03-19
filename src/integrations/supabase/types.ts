@@ -12700,18 +12700,22 @@ export type Database = {
           created_at: string
           created_by: string | null
           entity_id: string | null
+          generation_config: Json
           height: number | null
           id: string
           is_active: boolean
           is_primary: boolean
+          model: string
           negative_prompt: string
           project_id: string
           prompt_used: string
+          provider: string
           role: Database["public"]["Enums"]["project_image_role"]
           source_poster_id: string | null
           storage_bucket: string
           storage_path: string
           strategy_key: string | null
+          style_mode: string
           user_id: string
           width: number | null
         }
@@ -12720,18 +12724,22 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           entity_id?: string | null
+          generation_config?: Json
           height?: number | null
           id?: string
           is_active?: boolean
           is_primary?: boolean
+          model?: string
           negative_prompt?: string
           project_id: string
           prompt_used?: string
+          provider?: string
           role: Database["public"]["Enums"]["project_image_role"]
           source_poster_id?: string | null
           storage_bucket?: string
           storage_path: string
           strategy_key?: string | null
+          style_mode?: string
           user_id: string
           width?: number | null
         }
@@ -12740,18 +12748,22 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           entity_id?: string | null
+          generation_config?: Json
           height?: number | null
           id?: string
           is_active?: boolean
           is_primary?: boolean
+          model?: string
           negative_prompt?: string
           project_id?: string
           prompt_used?: string
+          provider?: string
           role?: Database["public"]["Enums"]["project_image_role"]
           source_poster_id?: string | null
           storage_bucket?: string
           storage_path?: string
           strategy_key?: string | null
+          style_mode?: string
           user_id?: string
           width?: number | null
         }

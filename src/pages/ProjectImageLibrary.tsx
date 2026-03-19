@@ -317,6 +317,27 @@ export default function ProjectImageLibrary() {
                   </div>
                 </div>
 
+                {/* Generation metadata */}
+                {(lightboxImage.model || lightboxImage.style_mode) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {lightboxImage.style_mode && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {lightboxImage.style_mode.replace(/_/g, ' ')}
+                      </Badge>
+                    )}
+                    {lightboxImage.model && (
+                      <Badge variant="outline" className="text-[10px] font-mono">
+                        {lightboxImage.model.split('/').pop()}
+                      </Badge>
+                    )}
+                    {lightboxImage.provider && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {lightboxImage.provider}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+
                 {lightboxImage.prompt_used && (
                   <details className="text-xs">
                     <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
@@ -325,6 +346,17 @@ export default function ProjectImageLibrary() {
                     <p className="mt-1 text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto bg-muted/50 p-2 rounded text-[11px]">
                       {lightboxImage.prompt_used}
                     </p>
+                  </details>
+                )}
+
+                {lightboxImage.generation_config && Object.keys(lightboxImage.generation_config).length > 0 && (
+                  <details className="text-xs">
+                    <summary className="text-muted-foreground cursor-pointer hover:text-foreground">
+                      View generation config
+                    </summary>
+                    <pre className="mt-1 text-muted-foreground max-h-32 overflow-y-auto bg-muted/50 p-2 rounded text-[11px]">
+                      {JSON.stringify(lightboxImage.generation_config, null, 2)}
+                    </pre>
                   </details>
                 )}
 

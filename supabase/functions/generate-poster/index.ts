@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shared/imageGenerationResolver.ts";
+import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -636,15 +638,15 @@ function parseDataUrl(dataUrl: string): ProviderImageResult {
 
 // ── Image generation ─────────────────────────────────────────────────────────
 
-async function generateImage(apiKey: string, prompt: string): Promise<ProviderImageResult> {
-  const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+async function generateImage(apiKey: string, prompt: string, model: string, gatewayUrl: string): Promise<ProviderImageResult> {
+  const aiResponse = await fetch(gatewayUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-3-pro-image-preview",
+      model,
       messages: [{ role: "user", content: prompt }],
       modalities: ["image", "text"],
     }),
@@ -701,6 +703,9 @@ serve(async (req) => {
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
 
+    // Resolve image generation config via shared API resolver
+    const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
+
     // ── Mode: multi_concept — generate 6 strategy posters ──
     if (mode === "multi_concept") {
       const strategies = strategy_key
@@ -727,6 +732,11 @@ serve(async (req) => {
         const prompt = buildStrategyPrompt(strategy, strategyCtx);
         const versionNum = nextVersion++;
 
+        // Resolve provider/model via shared API resolver
+        const variantInput = { role: 'poster_variant' as ImageRole, styleMode, strategyKey: strategy.key };
+        const genConfig = resolveImageGenerationConfig(variantInput);
+        const repoMeta = buildImageRepositoryMeta(genConfig, variantInput);
+
         const { data: posterRecord, error: insertErr } = await supabase
           .from("project_posters")
           .insert({
@@ -739,8 +749,8 @@ serve(async (req) => {
             layout_variant: strategy.key,
             prompt_text: prompt,
             prompt_inputs: { ...inputs, strategy_key: strategy.key, strategy_label: strategy.label, world_lock: inputs.worldLock },
-            provider: "lovable-ai",
-            model: "google/gemini-3-pro-image-preview",
+            provider: genConfig.provider,
+            model: genConfig.model,
             render_status: "composed_final",
             is_active: false,
           })
@@ -753,7 +763,7 @@ serve(async (req) => {
         }
 
         try {
-          const imageResult = await generateImage(LOVABLE_API_KEY, prompt);
+          const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl);
 
           const keyArtPath = `${project_id}/key-art/v${versionNum}-${strategy.key}.${imageResult.format}`;
           const { error: uploadErr } = await supabase.storage
@@ -774,7 +784,7 @@ serve(async (req) => {
             })
             .eq("id", posterRecord.id);
 
-          // Register into canonical project_images repository
+          // Register into canonical project_images repository with resolver metadata
           await supabase.from("project_images").insert({
             project_id,
             role: "poster_variant",
@@ -790,6 +800,10 @@ serve(async (req) => {
             source_poster_id: posterRecord.id,
             user_id: user.id,
             created_by: user.id,
+            provider: genConfig.provider,
+            model: genConfig.model,
+            style_mode: styleMode,
+            generation_config: repoMeta,
           });
 
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "ready" });
@@ -808,6 +822,10 @@ serve(async (req) => {
     }
 
     // ── Mode: generate (legacy single poster) ──
+    const primaryInput = { role: 'poster_primary' as ImageRole, styleMode, strategyKey: 'commercial' };
+    const primaryGenConfig = resolveImageGenerationConfig(primaryInput);
+    const primaryRepoMeta = buildImageRepositoryMeta(primaryGenConfig, primaryInput);
+
     const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx);
 
     const { data: existingPosters } = await supabase
@@ -830,8 +848,8 @@ serve(async (req) => {
         layout_variant: "cinematic-dark",
         prompt_text: prompt,
         prompt_inputs: inputs,
-        provider: "lovable-ai",
-        model: "google/gemini-3-pro-image-preview",
+        provider: primaryGenConfig.provider,
+        model: primaryGenConfig.model,
         render_status: "composed_final",
       })
       .select()
@@ -840,7 +858,7 @@ serve(async (req) => {
     if (insertErr) throw new Error(`Failed to create poster record: ${insertErr.message}`);
 
     try {
-      const imageResult = await generateImage(LOVABLE_API_KEY, prompt);
+      const imageResult = await generateImage(LOVABLE_API_KEY, prompt, primaryGenConfig.model, primaryGenConfig.gatewayUrl);
 
       const keyArtPath = `${project_id}/key-art/v${nextVersion}.${imageResult.format}`;
       const { error: uploadErr } = await supabase.storage
@@ -873,7 +891,6 @@ serve(async (req) => {
       if (updateErr) throw new Error(`Failed to update poster: ${updateErr.message}`);
 
       // Register into canonical project_images repository
-      // Deactivate existing poster_primary entries first
       await supabase.from("project_images")
         .update({ is_primary: false, is_active: false })
         .eq("project_id", project_id)
@@ -895,6 +912,10 @@ serve(async (req) => {
         source_poster_id: posterRecord.id,
         user_id: user.id,
         created_by: user.id,
+        provider: primaryGenConfig.provider,
+        model: primaryGenConfig.model,
+        style_mode: styleMode,
+        generation_config: primaryRepoMeta,
       });
 
       return new Response(JSON.stringify({ poster: updatedPoster }), {

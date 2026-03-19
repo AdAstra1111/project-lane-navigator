@@ -36,6 +36,8 @@ export const MODELS = {
   FAST: "google/gemini-2.5-flash",
   FAST_LITE: "google/gemini-2.5-flash-lite",
   FLASH_IMAGE: "google/gemini-2.5-flash-image",
+  PRO_IMAGE: "google/gemini-3-pro-image-preview",
+  FLASH_IMAGE_V2: "google/gemini-3.1-flash-image-preview",
 } as const;
 
 // ─── Types ───
