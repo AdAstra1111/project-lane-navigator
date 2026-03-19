@@ -316,11 +316,6 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
                 <Zap className="h-2.5 w-2.5" />
                 Generate Identity Only
               </Button>
-                onClick={() => handleAutoPopulate(true)}
-              >
-                <Zap className="h-2.5 w-2.5" />
-                Generate Identity Only
-              </Button>
             </div>
           </CardContent>
         </Card>
