@@ -49,9 +49,9 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
           <h2 className="font-display font-bold text-foreground text-lg leading-tight line-clamp-2">
             {project.title}
           </h2>
-          <RenameProjectDialog
+          <ProjectTitleManager
+            projectId={project.id}
             currentTitle={project.title}
-            onRename={handleRename}
           />
         </div>
 
