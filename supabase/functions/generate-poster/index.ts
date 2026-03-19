@@ -856,31 +856,57 @@ function parseDataUrl(dataUrl: string): ProviderImageResult {
   return { imageDataUrl: dataUrl, format, rawBytes };
 }
 
-// ── Image generation ─────────────────────────────────────────────────────────
+// ── Image generation with retry ──────────────────────────────────────────────
+
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 2000;
+
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function generateImage(apiKey: string, prompt: string, model: string, gatewayUrl: string): Promise<ProviderImageResult> {
-  const aiResponse = await fetch(gatewayUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      modalities: ["image", "text"],
-    }),
-  });
+  let lastError: Error | null = null;
 
-  if (!aiResponse.ok) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+      console.log(`[generate-poster] Retry ${attempt}/${MAX_RETRIES} after ${backoff}ms backoff`);
+      await sleep(backoff);
+    }
+
+    const aiResponse = await fetch(gatewayUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        modalities: ["image", "text"],
+      }),
+    });
+
+    if (aiResponse.ok) {
+      const aiData = await aiResponse.json();
+      return extractImageFromResponse(aiData);
+    }
+
     const errText = await aiResponse.text();
-    if (aiResponse.status === 429) throw new Error("Rate limit exceeded");
+
+    if (aiResponse.status === 429) {
+      lastError = new Error("Rate limit exceeded");
+      // Retry on rate limit
+      continue;
+    }
+
+    // Non-retryable errors
     if (aiResponse.status === 402) throw new Error("Payment required");
     throw new Error(`AI gateway error [${aiResponse.status}]: ${errText}`);
   }
 
-  const aiData = await aiResponse.json();
-  return extractImageFromResponse(aiData);
+  throw lastError || new Error("Rate limit exceeded after retries");
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -1159,35 +1185,51 @@ serve(async (req) => {
         let imageResult: ProviderImageResult;
 
         if (sourceImageUrl) {
-          // Use image editing — send source image + edit prompt
-          const aiResponse = await fetch(editGenConfig.gatewayUrl, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: editGenConfig.model,
-              messages: [{
-                role: "user",
-                content: [
-                  { type: "text", text: editFullPrompt },
-                  { type: "image_url", image_url: { url: sourceImageUrl } },
-                ],
-              }],
-              modalities: ["image", "text"],
-            }),
-          });
+          // Use image editing with retry logic
+          let editLastError: Error | null = null;
+          for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            if (attempt > 0) {
+              const backoff = INITIAL_BACKOFF_MS * Math.pow(2, attempt - 1);
+              console.log(`[generate-poster] Edit retry ${attempt}/${MAX_RETRIES} after ${backoff}ms`);
+              await sleep(backoff);
+            }
 
-          if (!aiResponse.ok) {
+            const aiResponse = await fetch(editGenConfig.gatewayUrl, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: editGenConfig.model,
+                messages: [{
+                  role: "user",
+                  content: [
+                    { type: "text", text: editFullPrompt },
+                    { type: "image_url", image_url: { url: sourceImageUrl } },
+                  ],
+                }],
+                modalities: ["image", "text"],
+              }),
+            });
+
+            if (aiResponse.ok) {
+              const aiData = await aiResponse.json();
+              imageResult = extractImageFromResponse(aiData);
+              editLastError = null;
+              break;
+            }
+
             const errText = await aiResponse.text();
-            if (aiResponse.status === 429) throw new Error("Rate limit exceeded");
+            if (aiResponse.status === 429) {
+              editLastError = new Error("Rate limit exceeded");
+              continue;
+            }
             if (aiResponse.status === 402) throw new Error("Payment required");
             throw new Error(`AI gateway error [${aiResponse.status}]: ${errText}`);
           }
 
-          const aiData = await aiResponse.json();
-          imageResult = extractImageFromResponse(aiData);
+          if (editLastError) throw editLastError;
         } else {
           // No source image available — generate fresh with edit context
           imageResult = await generateImage(LOVABLE_API_KEY, editFullPrompt, editGenConfig.model, editGenConfig.gatewayUrl);
@@ -1283,7 +1325,10 @@ serve(async (req) => {
         .limit(1);
       let nextVersion = (existingPosters?.[0]?.version_number || 0) + 1;
 
-      for (const strategy of strategies) {
+      for (let si = 0; si < strategies.length; si++) {
+        const strategy = strategies[si];
+        // Stagger requests to avoid rate limiting
+        if (si > 0) await sleep(1500);
         const prompt = buildStrategyPrompt(strategy, strategyCtx);
         const versionNum = nextVersion++;
 
