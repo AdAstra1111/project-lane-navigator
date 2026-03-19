@@ -313,7 +313,25 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
             {stats.unresolvedWorldRefs > 0 && (
               <span className="text-[10px] text-amber-600">{stats.unresolvedWorldRefs} world ref{stats.unresolvedWorldRefs !== 1 ? 's' : ''}</span>
             )}
-            <span className="text-[9px] text-muted-foreground italic ml-auto">Not matched to any canonical location</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-[9px] h-5 ml-auto border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
+              onClick={() => runBackfill(false)}
+              disabled={backfilling}
+            >
+              {backfilling ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Link2 className="h-2.5 w-2.5" />}
+              Backfill Bindings
+            </Button>
+          </div>
+        )}
+
+        {/* Backfill result summary */}
+        {backfillResult && (
+          <div className="mb-3 px-2 py-1.5 rounded-md bg-muted/30 border border-border/30 text-[9px] text-muted-foreground space-y-0.5">
+            <div className="font-medium text-foreground text-[10px]">Last backfill: {backfillResult.dry_run ? 'Dry run' : 'Applied'}</div>
+            <div>Scenes — bound: {backfillResult.report.scenes.bound}, unresolved: {backfillResult.report.scenes.unresolved}, ambiguous: {backfillResult.report.scenes.ambiguous}</div>
+            <div>Images — bound: {backfillResult.report.images.bound}, unresolved: {backfillResult.report.images.unresolved}, ambiguous: {backfillResult.report.images.ambiguous}</div>
           </div>
         )}
 
