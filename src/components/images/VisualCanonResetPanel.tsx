@@ -14,7 +14,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
-  Lock, Package, Wand2, Zap, CheckCheck, Download,
+  Lock, Package, Wand2, Zap, CheckCheck, Download, Link2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
