@@ -163,6 +163,16 @@ export default function VisualDevHub() {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          {/* ═══ VISUAL STYLE AUTHORITY ═══ */}
+          <WorkSection
+            icon={<Eye className="h-4 w-4" />}
+            title="Visual Style Authority"
+            subtitle="Define period, lighting, texture, and style rules for all image generation"
+            defaultOpen={false}
+          >
+            {projectId && <VisualStyleAuthorityPanel projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ STORY INGESTION ═══ */}
           <WorkSection
             icon={<BookOpen className="h-4 w-4" />}
