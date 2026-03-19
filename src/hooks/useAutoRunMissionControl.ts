@@ -139,10 +139,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-mission-status', projectId],
     queryFn: async () => {
-      if (!projectId) return null;
+      if (!projectId || !isValidUUID(projectId)) return null;
       return await callAutoRun('status', { projectId });
     },
-    enabled: !!projectId && activated,
+    enabled: isValidUUID(projectId) && activated,
     refetchOnWindowFocus: false,
   });
 

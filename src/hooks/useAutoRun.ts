@@ -138,11 +138,11 @@ export function useAutoRun(projectId: string | undefined) {
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-status', projectId],
     queryFn: async () => {
-      if (!projectId) return null;
+      if (!projectId || !isValidUUID(projectId)) return null;
       const result = await callAutoRun('status', { projectId });
       return result;
     },
-    enabled: !!projectId,
+    enabled: isValidUUID(projectId),
     refetchOnWindowFocus: false,
   });
 
