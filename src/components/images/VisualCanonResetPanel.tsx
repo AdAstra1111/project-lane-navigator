@@ -6,14 +6,15 @@
  * 2. Required Visual Set status (filled vs empty slots)
  * 3. Auto Populate Visual Set — batch generation pipeline
  * 4. Approval queue for recommended candidates
- * 5. Reuse pool management
- * 6. Archive browser
+ * 5. Batch Approve All + Download All actions
+ * 6. Reuse pool management
+ * 7. Archive browser
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
-  Lock, Package, Wand2, Zap,
+  Lock, Package, Wand2, Zap, CheckCheck, Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
-import { resolveRequiredVisualSet, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
 import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -63,6 +64,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const [showArchive, setShowArchive] = useState(false);
   const [showReusePool, setShowReusePool] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [batchApproving, setBatchApproving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
@@ -80,7 +83,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
 
   const {
     resetScopedCanon, restoreFromArchive, markForReusePool,
-    approveIntoCanon, rejectCandidate, resetting, lastReset,
+    approveIntoCanon, batchApproveAll, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
 
   const vs = useVisualSets(projectId);
@@ -118,10 +121,83 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   );
 
   const activeImages = useMemo(() => allImages.filter(i => i.curation_state === 'active'), [allImages]);
+  const candidateImages = useMemo(() => allImages.filter(i => i.curation_state === 'candidate'), [allImages]);
   const archivedImages = useMemo(() => allImages.filter(i => i.curation_state === 'archived'), [allImages]);
   const reusePoolImages = useMemo(() => allImages.filter(i => (i as any).reuse_pool_eligible), [allImages]);
   const pendingSlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length > 0), [requiredSet]);
   const emptySlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0), [requiredSet]);
+
+  // ── Batch Approve All handler ──
+  const handleBatchApprove = useCallback(async () => {
+    if (candidateImages.length === 0) return;
+    setBatchApproving(true);
+    try {
+      await batchApproveAll(candidateImages);
+      refetchImages();
+    } finally {
+      setBatchApproving(false);
+    }
+  }, [candidateImages, batchApproveAll, refetchImages]);
+
+  // ── Download All handler ──
+  const handleDownloadAll = useCallback(async () => {
+    const downloadImages = activeImages.filter(i => i.signedUrl || i.storage_path);
+    if (downloadImages.length === 0) {
+      toast.info('No active images with URLs to download');
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+
+      // Group by asset_group into folders
+      const grouped = new Map<string, ProjectImage[]>();
+      for (const img of downloadImages) {
+        const group = (img as any).asset_group || 'uncategorized';
+        if (!grouped.has(group)) grouped.set(group, []);
+        grouped.get(group)!.push(img);
+      }
+
+      let fetched = 0;
+      for (const [group, images] of grouped) {
+        const folder = zip.folder(group)!;
+        for (const img of images) {
+          const url = img.signedUrl || '';
+          if (!url) continue;
+          try {
+            const resp = await fetch(url);
+            if (!resp.ok) continue;
+            const blob = await resp.blob();
+            const ext = blob.type.includes('png') ? 'png' : 'jpg';
+            const filename = `${img.subject || img.shot_type || img.id}_${img.shot_type || 'image'}.${ext}`;
+            folder.file(filename, blob);
+            fetched++;
+          } catch {
+            console.warn(`[download] Failed to fetch image ${img.id}`);
+          }
+        }
+      }
+
+      if (fetched === 0) {
+        toast.error('No images could be downloaded');
+        return;
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `visual-canon-${projectId.slice(0, 8)}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Downloaded ${fetched} images`);
+    } catch (err: any) {
+      toast.error('Download failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setDownloading(false);
+    }
+  }, [activeImages, projectId]);
 
   // Phase labels
   const PHASE_LABELS: Record<number, string> = {
@@ -255,7 +331,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         currentPhase: PHASE_LABELS[slot.phase] || null,
       } : prev);
 
-      // Build request body
+      // Build request body with enforced aspect ratio dimensions
+      const dims = getDimensionsForShot(slot.shotType);
       const genBody: Record<string, any> = {
         project_id: projectId,
         section: slot.section,
@@ -263,6 +340,9 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         asset_group: slot.assetGroup,
         pack_mode: false,
         forced_shot_type: slot.shotType,
+        width: dims.width,
+        height: dims.height,
+        aspect_ratio: dims.aspectRatio,
       };
 
       if (slot.assetGroup === 'character') {
@@ -580,7 +660,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
           size="sm"
           variant="destructive"
           className="gap-1 text-[10px] h-7"
-          disabled={resetting || activeImages.length === 0}
+          disabled={resetting || (activeImages.length === 0 && candidateImages.length === 0)}
           onClick={() => setShowResetModal(true)}
         >
           {resetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
@@ -594,10 +674,33 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
           resetting={resetting}
           onReset={resetScopedCanon}
           onRegenerateAfterReset={(sections) => {
-            // Trigger auto-populate for cleared sections
             handleAutoPopulate(false);
           }}
         />
+
+        {candidateImages.length > 0 && (
+          <Button
+            size="sm" variant="default"
+            className="gap-1 text-[10px] h-7"
+            disabled={batchApproving}
+            onClick={handleBatchApprove}
+          >
+            {batchApproving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCheck className="h-2.5 w-2.5" />}
+            Approve All ({candidateImages.length})
+          </Button>
+        )}
+
+        {activeImages.length > 0 && (
+          <Button
+            size="sm" variant="outline"
+            className="gap-1 text-[10px] h-7"
+            disabled={downloading}
+            onClick={handleDownloadAll}
+          >
+            {downloading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Download className="h-2.5 w-2.5" />}
+            Download All ({activeImages.length})
+          </Button>
+        )}
 
         {pendingSlots.length > 0 && (
           <Button
