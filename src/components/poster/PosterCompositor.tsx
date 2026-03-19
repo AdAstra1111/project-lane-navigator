@@ -588,8 +588,11 @@ function applyLayout(
 
   ctx.textBaseline = "alphabetic";
 
-  // ── Resolve title position ──
-  const pos = resolveTitlePosition(positionMode, dims, cfg);
+  // ── Analyze composition for subject avoidance ──
+  const compositionHint = analyzeComposition(ctx, dims);
+
+  // ── Resolve title position (composition-aware) ──
+  const pos = resolveTitlePosition(positionMode, dims, cfg, layoutVariant, compositionHint);
   ctx.textAlign = pos.textAlign;
 
   // ── Calculate title font size ──
@@ -598,8 +601,11 @@ function applyLayout(
   const displayTitle = applyTitleCase(title, effectiveCase);
 
   const maxTextWidth = pos.textAlign === "left" ? w * 0.75 : w * 0.82;
-  const lines = wrapText(ctx, displayTitle, maxTextWidth, fontSpec);
-  const lineHeight = titleFontSize * 1.15;
+  const lines = wrapTextBalanced(ctx, displayTitle, maxTextWidth, fontSpec, balanceMode);
+  
+  // Balance mode affects line height
+  const lineHeightMultiplier = balanceMode === "compact" ? 1.08 : balanceMode === "airy" ? 1.28 : 1.15;
+  const lineHeight = titleFontSize * lineHeightMultiplier;
   const totalTitleHeight = lines.length * lineHeight;
   const startY = pos.titleY - totalTitleHeight / 2;
 
