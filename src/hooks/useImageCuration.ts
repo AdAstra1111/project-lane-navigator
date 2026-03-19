@@ -55,6 +55,9 @@ export function useImageCuration(projectId: string) {
     if (updating) return;
     setUpdating(image.id);
     try {
+      const isIdentitySlot = ['identity_headshot', 'identity_profile', 'identity_full_body']
+        .includes(image.shot_type || '');
+
       // Unset previous primary in same slot
       let deactivateQuery = (supabase as any)
         .from('project_images')
@@ -80,6 +83,18 @@ export function useImageCuration(projectId: string) {
       }
 
       await deactivateQuery;
+
+      // For identity slots: demote all other images in this slot to candidate
+      if (isIdentitySlot && image.subject && image.shot_type) {
+        await (supabase as any)
+          .from('project_images')
+          .update({ curation_state: 'candidate', is_active: false })
+          .eq('project_id', projectId)
+          .eq('asset_group', 'character')
+          .eq('subject', image.subject)
+          .eq('shot_type', image.shot_type)
+          .neq('id', image.id);
+      }
 
       // Set this one as primary + active
       await (supabase as any)
