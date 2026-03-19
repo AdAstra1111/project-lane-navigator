@@ -161,7 +161,7 @@ function CharacterLookSection({ projectId, character }: { projectId: string; cha
             {primaryFullBody && <Badge variant="secondary" className="text-[8px] px-1 py-0">Full Body ✓</Badge>}
             {charImages.length === 0 && <span className="text-[10px] text-muted-foreground/60">no references</span>}
             {charImages.length > 0 && !primaryHeadshot && !primaryFullBody && (
-              <span className="text-[10px] text-warning">{charImages.length} candidates — select primary</span>
+              <span className="text-[10px] text-accent">{charImages.length} candidates — select primary</span>
             )}
           </div>
         </div>
