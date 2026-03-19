@@ -953,6 +953,9 @@ serve(async (req) => {
           generation_config: { ...repoMeta, poster_mode: "edit", source_poster_id },
         });
 
+        // Persist dependency links for edit poster
+        await persistDependencyLinks(supabase, project_id, "poster", posterRecord.id, truthSnapshot);
+
         return new Response(JSON.stringify({
           poster_id: posterRecord.id,
           status: "ready",
