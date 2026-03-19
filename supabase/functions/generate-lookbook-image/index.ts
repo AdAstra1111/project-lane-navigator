@@ -361,6 +361,7 @@ serve(async (req) => {
       identity_canon_facts = null,
       identity_traits_block = null,
       identity_signature_block = null,
+      forced_shot_type = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -382,6 +383,7 @@ serve(async (req) => {
       identity_canon_facts?: string | null;
       identity_traits_block?: string | null;
       identity_signature_block?: string | null;
+      forced_shot_type?: string | null;
     };
 
     if (!project_id || !section) {
