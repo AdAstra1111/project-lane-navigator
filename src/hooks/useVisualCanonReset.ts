@@ -4,6 +4,8 @@
  * Supports scoped (section-level) and global resets.
  * Reset: Bulk archives/candidates active/primary images for a project without deleting.
  * Rebuild: Uses RequiredVisualSetResolver to show what needs to be filled.
+ *
+ * INVARIANT: is_primary=true requires curation_state='active'. Reset enforces this.
  */
 
 import { useState, useCallback } from 'react';
@@ -15,6 +17,7 @@ import type { ProjectImage, CurationState, AssetGroup } from '@/lib/images/types
 export interface CanonResetResult {
   batchId: string;
   archivedCount: number;
+  primaryCleared: number;
   timestamp: string;
   sections: string[];
   options: ScopedResetOptions;
@@ -88,16 +91,17 @@ export function useVisualCanonReset(projectId: string) {
     qc.invalidateQueries({ queryKey: ['project-images', projectId] });
     qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
     qc.invalidateQueries({ queryKey: ['section-images', projectId] });
+    qc.invalidateQueries({ queryKey: ['canon-visual-alignment', projectId] });
   }, [qc, projectId]);
 
   /**
    * Execute a scoped visual canon reset.
-   * - Targets only selected asset_group sections
-   * - Clears is_primary if option set
-   * - Moves images to candidate or archived state
-   * - Records batch ID for audit
-   * - Does NOT delete any images
-   * - Does NOT alter lane_key or prestige_style
+   *
+   * CRITICAL FIX: Two-phase approach ensures no orphaned primaries.
+   *   Phase 1: Clear ALL is_primary in scope (regardless of curation_state)
+   *   Phase 2: Move active/candidate images to target state
+   *
+   * Invariant enforced: after reset, 0 primaries exist in affected scope.
    */
   const resetScopedCanon = useCallback(async (options: ScopedResetOptions): Promise<CanonResetResult | null> => {
     if (resetting) return null;
@@ -108,49 +112,77 @@ export function useVisualCanonReset(projectId: string) {
       const now = new Date().toISOString();
       const isGlobal = options.sections.length === 0;
 
-      // Build base query for affected images
-      let query = (supabase as any)
+      // ── Phase 1: Clear ALL primaries in scope (unconditional) ──
+      // This runs FIRST to guarantee no orphaned primaries survive.
+      let primaryCleared = 0;
+      if (options.clearPrimary) {
+        let clearQuery = (supabase as any)
+          .from('project_images')
+          .update({ is_primary: false })
+          .eq('project_id', projectId)
+          .eq('is_primary', true);
+
+        if (!isGlobal) {
+          clearQuery = clearQuery.in('asset_group', options.sections);
+        }
+
+        const { data: clearedRows } = await clearQuery.select('id');
+        primaryCleared = clearedRows?.length || 0;
+      }
+
+      // ── Phase 2: Move active/candidate images to target state ──
+      let moveQuery = (supabase as any)
         .from('project_images')
         .update({
-          curation_state: options.targetState as CurationState,
-          is_active: options.targetState === 'candidate',
-          is_primary: options.clearPrimary ? false : undefined,
-          ...(options.clearPrimary ? { is_primary: false } : {}),
+          curation_state: options.targetState,
+          is_active: false,
+          is_primary: false, // Belt-and-suspenders: also clear here
           archived_from_active_at: options.targetState === 'archived' ? now : null,
           canon_reset_batch_id: batchId,
         })
         .eq('project_id', projectId)
         .in('curation_state', ['active', 'candidate']);
 
-      // Scope to selected sections if not global
       if (!isGlobal) {
-        query = query.in('asset_group', options.sections);
+        moveQuery = moveQuery.in('asset_group', options.sections);
       }
 
-      const { data: affected, error } = await query.select('id');
+      const { data: affected, error } = await moveQuery.select('id');
       if (error) throw error;
 
       const archivedCount = affected?.length || 0;
 
-      // Invariant enforcement: if clearPrimary, ensure 0 primaries remain in affected sections
-      if (options.clearPrimary && !isGlobal) {
-        await (supabase as any)
-          .from('project_images')
-          .update({ is_primary: false })
-          .eq('project_id', projectId)
-          .eq('is_primary', true)
-          .in('asset_group', options.sections);
-      } else if (options.clearPrimary && isGlobal) {
-        await (supabase as any)
+      // ── Phase 3: Invariant verification ──
+      // Verify 0 primaries remain in scope. If any survive, force-clear.
+      let verifyQuery = (supabase as any)
+        .from('project_images')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', projectId)
+        .eq('is_primary', true);
+
+      if (!isGlobal) {
+        verifyQuery = verifyQuery.in('asset_group', options.sections);
+      }
+
+      const { count: remainingPrimaries } = await verifyQuery;
+      if (remainingPrimaries && remainingPrimaries > 0) {
+        // Safety net: force clear any remaining
+        let forceQuery = (supabase as any)
           .from('project_images')
           .update({ is_primary: false })
           .eq('project_id', projectId)
           .eq('is_primary', true);
+        if (!isGlobal) {
+          forceQuery = forceQuery.in('asset_group', options.sections);
+        }
+        await forceQuery;
+        console.warn(`[resetScopedCanon] Invariant enforcement: force-cleared ${remainingPrimaries} orphaned primaries`);
       }
 
       const result: CanonResetResult = {
         batchId,
         archivedCount,
+        primaryCleared,
         timestamp: now,
         sections: isGlobal ? ['all'] : options.sections,
         options,
@@ -163,7 +195,7 @@ export function useVisualCanonReset(projectId: string) {
         ? 'all sections'
         : options.sections.map(s => SECTION_LABELS[s] || s).join(', ');
 
-      toast.success(`Visual canon reset (${sectionLabel}): ${archivedCount} images ${options.targetState === 'archived' ? 'archived' : 'moved to candidates'}.`);
+      toast.success(`Visual canon reset (${sectionLabel}): ${archivedCount} images ${options.targetState === 'archived' ? 'archived' : 'moved to candidates'}, ${primaryCleared} primaries cleared.`);
       return result;
     } catch (e: any) {
       toast.error(e.message || 'Failed to reset visual canon');
@@ -194,6 +226,7 @@ export function useVisualCanonReset(projectId: string) {
       .update({
         curation_state: 'candidate' as CurationState,
         is_active: true,
+        is_primary: false, // Invariant: restored images never auto-primary
         archived_from_active_at: null,
       })
       .eq('id', imageId);
@@ -230,6 +263,7 @@ export function useVisualCanonReset(projectId: string) {
 
   /**
    * Approve a recommended image into active canon (promote to primary).
+   * Invariant: only one primary per slot.
    */
   const approveIntoCanon = useCallback(async (image: ProjectImage) => {
     // Unset any existing primary in the same slot
@@ -262,6 +296,65 @@ export function useVisualCanonReset(projectId: string) {
   }, [projectId, invalidateAll]);
 
   /**
+   * Batch approve all candidates into active canon.
+   * Deterministic primary selection: first candidate per slot (by created_at ASC).
+   */
+  const batchApproveAll = useCallback(async (candidates: ProjectImage[]): Promise<number> => {
+    if (candidates.length === 0) return 0;
+
+    // Group by slot key: asset_group + subject + shot_type
+    const slotMap = new Map<string, ProjectImage[]>();
+    for (const img of candidates) {
+      const key = `${(img as any).asset_group || ''}:${img.subject || ''}:${img.shot_type || ''}`;
+      if (!slotMap.has(key)) slotMap.set(key, []);
+      slotMap.get(key)!.push(img);
+    }
+
+    let approved = 0;
+
+    for (const [_slotKey, slotImages] of slotMap) {
+      // Sort by created_at ASC — first candidate becomes primary
+      const sorted = [...slotImages].sort((a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+      for (let i = 0; i < sorted.length; i++) {
+        const img = sorted[i];
+        const isPrimary = i === 0; // First in slot becomes primary
+
+        // Clear any existing primary in this slot before setting new one
+        if (isPrimary) {
+          let clearQ = (supabase as any)
+            .from('project_images')
+            .update({ is_primary: false })
+            .eq('project_id', projectId)
+            .eq('is_primary', true);
+          if ((img as any).asset_group) clearQ = clearQ.eq('asset_group', (img as any).asset_group);
+          if (img.subject) clearQ = clearQ.eq('subject', img.subject);
+          if (img.shot_type) clearQ = clearQ.eq('shot_type', img.shot_type);
+          await clearQ;
+        }
+
+        await (supabase as any)
+          .from('project_images')
+          .update({
+            curation_state: 'active' as CurationState,
+            is_active: true,
+            is_primary: isPrimary,
+            archived_from_active_at: null,
+          })
+          .eq('id', img.id);
+
+        approved++;
+      }
+    }
+
+    invalidateAll();
+    toast.success(`Approved ${approved} images (${slotMap.size} slots with primaries selected)`);
+    return approved;
+  }, [projectId, invalidateAll]);
+
+  /**
    * Reject a candidate (archive + optionally mark for reuse).
    */
   const rejectCandidate = useCallback(async (imageId: string, markReuse: boolean = false) => {
@@ -288,6 +381,7 @@ export function useVisualCanonReset(projectId: string) {
     markForReusePool,
     removeFromReusePool,
     approveIntoCanon,
+    batchApproveAll,
     rejectCandidate,
     resetting,
     lastReset,
