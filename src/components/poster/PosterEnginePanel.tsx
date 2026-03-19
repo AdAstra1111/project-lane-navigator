@@ -1,24 +1,27 @@
 /**
  * PosterEnginePanel — Multi-concept poster generation with strategic creative directions.
  * Generates 6 distinct poster concepts based on project canon, allows selection.
+ * All text/credits are composited deterministically from structured editable fields.
  */
 import { useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
   Loader2, Sparkles, Star, ChevronDown, User, Mountain,
-  Swords, Award, Megaphone, Drama,
+  Swords, Award, Megaphone, Drama, PenLine, Plus, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { PosterCompositor } from "@/components/poster/PosterCompositor";
+import { PosterCompositor, type PosterCreditsData } from "@/components/poster/PosterCompositor";
 import { FramingStrategyPanel } from "@/components/framing/FramingStrategyPanel";
 import {
   useProjectPosters,
@@ -31,6 +34,7 @@ import {
 } from "@/hooks/useProjectPosters";
 import { useProject } from "@/hooks/useProjects";
 import { useProjectBranding } from "@/hooks/useProjectBranding";
+import { usePosterCredits, useUpdatePosterCredits } from "@/hooks/usePosterCredits";
 
 const STRATEGY_META: Record<string, { icon: typeof User; color: string; description: string }> = {
   character:  { icon: User,     color: "text-blue-400",   description: "Lead character dominant, emotional, intimate" },
@@ -42,45 +46,32 @@ const STRATEGY_META: Record<string, { icon: typeof User; color: string; descript
 };
 
 /**
- * Renders a poster image — uses direct img for composed finals (text baked in),
- * falls back to PosterCompositor canvas for key-art-only uploads.
+ * Always uses PosterCompositor — deterministic text overlay, no baked-in hallucinated text.
  */
 function PosterImage({
   poster,
   title,
   branding,
+  credits,
   width,
   className,
 }: {
   poster: ProjectPoster;
   title: string;
   branding: { companyLogoUrl: string | null; companyName: string | null } | null;
+  credits?: PosterCreditsData;
   width: number;
   className?: string;
 }) {
-  const isComposed = poster.render_status === "composed_final" || poster.render_status === "composed_preview";
   const imageUrl = poster.rendered_public_url || poster.key_art_public_url;
 
-  if (isComposed && imageUrl) {
-    const height = Math.round(width * 1.5); // 2:3 ratio
-    return (
-      <img
-        src={imageUrl}
-        alt={`${title} poster — ${poster.layout_variant}`}
-        className={cn("object-cover", className)}
-        style={{ width, height, borderRadius: 8 }}
-        loading="lazy"
-      />
-    );
-  }
-
-  // Fallback: key-art-only → use compositor for text overlay
   return (
     <PosterCompositor
       keyArtUrl={imageUrl || ""}
       title={title}
       companyLogoUrl={branding?.companyLogoUrl}
-      companyName={branding?.companyName}
+      companyName={branding?.companyName || credits?.producedBy?.[0] ? undefined : undefined}
+      credits={credits}
       width={width}
       className={className}
     />
@@ -93,16 +84,30 @@ export default function PosterEnginePanel() {
   const { data: branding } = useProjectBranding(projectId);
   const { data: posters, isLoading } = useProjectPosters(projectId);
   const { data: activePoster } = useActivePoster(projectId);
+  const { data: posterCredits } = usePosterCredits(projectId);
+  const updateCredits = useUpdatePosterCredits(projectId);
   const generatePoster = useGeneratePoster(projectId);
   const uploadPoster = useUploadPosterKeyArt(projectId);
   const setActivePoster = useSetActivePoster(projectId);
   const deletePoster = useDeletePoster(projectId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showCreditsEditor, setShowCreditsEditor] = useState(false);
 
   const isGenerating = generatePoster.isPending;
   const isUploading = uploadPoster.isPending;
   const isBusy = isGenerating || isUploading;
+
+  // Build credits data for compositor
+  const creditsData: PosterCreditsData = {
+    writtenBy: posterCredits?.written_by || [],
+    producedBy: posterCredits?.produced_by || [],
+    createdByCredit: posterCredits?.created_by_credit || null,
+    basedOnCredit: posterCredits?.based_on_credit || null,
+  };
+
+  const companyName = posterCredits?.company_name || branding?.companyName || null;
+  const posterTitle = posterCredits?.title_override || project?.title || "Untitled";
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -183,15 +188,43 @@ export default function PosterEnginePanel() {
         </div>
       </div>
 
+      {/* ── Poster Credits Editor ── */}
+      <Collapsible open={showCreditsEditor} onOpenChange={setShowCreditsEditor}>
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full justify-between px-4 py-2.5 bg-card/50 rounded-lg border border-border/30 hover:border-border/60">
+            <div className="flex items-center gap-2">
+              <PenLine className="w-3.5 h-3.5" />
+              <span className="font-medium text-foreground">Poster Credits & Billing</span>
+              {posterCredits && (
+                <span className="text-muted-foreground">
+                  — {posterCredits.written_by.join(', ')}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showCreditsEditor && "rotate-180")} />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          {posterCredits && (
+            <PosterCreditsEditor
+              credits={posterCredits}
+              projectTitle={project?.title || ''}
+              onUpdate={(updates) => updateCredits.mutate(updates)}
+              isSaving={updateCredits.isPending}
+            />
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
       {/* Generating state */}
       {(isGenerating || generatingPosters.length > 0) && (
         <Card className="bg-card border-primary/20">
           <CardContent className="p-6 flex items-center gap-4">
             <Loader2 className="w-6 h-6 text-primary animate-spin" />
             <div>
-              <p className="text-sm font-medium text-foreground">Generating theatrical poster concepts…</p>
+              <p className="text-sm font-medium text-foreground">Generating theatrical poster key art…</p>
               <p className="text-xs text-muted-foreground">
-                Creating 6 distinct poster directions faithful to your project's world. This takes ~90 seconds.
+                Creating 6 distinct visual directions. Title and credits will be composited automatically. ~90 seconds.
               </p>
             </div>
           </CardContent>
@@ -205,8 +238,9 @@ export default function PosterEnginePanel() {
             <div className="flex items-center gap-4">
               <PosterImage
                 poster={activePoster}
-                title={project?.title || "Untitled"}
-                branding={branding || null}
+                title={posterTitle}
+                branding={branding ? { ...branding, companyName } : { companyLogoUrl: null, companyName }}
+                credits={creditsData}
                 width={80}
                 className="rounded shadow-lg"
               />
@@ -222,7 +256,7 @@ export default function PosterEnginePanel() {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {activePoster.source_type === "generated" ? "AI Generated" : "Uploaded"} • Used in export package
+                  {activePoster.source_type === "generated" ? "AI Key Art" : "Uploaded"} • Credits composited from structured fields
                 </p>
               </div>
             </div>
@@ -259,8 +293,9 @@ export default function PosterEnginePanel() {
                     <>
                       <PosterImage
                         poster={poster}
-                        title={project?.title || "Untitled"}
-                        branding={branding || null}
+                        title={posterTitle}
+                        branding={branding ? { ...branding, companyName } : { companyLogoUrl: null, companyName }}
+                        credits={creditsData}
                         width={280}
                       />
 
@@ -348,7 +383,7 @@ export default function PosterEnginePanel() {
               <p className="text-sm font-medium text-foreground">No poster concepts yet</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
                 Generate 6 theatrical poster directions — Character, World, Conflict, Prestige, Commercial, and Genre — 
-                all faithful to your project's story world with title and credit treatment.
+                all faithful to your project's story world. Title and credits are composited from your editable billing fields.
               </p>
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 max-w-lg mx-auto">
@@ -439,8 +474,9 @@ export default function PosterEnginePanel() {
                 >
                   <PosterImage
                     poster={poster}
-                    title={project?.title || "Untitled"}
-                    branding={branding || null}
+                    title={posterTitle}
+                    branding={branding ? { ...branding, companyName } : { companyLogoUrl: null, companyName }}
+                    credits={creditsData}
                     width={160}
                   />
                   <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
@@ -468,5 +504,177 @@ export default function PosterEnginePanel() {
         </Collapsible>
       )}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Poster Credits Editor — inline editable billing fields
+// ══════════════════════════════════════════════════════════════════════════════
+
+function PosterCreditsEditor({
+  credits,
+  projectTitle,
+  onUpdate,
+  isSaving,
+}: {
+  credits: {
+    title_override: string | null;
+    tagline: string | null;
+    written_by: string[];
+    produced_by: string[];
+    company_name: string;
+    created_by_credit: string | null;
+    based_on_credit: string | null;
+  };
+  projectTitle: string;
+  onUpdate: (updates: Record<string, unknown>) => void;
+  isSaving: boolean;
+}) {
+  const [titleOverride, setTitleOverride] = useState(credits.title_override || '');
+  const [tagline, setTagline] = useState(credits.tagline || '');
+  const [writtenBy, setWrittenBy] = useState(credits.written_by);
+  const [producedBy, setProducedBy] = useState(credits.produced_by);
+  const [companyName, setCompanyName] = useState(credits.company_name);
+  const [newWriter, setNewWriter] = useState('');
+  const [newProducer, setNewProducer] = useState('');
+
+  const handleSave = () => {
+    onUpdate({
+      title_override: titleOverride.trim() || null,
+      tagline: tagline.trim() || null,
+      written_by: writtenBy.filter(Boolean),
+      produced_by: producedBy.filter(Boolean),
+      company_name: companyName.trim(),
+    });
+  };
+
+  const addWriter = () => {
+    const name = newWriter.trim();
+    if (name && !writtenBy.includes(name)) {
+      setWrittenBy([...writtenBy, name]);
+      setNewWriter('');
+    }
+  };
+
+  const removeWriter = (idx: number) => {
+    setWrittenBy(writtenBy.filter((_, i) => i !== idx));
+  };
+
+  const addProducer = () => {
+    const name = newProducer.trim();
+    if (name && !producedBy.includes(name)) {
+      setProducedBy([...producedBy, name]);
+      setNewProducer('');
+    }
+  };
+
+  const removeProducer = (idx: number) => {
+    setProducedBy(producedBy.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <Card className="mt-2 border-border/30">
+      <CardContent className="p-4 space-y-4">
+        <p className="text-[11px] text-muted-foreground">
+          These fields control the text composited onto your poster. No names will be invented — only what you enter here appears.
+        </p>
+
+        {/* Title Override */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Poster Title</Label>
+          <Input
+            value={titleOverride}
+            onChange={e => setTitleOverride(e.target.value)}
+            placeholder={projectTitle}
+            className="h-8 text-xs"
+          />
+          <p className="text-[10px] text-muted-foreground">Leave blank to use project title</p>
+        </div>
+
+        {/* Tagline */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Tagline</Label>
+          <Input
+            value={tagline}
+            onChange={e => setTagline(e.target.value)}
+            placeholder="Optional tagline"
+            className="h-8 text-xs"
+          />
+        </div>
+
+        {/* Written By */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Written By</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {writtenBy.map((name, idx) => (
+              <Badge key={idx} variant="secondary" className="text-xs gap-1 pr-1">
+                {name}
+                <button onClick={() => removeWriter(idx)} className="ml-0.5 hover:text-destructive">
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            <Input
+              value={newWriter}
+              onChange={e => setNewWriter(e.target.value)}
+              placeholder="Add writer name"
+              className="h-7 text-xs flex-1"
+              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addWriter())}
+            />
+            <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={addWriter} disabled={!newWriter.trim()}>
+              <Plus className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Produced By */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Produced By</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {producedBy.map((name, idx) => (
+              <Badge key={idx} variant="secondary" className="text-xs gap-1 pr-1">
+                {name}
+                <button onClick={() => removeProducer(idx)} className="ml-0.5 hover:text-destructive">
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-1.5">
+            <Input
+              value={newProducer}
+              onChange={e => setNewProducer(e.target.value)}
+              placeholder="Add producer name"
+              className="h-7 text-xs flex-1"
+              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addProducer())}
+            />
+            <Button size="sm" variant="outline" className="h-7 text-xs px-2" onClick={addProducer} disabled={!newProducer.trim()}>
+              <Plus className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Company Name */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Company Name</Label>
+          <Input
+            value={companyName}
+            onChange={e => setCompanyName(e.target.value)}
+            placeholder="Production company"
+            className="h-8 text-xs"
+          />
+        </div>
+
+        {/* Save */}
+        <div className="flex justify-end">
+          <Button size="sm" onClick={handleSave} disabled={isSaving} className="gap-1.5 text-xs">
+            {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+            Save Credits
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
