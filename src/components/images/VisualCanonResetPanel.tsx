@@ -64,6 +64,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const [showArchive, setShowArchive] = useState(false);
   const [showReusePool, setShowReusePool] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [batchApproving, setBatchApproving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
