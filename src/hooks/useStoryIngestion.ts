@@ -184,9 +184,11 @@ export function useStoryIngestion(projectId: string | undefined) {
   ) => {
     if (!projectId) return null;
     try {
-      const reqBody = { action: 'review_action' as const, projectId, target, targetId, action: reviewVerb };
+      const reviewBody: Record<string, unknown> = { projectId, target, targetId };
+      reviewBody.action = 'review_action';
+      reviewBody.reviewVerb = reviewVerb;
       const { data, error } = await supabase.functions.invoke('story-ingestion-engine', {
-        body: reqBody,
+        body: reviewBody,
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
