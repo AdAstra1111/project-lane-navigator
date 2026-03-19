@@ -344,7 +344,7 @@ async function resolveProjectInputs(
 ): Promise<PosterPromptInputs> {
   const { data: project, error: projErr } = await supabase
     .from("projects")
-    .select("title, format, genres, tone, budget_range, target_audience, comparable_titles, assigned_lane, source_pitch_idea_id")
+    .select("title, format, genres, tone, budget_range, target_audience, comparable_titles, assigned_lane, source_pitch_idea_id, default_prestige_style")
     .eq("id", projectId)
     .single();
 
