@@ -6,7 +6,7 @@
  * Identity images use generation_purpose='character_identity' and identity_* shot types.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye } from 'lucide-react';
+import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye, Dna, Wand2 } from 'lucide-react';
 import { CharacterVisualDNAPanel } from './CharacterVisualDNAPanel';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { useCharacterIdentityNotes } from '@/hooks/useCharacterIdentityNotes';
 import { resolveCharacterIdentity, checkIdentityNotesAgainstCanon } from '@/lib/images/identityResolver';
 import { resolveCharacterTraits, detectTraitContradictions, formatTraitsForPrompt, type CharacterTrait, type TraitSource } from '@/lib/images/characterTraits';
 import { deriveIdentitySignature, formatIdentitySignatureBlock, hasIdentitySignature } from '@/lib/images/identitySignature';
+import { resolveCharacterVisualDNA, serializeDNAForStorage } from '@/lib/images/visualDNA';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -68,12 +69,22 @@ function extractCharacters(canonJson: any): CharacterInfo[] {
   return chars.slice(0, 10);
 }
 
+/** DNA status classification */
+type DnaStatus = 'none' | 'draft' | 'approved';
+
+interface CharacterCoverageData {
+  name: string;
+  identityAnchored: boolean;
+  dnaStatus: DnaStatus;
+}
+
 export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProps) {
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [canonJson, setCanonJson] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [visualDnaCharNames, setVisualDnaCharNames] = useState<Set<string>>(new Set());
-  const [identityLockedNames, setIdentityLockedNames] = useState<Set<string>>(new Set());
+  const [coverageData, setCoverageData] = useState<CharacterCoverageData[]>([]);
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     async function load() {
@@ -84,19 +95,21 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         .eq('project_id', projectId)
         .maybeSingle();
 
-      if (data?.canon_json) {
-        setCanonJson(data.canon_json);
-        setCharacters(extractCharacters(data.canon_json));
-      }
+      const cJson = data?.canon_json || null;
+      setCanonJson(cJson);
+      const chars = extractCharacters(cJson);
+      setCharacters(chars);
 
       // Load visual DNA coverage
       const { data: dnaRows } = await (supabase as any)
         .from('character_visual_dna')
-        .select('character_name')
+        .select('character_name, identity_strength')
         .eq('project_id', projectId)
         .eq('is_current', true);
-      if (dnaRows) {
-        setVisualDnaCharNames(new Set(dnaRows.map((d: any) => d.character_name)));
+      
+      const dnaMap = new Map<string, any>();
+      for (const d of (dnaRows || [])) {
+        dnaMap.set(d.character_name, d);
       }
 
       // Check identity lock status from project_images
@@ -107,20 +120,102 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         .eq('asset_group', 'character')
         .eq('is_primary', true)
         .in('shot_type', ['identity_headshot', 'identity_full_body']);
-      if (lockedImages) {
-        const lockCounts = new Map<string, number>();
-        for (const img of lockedImages) {
-          if (img.subject) lockCounts.set(img.subject, (lockCounts.get(img.subject) || 0) + 1);
-        }
-        setIdentityLockedNames(new Set(
-          [...lockCounts.entries()].filter(([, count]) => count >= 2).map(([name]) => name)
-        ));
+
+      const lockCounts = new Map<string, number>();
+      for (const img of (lockedImages || [])) {
+        if (img.subject) lockCounts.set(img.subject, (lockCounts.get(img.subject) || 0) + 1);
       }
 
+      // Build coverage data
+      const coverage = chars.map(c => {
+        const isLocked = (lockCounts.get(c.name) || 0) >= 2;
+        const dnaRow = dnaMap.get(c.name);
+        let dnaStatus: DnaStatus = 'none';
+        if (dnaRow) {
+          dnaStatus = dnaRow.identity_strength === 'strong' ? 'approved' : 'draft';
+        }
+        return { name: c.name, identityAnchored: isLocked, dnaStatus };
+      });
+      setCoverageData(coverage);
       setLoading(false);
     }
     load();
   }, [projectId]);
+
+  // Bootstrap DNA for all identity-locked chars missing DNA
+  const bootstrapAllDNA = useCallback(async () => {
+    const eligible = coverageData.filter(c => c.identityAnchored && c.dnaStatus === 'none');
+    if (eligible.length === 0) {
+      toast.info('No eligible characters for DNA bootstrap');
+      return;
+    }
+    setBootstrapping(true);
+    let count = 0;
+    try {
+      for (const char of eligible) {
+        const canonCharacter = Array.isArray((canonJson as any)?.characters)
+          ? (canonJson as any).characters.find((c: any) =>
+            (c.name || c.character_name || '').trim().toLowerCase() === char.name.toLowerCase()
+          ) || null
+          : null;
+
+        const identity = await resolveCharacterIdentity(projectId, char.name);
+        const dna = resolveCharacterVisualDNA(char.name, canonCharacter, canonJson, '', identity.locked);
+        const serialized = serializeDNAForStorage(dna);
+
+        // Get next version
+        const { data: existing } = await (supabase as any)
+          .from('character_visual_dna')
+          .select('version_number')
+          .eq('project_id', projectId)
+          .eq('character_name', char.name)
+          .order('version_number', { ascending: false })
+          .limit(1);
+        const nextVersion = (existing?.[0]?.version_number || 0) + 1;
+
+        // Mark old as not current
+        await (supabase as any)
+          .from('character_visual_dna')
+          .update({ is_current: false })
+          .eq('project_id', projectId)
+          .eq('character_name', char.name);
+
+        const { data: session } = await supabase.auth.getSession();
+        const { error } = await (supabase as any)
+          .from('character_visual_dna')
+          .insert({
+            project_id: projectId,
+            character_name: char.name,
+            version_number: nextVersion,
+            ...serialized,
+            identity_strength: identity.locked ? 'partial' : 'weak',
+            is_current: true,
+            created_by: session?.session?.user?.id,
+          });
+        if (!error) count++;
+      }
+      if (count > 0) {
+        toast.success(`Bootstrapped DNA drafts for ${count} character(s)`);
+        qc.invalidateQueries({ queryKey: ['visual-dna'] });
+        // Refresh coverage data
+        const { data: dnaRows } = await (supabase as any)
+          .from('character_visual_dna')
+          .select('character_name, identity_strength')
+          .eq('project_id', projectId)
+          .eq('is_current', true);
+        const dnaMap = new Map<string, any>();
+        for (const d of (dnaRows || [])) dnaMap.set(d.character_name, d);
+        setCoverageData(prev => prev.map(c => {
+          const dnaRow = dnaMap.get(c.name);
+          return { ...c, dnaStatus: dnaRow ? (dnaRow.identity_strength === 'strong' ? 'approved' : 'draft') : 'none' };
+        }));
+      }
+    } catch (e: any) {
+      toast.error(`Bootstrap failed: ${e.message}`);
+    } finally {
+      setBootstrapping(false);
+    }
+  }, [projectId, coverageData, canonJson, qc]);
 
   if (loading) {
     return (
@@ -141,11 +236,14 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
     );
   }
 
-  // Coverage analysis
+  // Coverage metrics
   const canonicalCount = characters.length;
-  const inVisualWorkflow = characters.filter(c => visualDnaCharNames.has(c.name)).length;
-  const lockedCount = characters.filter(c => identityLockedNames.has(c.name)).length;
-  const missingCoverage = characters.filter(c => !visualDnaCharNames.has(c.name));
+  const identityAnchoredCount = coverageData.filter(c => c.identityAnchored).length;
+  const dnaDraftedCount = coverageData.filter(c => c.dnaStatus === 'draft').length;
+  const dnaApprovedCount = coverageData.filter(c => c.dnaStatus === 'approved').length;
+  const missingIdentity = coverageData.filter(c => !c.identityAnchored);
+  const missingDNA = coverageData.filter(c => c.dnaStatus === 'none');
+  const eligibleForBootstrap = coverageData.filter(c => c.identityAnchored && c.dnaStatus === 'none');
 
   return (
     <div className="space-y-1">
@@ -154,24 +252,42 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         <h3 className="text-sm font-semibold text-foreground">Character Visual Identity</h3>
       </div>
 
-      {/* Coverage Summary */}
-      <div className="grid grid-cols-4 gap-1.5 mb-3">
+      {/* Coverage Summary — 6 staged metrics */}
+      <div className="grid grid-cols-3 gap-1.5 mb-1.5">
         <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
           <p className="text-[10px] text-muted-foreground">Canonical Cast</p>
           <p className="text-sm font-semibold text-foreground">{canonicalCount}</p>
         </div>
         <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
-          <p className="text-[10px] text-muted-foreground">Visual DNA</p>
-          <p className="text-sm font-semibold text-foreground">{inVisualWorkflow}</p>
+          <p className="text-[10px] text-muted-foreground">Identity Anchored</p>
+          <p className={cn('text-sm font-semibold', identityAnchoredCount > 0 ? 'text-emerald-600' : 'text-muted-foreground')}>
+            {identityAnchoredCount}
+          </p>
         </div>
         <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
-          <p className="text-[10px] text-muted-foreground">Identity Locked</p>
-          <p className="text-sm font-semibold text-emerald-600">{lockedCount}</p>
+          <p className="text-[10px] text-muted-foreground">DNA Drafted</p>
+          <p className={cn('text-sm font-semibold', dnaDraftedCount > 0 ? 'text-blue-600' : 'text-muted-foreground')}>
+            {dnaDraftedCount}
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5 mb-3">
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">DNA Approved</p>
+          <p className={cn('text-sm font-semibold', dnaApprovedCount > 0 ? 'text-emerald-600' : 'text-muted-foreground')}>
+            {dnaApprovedCount}
+          </p>
         </div>
         <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
-          <p className="text-[10px] text-muted-foreground">Missing</p>
-          <p className={cn('text-sm font-semibold', missingCoverage.length > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
-            {missingCoverage.length}
+          <p className="text-[10px] text-muted-foreground">Missing Identity</p>
+          <p className={cn('text-sm font-semibold', missingIdentity.length > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+            {missingIdentity.length}
+          </p>
+        </div>
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Missing DNA</p>
+          <p className={cn('text-sm font-semibold', missingDNA.length > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+            {missingDNA.length}
           </p>
         </div>
       </div>
@@ -180,22 +296,49 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         Establish locked visual identity (face + body) before generating scene imagery. Identity anchors ensure continuity across all outputs.
       </p>
 
-      {/* Missing Coverage Block */}
-      {missingCoverage.length > 0 && (
+      {/* DNA Bootstrap CTA */}
+      {eligibleForBootstrap.length > 0 && (
+        <Card className="mb-3 border-blue-500/30 bg-blue-500/5">
+          <CardContent className="p-2.5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Dna className="h-3 w-3 text-blue-500" />
+              <span className="text-[10px] font-medium text-blue-600">
+                {eligibleForBootstrap.length} character(s) identity-locked but missing DNA
+              </span>
+            </div>
+            <p className="text-[9px] text-muted-foreground mb-2">
+              Generate structured Visual DNA draft records from locked identity anchors and canon data.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-[10px] h-7 border-blue-500/30 text-blue-600 hover:bg-blue-500/10"
+              onClick={bootstrapAllDNA}
+              disabled={bootstrapping}
+            >
+              {bootstrapping ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Bootstrapping...</>
+              ) : (
+                <><Wand2 className="h-3 w-3" /> Generate DNA Drafts ({eligibleForBootstrap.length})</>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Missing Identity Block */}
+      {missingIdentity.length > 0 && (
         <Card className="mb-3 border-amber-500/30 bg-amber-500/5">
           <CardContent className="p-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
               <AlertTriangle className="h-3 w-3 text-amber-500" />
-              <span className="text-[10px] font-medium text-amber-600">Missing Visual Coverage</span>
+              <span className="text-[10px] font-medium text-amber-600">Missing Identity Anchors</span>
             </div>
             <div className="space-y-1">
-              {missingCoverage.map(char => (
+              {missingIdentity.map(char => (
                 <div key={char.name} className="flex items-center justify-between text-[10px]">
-                  <span className="text-foreground">
-                    {char.name}
-                    {char.role && <span className="text-muted-foreground ml-1">({char.role})</span>}
-                  </span>
-                  <span className="text-muted-foreground/60">No visual DNA yet</span>
+                  <span className="text-foreground">{char.name}</span>
+                  <span className="text-muted-foreground/60">Needs headshot + full body</span>
                 </div>
               ))}
             </div>
@@ -203,9 +346,22 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         </Card>
       )}
 
-      {characters.map(char => (
-        <CharacterSection key={char.name} projectId={projectId} character={char} canonJson={canonJson} />
-      ))}
+      {/* Missing DNA Block (for chars with identity but no DNA) */}
+      {missingDNA.filter(c => c.identityAnchored).length > 0 && eligibleForBootstrap.length === 0 && null}
+
+      {characters.map(char => {
+        const cov = coverageData.find(c => c.name === char.name);
+        return (
+          <CharacterSection
+            key={char.name}
+            projectId={projectId}
+            character={char}
+            canonJson={canonJson}
+            dnaStatus={cov?.dnaStatus || 'none'}
+            identityAnchored={cov?.identityAnchored || false}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -290,10 +446,6 @@ function IdentityLockStatusPanel({ hasHeadshot, hasFullBody }: { hasHeadshot: bo
   );
 }
 
-// ─── CHARACTER VISUAL TRUTH — UNIFIED UNDER CharacterVisualDNAPanel ──────────
-// (Removed duplicate CharacterVisualTruthPanel — all visual truth now flows
-//  through the single canonical CharacterVisualDNAPanel component)
-
 // ─── GENERATION LOCK WARNING ────────────────────────────────────────────────
 
 function GenerationLockBadge({ identityLocked }: { identityLocked: boolean }) {
@@ -313,7 +465,15 @@ function GenerationLockBadge({ identityLocked }: { identityLocked: boolean }) {
 
 // ─── CHARACTER SECTION ──────────────────────────────────────────────────────
 
-function CharacterSection({ projectId, character, canonJson }: { projectId: string; character: CharacterInfo; canonJson: Record<string, unknown> | null }) {
+function CharacterSection({
+  projectId, character, canonJson, dnaStatus, identityAnchored,
+}: {
+  projectId: string;
+  character: CharacterInfo;
+  canonJson: Record<string, unknown> | null;
+  dnaStatus: DnaStatus;
+  identityAnchored: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   const { data: allImages = [], isLoading } = useProjectImages(projectId, {
@@ -343,6 +503,17 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
     ) || null;
   }, [canonJson, character.name]);
 
+  // DNA status badge
+  const dnaBadge = dnaStatus === 'approved' ? (
+    <Badge className="text-[7px] px-1 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-0.5">
+      <Dna className="h-1.5 w-1.5" /> DNA Approved
+    </Badge>
+  ) : dnaStatus === 'draft' ? (
+    <Badge className="text-[7px] px-1 py-0 bg-blue-500/15 text-blue-600 border-blue-500/30 gap-0.5">
+      <Dna className="h-1.5 w-1.5" /> DNA Draft
+    </Badge>
+  ) : null;
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
@@ -358,7 +529,7 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
           {character.role && (
             <span className="text-[10px] text-muted-foreground ml-1.5">({character.role})</span>
           )}
-          <div className="flex items-center gap-1.5 mt-0.5">
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             {identityLocked ? (
               <Badge className="text-[8px] px-1 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-0.5">
                 <Lock className="h-2 w-2" /> Identity Locked
@@ -370,6 +541,7 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
             ) : (
               <span className="text-[10px] text-muted-foreground/60">no identity yet</span>
             )}
+            {dnaBadge}
             {referenceImages.length > 0 && (
               <span className="text-[10px] text-muted-foreground">{referenceImages.length} refs</span>
             )}
@@ -385,6 +557,7 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
           identityLocked={identityLocked}
           canonJson={canonJson}
           canonCharacter={canonCharacter}
+          dnaStatus={dnaStatus}
         />
 
         <CharacterReferenceSection
@@ -409,7 +582,7 @@ function CharacterSection({ projectId, character, canonJson }: { projectId: stri
 // ─── IDENTITY SECTION ────────────────────────────────────────────────────────
 
 function CharacterIdentitySection({
-  projectId, character, identityImages, identityLocked, canonJson, canonCharacter,
+  projectId, character, identityImages, identityLocked, canonJson, canonCharacter, dnaStatus,
 }: {
   projectId: string;
   character: CharacterInfo;
@@ -417,11 +590,13 @@ function CharacterIdentitySection({
   identityLocked: boolean;
   canonJson: Record<string, unknown> | null;
   canonCharacter: Record<string, unknown> | null;
+  dnaStatus: DnaStatus;
 }) {
   const [generating, setGenerating] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [localNotes, setLocalNotes] = useState('');
   const [localCanonCheck, setLocalCanonCheck] = useState<{ status: string; messages: string[] }>({ status: 'unchecked', messages: [] });
+  const [bootstrappingSingle, setBootstrappingSingle] = useState(false);
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const { notes: savedNotes, canonCheckStatus, canonCheckMessages, isSaving, save: saveNotes } = useCharacterIdentityNotes(projectId, character.name);
@@ -479,9 +654,53 @@ function CharacterIdentitySection({
     return formatTraitsForPrompt(resolvedTraits);
   }, [resolvedTraits]);
 
-  // Derive identity signature from traits
   const identitySignature = useMemo(() => deriveIdentitySignature(resolvedTraits), [resolvedTraits]);
   const identitySignatureBlock = useMemo(() => formatIdentitySignatureBlock(identitySignature), [identitySignature]);
+
+  // Single character DNA bootstrap
+  const handleBootstrapDNA = useCallback(async () => {
+    setBootstrappingSingle(true);
+    try {
+      const identity = await resolveCharacterIdentity(projectId, character.name);
+      const dna = resolveCharacterVisualDNA(character.name, canonCharacter, canonJson, localNotes, identity.locked);
+      const serialized = serializeDNAForStorage(dna);
+
+      const { data: existing } = await (supabase as any)
+        .from('character_visual_dna')
+        .select('version_number')
+        .eq('project_id', projectId)
+        .eq('character_name', character.name)
+        .order('version_number', { ascending: false })
+        .limit(1);
+      const nextVersion = (existing?.[0]?.version_number || 0) + 1;
+
+      await (supabase as any)
+        .from('character_visual_dna')
+        .update({ is_current: false })
+        .eq('project_id', projectId)
+        .eq('character_name', character.name);
+
+      const { data: session } = await supabase.auth.getSession();
+      await (supabase as any)
+        .from('character_visual_dna')
+        .insert({
+          project_id: projectId,
+          character_name: character.name,
+          version_number: nextVersion,
+          ...serialized,
+          identity_strength: identity.locked ? 'partial' : 'weak',
+          is_current: true,
+          created_by: session?.session?.user?.id,
+        });
+
+      toast.success(`DNA draft created for ${character.name}`);
+      qc.invalidateQueries({ queryKey: ['visual-dna'] });
+    } catch (e: any) {
+      toast.error(`DNA bootstrap failed: ${e.message}`);
+    } finally {
+      setBootstrappingSingle(false);
+    }
+  }, [projectId, character.name, canonCharacter, canonJson, localNotes, qc]);
 
   const generateIdentity = useCallback(async () => {
     if (generating) return;
@@ -564,13 +783,41 @@ function CharacterIdentitySection({
         ) : null}
       </div>
 
-      {/* PART B: Identity Lock Status — always visible */}
+      {/* Identity Lock Status */}
       <IdentityLockStatusPanel
         hasHeadshot={!!primaryHeadshot}
         hasFullBody={!!primaryFullBody}
       />
 
-      {/* UNIFIED: Character Visual DNA — single canonical truth source */}
+      {/* DNA Bootstrap CTA for this character */}
+      {identityLocked && dnaStatus === 'none' && (
+        <Card className="mb-3 border-blue-500/30 bg-blue-500/5">
+          <CardContent className="p-2.5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Dna className="h-3 w-3 text-blue-500" />
+              <span className="text-[10px] font-medium text-blue-600">No structured DNA draft yet</span>
+            </div>
+            <p className="text-[9px] text-muted-foreground mb-2">
+              Identity locked but no Visual DNA record exists. Bootstrap a draft from locked identity and canon data.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-[10px] h-7 border-blue-500/30 text-blue-600 hover:bg-blue-500/10"
+              onClick={handleBootstrapDNA}
+              disabled={bootstrappingSingle}
+            >
+              {bootstrappingSingle ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Bootstrapping...</>
+              ) : (
+                <><Wand2 className="h-3 w-3" /> Generate DNA Draft from Locked Identity</>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Character Visual DNA Panel */}
       <CharacterVisualDNAPanel
         projectId={projectId}
         characterName={character.name}
@@ -598,41 +845,35 @@ function CharacterIdentitySection({
               onChange={(e) => setLocalNotes(e.target.value)}
               placeholder="Optional: face shape, casting-type feel, hair, body type, wardrobe baseline..."
               className="text-[10px] min-h-[60px] bg-muted/30 border-border/50 resize-none"
-              rows={3}
             />
             <div className="flex items-center gap-1.5">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 text-[9px] gap-1"
-                onClick={handleSaveNotes}
-                disabled={isSaving}
-              >
+              <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={handleSaveNotes} disabled={isSaving}>
                 {isSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}
-                Save & Check Canon
+                Save Notes
               </Button>
-              {localCanonCheck.status !== 'unchecked' && (
-                <Badge
-                  className={cn(
-                    'text-[7px] px-1 py-0',
-                    localCanonCheck.status === 'pass' && 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
-                    localCanonCheck.status === 'uncertain' && 'bg-amber-500/15 text-amber-600 border-amber-500/30',
-                    localCanonCheck.status === 'contradiction' && 'bg-destructive/15 text-destructive border-destructive/30',
-                  )}
-                >
-                  {localCanonCheck.status === 'pass' ? 'Canon OK' : localCanonCheck.status === 'uncertain' ? 'Review' : 'Contradiction'}
-                </Badge>
+              {localCanonCheck.status === 'pass' && (
+                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                  <CheckCircle className="h-2.5 w-2.5" /> Canon compatible
+                </span>
+              )}
+              {localCanonCheck.status === 'uncertain' && (
+                <span className="text-[9px] text-amber-600 flex items-center gap-0.5">
+                  <AlertTriangle className="h-2.5 w-2.5" /> Check recommended
+                </span>
+              )}
+              {localCanonCheck.status === 'contradiction' && (
+                <span className="text-[9px] text-destructive flex items-center gap-0.5">
+                  <AlertTriangle className="h-2.5 w-2.5" /> Contradicts canon
+                </span>
               )}
             </div>
             {localCanonCheck.messages.length > 0 && (
               <div className="space-y-0.5">
-                {localCanonCheck.messages.map((msg, idx) => (
-                  <p key={idx} className={cn(
-                    'text-[8px] px-1.5 py-0.5 rounded',
-                    msg.includes('contradiction') ? 'bg-destructive/10 text-destructive' : 'bg-amber-500/10 text-amber-700',
-                  )}>
-                    {msg}
-                  </p>
+                {localCanonCheck.messages.map((msg, i) => (
+                  <p key={i} className={cn(
+                    'text-[9px]',
+                    localCanonCheck.status === 'contradiction' ? 'text-destructive' : 'text-amber-600',
+                  )}>• {msg}</p>
                 ))}
               </div>
             )}
@@ -640,132 +881,53 @@ function CharacterIdentitySection({
         )}
       </div>
 
-      {identityImages.length === 0 ? (
-        <div>
-          <GenerationLockBadge identityLocked={identityLocked} />
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 text-xs h-7 w-full mt-1"
-            onClick={generateIdentity}
-            disabled={generateDisabled}
-          >
-            {generating ? (
-              <><Loader2 className="h-3 w-3 animate-spin" /> Generating Identity Pack...</>
-            ) : (
-              <><ShieldCheck className="h-3 w-3" /> {generateButtonLabel}</>
-            )}
-          </Button>
+      {/* Identity Headshots */}
+      {headshots.length > 0 && (
+        <div className="mb-2.5">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+            Headshots
+          </p>
+          <ImageSelectorGrid projectId={projectId} images={headshots} showShotTypes showCurationControls showProvenance />
         </div>
-      ) : (
-        <>
-          {/* Identity Headshots */}
-          {headshots.length > 0 && (
-            <div className="mb-2">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Identity Headshot</p>
-                {primaryHeadshot && (
-                  <Badge className="text-[7px] bg-emerald-500/15 text-emerald-600 px-1 py-0">Primary ✓</Badge>
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {headshots.map(img => (
-                  <IdentityImageCard
-                    key={img.id}
-                    image={img}
-                    isPrimary={img.id === primaryHeadshot?.id}
-                    onSetPrimary={() => setPrimary(img)}
-                    onArchive={() => setCurationState(img.id, 'archived')}
-                    onRestore={() => setCurationState(img.id, 'candidate')}
-                    updating={updating}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Identity Profiles */}
-          {profiles.length > 0 && (
-            <div className="mb-2">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Identity Profile</p>
-                {primaryProfile && (
-                  <Badge className="text-[7px] bg-emerald-500/15 text-emerald-600 px-1 py-0">Primary ✓</Badge>
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {profiles.map(img => (
-                  <IdentityImageCard
-                    key={img.id}
-                    image={img}
-                    isPrimary={img.id === primaryProfile?.id}
-                    onSetPrimary={() => setPrimary(img)}
-                    onArchive={() => setCurationState(img.id, 'archived')}
-                    onRestore={() => setCurationState(img.id, 'candidate')}
-                    updating={updating}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Identity Full Body */}
-          {fullBodies.length > 0 && (
-            <div className="mb-2">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Identity Full Body</p>
-                {primaryFullBody && (
-                  <Badge className="text-[7px] bg-emerald-500/15 text-emerald-600 px-1 py-0">Primary ✓</Badge>
-                )}
-              </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {fullBodies.map(img => (
-                  <IdentityImageCard
-                    key={img.id}
-                    image={img}
-                    isPrimary={img.id === primaryFullBody?.id}
-                    onSetPrimary={() => setPrimary(img)}
-                    onArchive={() => setCurationState(img.id, 'archived')}
-                    onRestore={() => setCurationState(img.id, 'candidate')}
-                    updating={updating}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Re-generate button with lock warning */}
-          <div className="mt-1">
-            <GenerationLockBadge identityLocked={identityLocked} />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="gap-1 text-[10px] h-6 w-full text-muted-foreground"
-              onClick={generateIdentity}
-              disabled={generateDisabled}
-            >
-              {generating ? (
-                <Loader2 className="h-2.5 w-2.5 animate-spin" />
-              ) : identityLocked ? (
-                <Lock className="h-2.5 w-2.5" />
-              ) : (
-                <Plus className="h-2.5 w-2.5" />
-              )}
-              {generateButtonLabel}
-            </Button>
-          </div>
-          {identityLocked && isContradiction && (
-            <p className="text-[8px] text-destructive text-center mt-1">
-              Generation blocked: identity notes contradict canon. Fix notes to proceed.
-            </p>
-          )}
-        </>
       )}
+      {profiles.length > 0 && (
+        <div className="mb-2.5">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+            Profile Angles
+          </p>
+          <ImageSelectorGrid projectId={projectId} images={profiles} showShotTypes showCurationControls showProvenance />
+        </div>
+      )}
+      {fullBodies.length > 0 && (
+        <div className="mb-2.5">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+            Full Body
+          </p>
+          <ImageSelectorGrid projectId={projectId} images={fullBodies} showShotTypes showCurationControls showProvenance />
+        </div>
+      )}
+
+      {/* Generation Button */}
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-1.5 text-xs h-7 w-full"
+        onClick={generateIdentity}
+        disabled={generateDisabled}
+      >
+        {generating ? (
+          <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
+        ) : (
+          <><Plus className="h-3 w-3" /> {generateButtonLabel}</>
+        )}
+      </Button>
+
+      {identityImages.length > 0 && <GenerationLockBadge identityLocked={identityLocked} />}
     </div>
   );
 }
 
-// ─── REFERENCE SECTION ───────────────────────────────────────────────────────
+// ─── CHARACTER REFERENCES ────────────────────────────────────────────────────
 
 function CharacterReferenceSection({
   projectId, character, referenceImages, identityLocked,
@@ -775,38 +937,21 @@ function CharacterReferenceSection({
   referenceImages: ProjectImage[];
   identityLocked: boolean;
 }) {
-  const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
-
-  useEffect(() => {
-    if (!identityLocked) { setIdentityAnchors(null); return; }
-    resolveCharacterIdentity(projectId, character.name).then(state => {
-      if (state.locked && state.headshot && state.fullBody) {
-        setIdentityAnchors({ headshot: state.headshot.storage_path, fullBody: state.fullBody.storage_path });
-      }
-    });
-  }, [projectId, character.name, identityLocked]);
   const [generating, setGenerating] = useState(false);
   const [filter, setFilter] = useState<CharFilter>('all');
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
 
-  const filteredImages = useMemo(() => {
+  const filtered = useMemo(() => {
     if (filter === 'all') return referenceImages.filter(i => i.curation_state !== 'rejected');
     return referenceImages.filter(i => i.curation_state === filter);
   }, [referenceImages, filter]);
-
-  const headshots = filteredImages.filter(i => i.shot_type === 'close_up' || i.shot_type === 'profile');
-  const fullBody = filteredImages.filter(i => i.shot_type === 'full_body');
-  const others = filteredImages.filter(i => !['close_up', 'profile', 'full_body'].includes(i.shot_type || ''));
-
-  const primaryHeadshot = referenceImages.find(i => i.is_primary && (i.shot_type === 'close_up' || i.shot_type === 'profile'));
-  const primaryFullBody = referenceImages.find(i => i.is_primary && i.shot_type === 'full_body');
 
   const activeCount = referenceImages.filter(i => i.curation_state === 'active').length;
   const candidateCount = referenceImages.filter(i => i.curation_state === 'candidate').length;
   const archivedCount = referenceImages.filter(i => i.curation_state === 'archived').length;
 
-  const generateReferences = useCallback(async () => {
+  const generateRef = useCallback(async () => {
     if (generating) return;
     setGenerating(true);
     try {
@@ -814,12 +959,11 @@ function CharacterReferenceSection({
         body: {
           project_id: projectId,
           section: 'character',
-          count: 5,
+          count: 4,
           character_name: character.name,
           asset_group: 'character',
           pack_mode: true,
           base_look_mode: true,
-          identity_anchor_paths: identityAnchors,
         },
       });
       if (error) throw error;
@@ -828,38 +972,30 @@ function CharacterReferenceSection({
       if (successCount > 0) {
         toast.success(`Generated ${successCount} reference images for ${character.name}`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
-        qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
-        qc.invalidateQueries({ queryKey: ['section-images', projectId] });
       } else {
-        toast.error('No images generated successfully');
+        toast.error('No reference images generated');
       }
     } catch (e: any) {
-      toast.error(e.message || 'Failed to generate character references');
+      toast.error(e.message || 'Failed to generate references');
     } finally {
       setGenerating(false);
     }
-  }, [projectId, character.name, generating, qc, identityAnchors]);
+  }, [projectId, character.name, generating, qc]);
+
+  if (referenceImages.length === 0 && !identityLocked) return null;
 
   return (
-    <div className="mb-3 border-t border-border/50 pt-3">
+    <div className="mb-3">
       <div className="flex items-center gap-1.5 mb-2">
-        <User className="h-3.5 w-3.5 text-muted-foreground" />
+        <Eye className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
-          Cinematic References
+          Character References
         </span>
-        {identityLocked && (
-          <Badge className="text-[7px] px-1 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-0.5">
-            <Lock className="h-1.5 w-1.5" /> Identity-derived
-          </Badge>
-        )}
-        {!identityLocked && referenceImages.length === 0 && (
-          <span className="text-[9px] text-amber-600">
-            ⚠ No locked identity — continuity will be weaker
-          </span>
+        {referenceImages.length > 0 && (
+          <Badge variant="secondary" className="text-[8px] px-1 py-0">{referenceImages.length}</Badge>
         )}
       </div>
 
-      {/* Filter bar */}
       {referenceImages.length > 0 && (
         <div className="flex items-center gap-1 mb-2 flex-wrap">
           {(['all', 'active', 'candidate', 'archived'] as CharFilter[]).map(f => (
@@ -882,251 +1018,25 @@ function CharacterReferenceSection({
         </div>
       )}
 
-      {/* Headshots */}
-      {headshots.length > 0 && (
-        <div className="mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Headshots / Close-ups</p>
-            {primaryHeadshot && (
-              <Badge className="text-[7px] bg-primary/90 text-primary-foreground px-1 py-0">Primary ✓</Badge>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {headshots.map(img => (
-              <CharacterImageCard
-                key={img.id}
-                image={img}
-                isPrimary={img.id === primaryHeadshot?.id}
-                onSetPrimary={() => setPrimary(img)}
-                onArchive={() => setCurationState(img.id, 'archived')}
-                onRestore={() => setCurationState(img.id, 'candidate')}
-                updating={updating}
-              />
-            ))}
-          </div>
-        </div>
+      {filtered.length > 0 && (
+        <ImageSelectorGrid projectId={projectId} images={filtered} showShotTypes showCurationControls showProvenance />
       )}
 
-      {/* Full body */}
-      {fullBody.length > 0 && (
-        <div className="mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Full Body</p>
-            {primaryFullBody && (
-              <Badge className="text-[7px] bg-primary/90 text-primary-foreground px-1 py-0">Primary ✓</Badge>
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {fullBody.map(img => (
-              <CharacterImageCard
-                key={img.id}
-                image={img}
-                isPrimary={img.id === primaryFullBody?.id}
-                onSetPrimary={() => setPrimary(img)}
-                onArchive={() => setCurationState(img.id, 'archived')}
-                onRestore={() => setCurationState(img.id, 'candidate')}
-                updating={updating}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-1.5 text-xs h-7 w-full mt-2"
+        onClick={generateRef}
+        disabled={generating}
+      >
+        {generating ? (
+          <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
+        ) : (
+          <><Plus className="h-3 w-3" /> Generate Reference Pack</>
+        )}
+      </Button>
 
-      {/* Others */}
-      {others.length > 0 && (
-        <div className="mb-2">
-          <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium mb-1">Other References</p>
-          <ImageSelectorGrid
-            projectId={projectId}
-            images={others}
-            showShotTypes
-            showCurationControls
-            showProvenance
-          />
-        </div>
-      )}
-
-      {/* Generate button with lock warning */}
-      <div className="mt-1">
-        <GenerationLockBadge identityLocked={identityLocked} />
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5 text-xs h-7 w-full mt-1"
-          onClick={generateReferences}
-          disabled={generating}
-        >
-          {generating ? (
-            <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
-          ) : (
-            <><Plus className="h-3 w-3" /> Generate Reference Pack (2 headshots + 2 full-body + 1 medium)</>
-          )}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── IMAGE CARDS ─────────────────────────────────────────────────────────────
-
-function IdentityImageCard({
-  image, isPrimary, onSetPrimary, onArchive, onRestore, updating,
-}: {
-  image: ProjectImage;
-  isPrimary: boolean;
-  onSetPrimary: () => void;
-  onArchive: () => void;
-  onRestore: () => void;
-  updating: string | null;
-}) {
-  const isArchived = image.curation_state === 'archived';
-  const isUpdating = updating === image.id;
-
-  return (
-    <div className={cn(
-      'group relative rounded-md overflow-hidden border-2 transition-all aspect-[3/4] bg-muted',
-      isPrimary
-        ? 'border-emerald-500 ring-1 ring-emerald-500/30'
-        : isArchived
-          ? 'border-border/30 opacity-50'
-          : 'border-border/50 hover:border-emerald-500/40',
-    )}>
-      {image.signedUrl ? (
-        <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <ShieldCheck className="h-6 w-6 text-muted-foreground/30" />
-        </div>
-      )}
-
-      {isPrimary && (
-        <div className="absolute top-1 left-1">
-          <Badge className="text-[8px] bg-emerald-500/90 text-white px-1 py-0 gap-0.5">
-            <Lock className="h-2 w-2" /> Primary
-          </Badge>
-        </div>
-      )}
-
-      {!isPrimary && (
-        <div className="absolute top-1 left-1">
-          <Badge variant="secondary" className="text-[7px] px-1 py-0 bg-black/50 text-white/80 border-0">
-            {image.shot_type?.replace('identity_', '') || 'id'}
-          </Badge>
-        </div>
-      )}
-
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
-        <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {!isPrimary && !isArchived && (
-            <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1.5 py-1 rounded bg-emerald-500/80 text-white text-[9px] font-medium hover:bg-emerald-500/90"
-              onClick={(e) => { e.stopPropagation(); onSetPrimary(); }}
-              disabled={isUpdating}
-            >
-              {isUpdating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Lock className="h-2.5 w-2.5" />}
-              Lock as Primary
-            </button>
-          )}
-          {!isArchived && !isPrimary && (
-            <button
-              className="p-1 rounded bg-black/50 text-white hover:bg-black/70"
-              onClick={(e) => { e.stopPropagation(); onArchive(); }}
-              title="Archive"
-            >
-              <Archive className="h-3 w-3" />
-            </button>
-          )}
-          {isArchived && (
-            <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1.5 py-1 rounded bg-muted/80 text-foreground text-[9px] font-medium"
-              onClick={(e) => { e.stopPropagation(); onRestore(); }}
-            >
-              <RotateCcw className="h-2.5 w-2.5" /> Restore
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CharacterImageCard({
-  image, isPrimary, onSetPrimary, onArchive, onRestore, updating,
-}: {
-  image: ProjectImage;
-  isPrimary: boolean;
-  onSetPrimary: () => void;
-  onArchive: () => void;
-  onRestore: () => void;
-  updating: string | null;
-}) {
-  const isArchived = image.curation_state === 'archived';
-  const isUpdating = updating === image.id;
-
-  return (
-    <div className={cn(
-      'group relative rounded-md overflow-hidden border-2 transition-all aspect-video bg-muted',
-      isPrimary
-        ? 'border-primary ring-1 ring-primary/30'
-        : isArchived
-          ? 'border-border/30 opacity-50'
-          : 'border-border/50 hover:border-primary/40',
-    )}>
-      {image.signedUrl ? (
-        <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <User className="h-6 w-6 text-muted-foreground/30" />
-        </div>
-      )}
-
-      {isPrimary && (
-        <div className="absolute top-1 left-1">
-          <Badge className="text-[9px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5">
-            <Star className="h-2 w-2" /> Primary
-          </Badge>
-        </div>
-      )}
-
-      {image.subject && !isPrimary && (
-        <div className="absolute top-1 left-1">
-          <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-black/50 text-white/80 border-0">
-            {image.shot_type?.replace('_', ' ') || image.subject}
-          </Badge>
-        </div>
-      )}
-
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
-        <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {!isPrimary && !isArchived && (
-            <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1.5 py-1 rounded bg-primary/80 text-primary-foreground text-[9px] font-medium hover:bg-primary/90"
-              onClick={(e) => { e.stopPropagation(); onSetPrimary(); }}
-              disabled={isUpdating}
-            >
-              {isUpdating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Star className="h-2.5 w-2.5" />}
-              Set Primary
-            </button>
-          )}
-          {!isArchived && (
-            <button
-              className="p-1 rounded bg-black/50 text-white hover:bg-black/70"
-              onClick={(e) => { e.stopPropagation(); onArchive(); }}
-              title="Archive"
-            >
-              <Archive className="h-3 w-3" />
-            </button>
-          )}
-          {isArchived && (
-            <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1.5 py-1 rounded bg-muted/80 text-foreground text-[9px] font-medium"
-              onClick={(e) => { e.stopPropagation(); onRestore(); }}
-            >
-              <RotateCcw className="h-2.5 w-2.5" /> Restore
-            </button>
-          )}
-        </div>
-      </div>
+      <GenerationLockBadge identityLocked={identityLocked} />
     </div>
   );
 }
