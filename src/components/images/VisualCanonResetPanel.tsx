@@ -654,87 +654,122 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         </Card>
       )}
 
-      {/* ── Action Buttons ── */}
-      <div className="flex flex-wrap gap-1.5">
-        <Button
-          size="sm"
-          variant="destructive"
-          className="gap-1 text-[10px] h-7"
-          disabled={resetting || (activeImages.length === 0 && candidateImages.length === 0)}
-          onClick={() => setShowResetModal(true)}
-        >
-          {resetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
-          Reset Visual Canon
-        </Button>
+      {/* ── Workflow Action Bar: Reset → Generate → Approve → Lock → Export ── */}
+      <Card className="border-border/40 bg-muted/10">
+        <CardContent className="p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Zap className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
+              Workflow Actions
+            </span>
+          </div>
 
-        <ResetVisualCanonModal
-          open={showResetModal}
-          onOpenChange={setShowResetModal}
-          images={allImages}
-          resetting={resetting}
-          onReset={resetScopedCanon}
-          onRegenerateAfterReset={(sections) => {
-            handleAutoPopulate(false);
-          }}
-        />
+          <div className="flex flex-wrap gap-1.5">
+            {/* 1. Reset — destructive */}
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-1 text-[10px] h-7"
+              disabled={resetting || (activeImages.length === 0 && candidateImages.length === 0)}
+              onClick={() => setShowResetModal(true)}
+            >
+              {resetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
+              Reset Canon
+            </Button>
 
-        {candidateImages.length > 0 && (
-          <Button
-            size="sm" variant="default"
-            className="gap-1 text-[10px] h-7"
-            disabled={batchApproving}
-            onClick={handleBatchApprove}
-          >
-            {batchApproving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCheck className="h-2.5 w-2.5" />}
-            Approve All ({candidateImages.length})
-          </Button>
-        )}
+            {/* 2. Auto Populate — primary accent */}
+            {emptySlots.length > 0 && !populating && (
+              <Button
+                size="sm"
+                className="gap-1 text-[10px] h-7 bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => handleAutoPopulate(false)}
+              >
+                <Wand2 className="h-2.5 w-2.5" />
+                Auto Populate ({emptySlots.length})
+              </Button>
+            )}
 
-        {activeImages.length > 0 && (
-          <Button
-            size="sm" variant="outline"
-            className="gap-1 text-[10px] h-7"
-            disabled={downloading}
-            onClick={handleDownloadAll}
-          >
-            {downloading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Download className="h-2.5 w-2.5" />}
-            Download All ({activeImages.length})
-          </Button>
-        )}
+            {/* 3. Approve All — success green */}
+            {candidateImages.length > 0 && (
+              <Button
+                size="sm"
+                className="gap-1 text-[10px] h-7 bg-emerald-600 text-white hover:bg-emerald-700"
+                disabled={batchApproving}
+                onClick={handleBatchApprove}
+              >
+                {batchApproving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCheck className="h-2.5 w-2.5" />}
+                Approve All ({candidateImages.length})
+              </Button>
+            )}
 
-        {pendingSlots.length > 0 && (
-          <Button
-            size="sm" variant="outline"
-            className="gap-1 text-[10px] h-7"
-            onClick={() => setShowApprovalQueue(!showApprovalQueue)}
-          >
-            <CheckCircle className="h-2.5 w-2.5" />
-            Approval Queue ({pendingSlots.length})
-          </Button>
-        )}
+            {/* 4. Attach to Canon — secondary highlight */}
+            {activeImages.length > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="gap-1 text-[10px] h-7 border border-primary/30 text-primary"
+                onClick={() => {
+                  const primaryCount = activeImages.filter(i => i.is_primary).length;
+                  toast.success(`Visual canon confirmed: ${primaryCount} primary image${primaryCount !== 1 ? 's' : ''} bound as canonical selections`);
+                }}
+              >
+                <Link2 className="h-2.5 w-2.5" />
+                Attach to Canon
+              </Button>
+            )}
 
-        {archivedImages.length > 0 && (
-          <Button
-            size="sm" variant="ghost"
-            className="gap-1 text-[10px] h-7"
-            onClick={() => setShowArchive(!showArchive)}
-          >
-            <Archive className="h-2.5 w-2.5" />
-            Archive ({archivedImages.length})
-          </Button>
-        )}
+            {/* 5. Download All — neutral utility */}
+            {activeImages.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1 text-[10px] h-7"
+                disabled={downloading}
+                onClick={handleDownloadAll}
+              >
+                {downloading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Download className="h-2.5 w-2.5" />}
+                Download All ({activeImages.length})
+              </Button>
+            )}
+          </div>
 
-        {reusePoolImages.length > 0 && (
-          <Button
-            size="sm" variant="ghost"
-            className="gap-1 text-[10px] h-7"
-            onClick={() => setShowReusePool(!showReusePool)}
-          >
-            <Recycle className="h-2.5 w-2.5" />
-            Reuse Pool ({reusePoolImages.length})
-          </Button>
-        )}
-      </div>
+          {/* Secondary toggles */}
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {pendingSlots.length > 0 && (
+              <Button
+                size="sm" variant="ghost"
+                className="gap-1 text-[10px] h-6 text-muted-foreground"
+                onClick={() => setShowApprovalQueue(!showApprovalQueue)}
+              >
+                <CheckCircle className="h-2.5 w-2.5" />
+                Approval Queue ({pendingSlots.length})
+              </Button>
+            )}
+
+            {archivedImages.length > 0 && (
+              <Button
+                size="sm" variant="ghost"
+                className="gap-1 text-[10px] h-6 text-muted-foreground"
+                onClick={() => setShowArchive(!showArchive)}
+              >
+                <Archive className="h-2.5 w-2.5" />
+                Archive ({archivedImages.length})
+              </Button>
+            )}
+
+            {reusePoolImages.length > 0 && (
+              <Button
+                size="sm" variant="ghost"
+                className="gap-1 text-[10px] h-6 text-muted-foreground"
+                onClick={() => setShowReusePool(!showReusePool)}
+              >
+                <Recycle className="h-2.5 w-2.5" />
+                Reuse Pool ({reusePoolImages.length})
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Approval Queue ── */}
       {showApprovalQueue && pendingSlots.length > 0 && (
