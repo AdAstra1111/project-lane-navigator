@@ -473,14 +473,25 @@ const SOURCE_PRIORITY_ORDER: TraitSource[] = ['script', 'narrative', 'inferred',
 /**
  * Format VISUAL traits into a structured prompt block for image generation.
  * Only visually renderable traits are included.
- * Respects strict priority order: SCRIPT > NARRATIVE > INFERRED > USER.
+ * Respects strict priority order: BINDING MARKERS > SCRIPT > NARRATIVE > INFERRED > USER.
  */
-export function formatTraitsForPrompt(traits: CharacterTrait[]): string {
-  // Final safety: only visual categories
+export function formatTraitsForPrompt(traits: CharacterTrait[], bindingMarkers?: BindingMarker[]): string {
   const visualTraits = traits.filter(t => VISUAL_CATEGORIES.has(t.category));
-  if (visualTraits.length === 0) return '';
-
+  
   const lines: string[] = ['[CHARACTER VISUAL TRAITS — SOURCE-TAGGED, VISUALLY RENDERABLE ONLY]'];
+
+  // Inject approved binding markers FIRST — highest enforcement priority
+  const approvedMarkers = (bindingMarkers || []).filter(m => m.status === 'approved');
+  if (approvedMarkers.length > 0) {
+    lines.push('  BINDING MARKERS (MANDATORY — must appear when body region visible):');
+    for (const m of approvedMarkers) {
+      const lateralStr = m.laterality !== 'unknown' ? ` (${m.laterality})` : '';
+      const regionStr = m.bodyRegion !== 'unspecified' ? ` on ${m.bodyRegion}` : '';
+      lines.push(`    - ${m.markerType.toUpperCase()}${regionStr}${lateralStr} — MUST be present if region is visible`);
+    }
+  }
+
+  if (visualTraits.length === 0 && approvedMarkers.length === 0) return '';
 
   for (const source of SOURCE_PRIORITY_ORDER) {
     const group = visualTraits.filter(t => t.source === source);
