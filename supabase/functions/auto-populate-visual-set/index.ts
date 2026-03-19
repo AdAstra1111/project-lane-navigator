@@ -271,28 +271,24 @@ serve(async (req) => {
       const section = SECTION_MAP[slot.assetGroup] || "character";
 
       // Build request body for generate-lookbook-image
+      // CRITICAL: Always pass forced_shot_type for deterministic single-slot generation
       const genBody: Record<string, any> = {
         project_id,
         section,
         count: 1,
         asset_group: slot.assetGroup,
         pack_mode: false,
+        forced_shot_type: slot.shotType, // Deterministic — generates exactly this shot type
       };
 
       if (slot.isIdentity && slot.assetGroup === "character") {
-        genBody.identity_mode = true;
+        // Identity shots use identity prompts via forced_shot_type + character_name
         genBody.character_name = slot.subject;
-        // For identity, we generate single shot at a time
-        // The generate-lookbook-image will handle shot_type via identity pack
-        // But we need 1 shot, so set count=1 and use pack_mode to control shot type
+        // No identity_mode needed — forced_shot_type + isIdentityShot triggers identity prompt
       } else if (slot.assetGroup === "character") {
         genBody.character_name = slot.subject;
-        genBody.base_look_mode = false;
-        // For individual ref shots, we pass pack_mode=false and count=1
-        // The function generates count images; with no pack_mode it uses buildPackPrompt
       } else if (slot.assetGroup === "world") {
         genBody.location_name = slot.subject;
-        genBody.location_ref_mode = false;
       }
 
       // Use canon descriptions as identity notes
