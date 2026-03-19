@@ -113,6 +113,7 @@ interface StrategyContext {
   worldLock: WorldLock;
   writerCredit: string;
   companyCredit: string;
+  stylePolicy: ImageStylePolicy;
 }
 
 // ── Derive World Lock from canon data ────────────────────────────────────────
