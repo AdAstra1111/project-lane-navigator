@@ -420,13 +420,22 @@ serve(async (req) => {
       vsalPromptBlock = null;
     }
 
-    // Load project context
+    // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
       .from("projects")
-      .select("title, format, genres, tone")
+      .select("title, format, genres, tone, default_prestige_style")
       .eq("id", project_id)
       .single();
     if (!project) throw new Error("Project not found");
+
+    // ── PRESTIGE STYLE SYSTEM: Resolve lane + style ─────────────────────────
+    const resolvedLane = resolveFormatToLane(project.format || "film");
+    const { styleKey: resolvedStyleKey, source: styleSource } = resolvePrestigeStyle({
+      projectDefault: project.default_prestige_style,
+      laneKey: resolvedLane,
+    });
+    const prestigeComposite: StyleComposite = assemblePrestigePrompt(resolvedLane, resolvedStyleKey, styleSource);
+    console.log(`[prestige] lane=${resolvedLane} style=${resolvedStyleKey} source=${styleSource} aspect=${prestigeComposite.aspectRatio}`);
 
     // Load canon
     let worldDescription = "";
