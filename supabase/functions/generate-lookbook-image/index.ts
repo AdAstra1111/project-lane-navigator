@@ -92,6 +92,45 @@ const SHOT_FRAMING: Record<ShotType, string> = {
   identity_full_body: "IDENTITY REFERENCE — Full body, head to toe, centered in frame. Neutral standing pose showing full proportions. Plain neutral grey or off-white backdrop. Even studio lighting. Baseline neutral wardrobe (simple, non-costume clothing). No environmental context, no props, no narrative. Casting reference style.",
 };
 
+/**
+ * Build identity-specific prompt — neutral, non-cinematic, studio-style.
+ * Enforces visual consistency across identity pack.
+ */
+function buildIdentityPrompt(characterName: string, shotType: ShotType, ctx: SectionContext): string {
+  const framing = SHOT_FRAMING[shotType];
+  const characterDesc = ctx.characters || "A distinctive individual with clear, memorable features.";
+
+  return [
+    `CHARACTER IDENTITY REFERENCE for "${characterName}" from "${ctx.title}".`,
+    ``,
+    `${framing}`,
+    ``,
+    `CHARACTER: ${characterName}. ${characterDesc}`,
+    ``,
+    `IDENTITY MANDATE:`,
+    `- This is a CASTING REFERENCE photo, not a film still`,
+    `- Plain neutral grey or off-white studio backdrop`,
+    `- Soft, even studio lighting — no dramatic shadows, no colored gels`,
+    `- Neutral baseline wardrobe — simple, non-costume clothing appropriate to the character`,
+    `- NO environmental context, NO props, NO narrative elements`,
+    `- NO cinematic framing tricks — clean, direct, unambiguous reference`,
+    `- The same person must be recognizable across all identity reference images`,
+    `- Consistent facial structure, skin tone, hair, and body proportions`,
+    ``,
+    `PHOTOREALISM: ${ctx.stylePolicy.styleDirectives}`,
+    ``,
+    `ABSOLUTE PROHIBITIONS:`,
+    `- No cinematic scene context or environmental storytelling`,
+    `- No dramatic or emotional poses`,
+    `- No action, no motion blur, no dynamic composition`,
+    `- No text, titles, watermarks, or typography`,
+    `- No illustration, painting, or CGI look`,
+    `- ${ctx.stylePolicy.negativeStyleConstraints}`,
+    ``,
+    `TECHNICAL: High-resolution studio photography quality. Even lighting. Sharp focus across entire subject.`,
+  ].join("\n");
+}
+
 function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext): string {
   const framing = SHOT_FRAMING[shotType];
 
