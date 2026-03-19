@@ -2,16 +2,68 @@
  * ImageSelectorGrid — Reusable image option grid with curation states.
  * Used by Look Book sections and Poster Engine for choosing active images.
  * Supports: selection, curation state transitions, lightbox, compare mode.
+ * 
+ * Full in-context curation: promote, demote, deactivate, archive, restore.
+ * Source provenance: labels native vs external imagery.
  */
 import { useState } from 'react';
-import { Check, Loader2, Star, Expand, ImageIcon, Archive, X, Eye } from 'lucide-react';
+import {
+  Check, Loader2, Star, Expand, ImageIcon, Archive, X, Eye,
+  MoreVertical, ArrowUp, ArrowDown, RotateCcw, Crown, Shield,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
+
+// ── Section policy model ─────────────────────────────────────────────────────
+
+export interface SectionPolicy {
+  /** Max primary images in section (0 = no primary concept) */
+  maxPrimary: number;
+  /** Max active images in section */
+  maxActive: number;
+  /** Whether candidate pool is enabled */
+  hasCandidatePool: boolean;
+  /** Label for display */
+  label?: string;
+}
+
+const DEFAULT_POLICY: SectionPolicy = {
+  maxPrimary: 1,
+  maxActive: 6,
+  hasCandidatePool: true,
+};
+
+// ── Source provenance ────────────────────────────────────────────────────────
+
+type SourceType = 'generated' | 'uploaded' | 'external';
+
+function resolveSourceType(img: ProjectImage): SourceType {
+  if (img.provider === 'upload' || img.provider === 'manual') return 'uploaded';
+  if (img.provider && img.provider !== '') return 'generated';
+  return 'external';
+}
+
+function isProjectNative(img: ProjectImage): boolean {
+  const src = resolveSourceType(img);
+  return src === 'generated' || src === 'uploaded';
+}
+
+const SOURCE_LABELS: Record<SourceType, string> = {
+  generated: 'Generated',
+  uploaded: 'Uploaded',
+  external: 'External Ref',
+};
+
+// ── Props ────────────────────────────────────────────────────────────────────
 
 interface ImageSelectorGridProps {
   projectId: string;
@@ -31,6 +83,8 @@ interface ImageSelectorGridProps {
   enableCompare?: boolean;
   /** Show image provenance metadata */
   showProvenance?: boolean;
+  /** Section curation policy */
+  sectionPolicy?: SectionPolicy;
 }
 
 const STATE_COLORS: Record<CurationState, string> = {
@@ -61,11 +115,28 @@ export function ImageSelectorGrid({
   showCurationControls = true,
   enableCompare = false,
   showProvenance = false,
+  sectionPolicy = DEFAULT_POLICY,
 }: ImageSelectorGridProps) {
-  const { setActiveForSlot, setCurationState, updating } = useImageCuration(projectId);
+  const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const [lightbox, setLightbox] = useState<ProjectImage | null>(null);
   const [compareImages, setCompareImages] = useState<ProjectImage[]>([]);
   const [compareMode, setCompareMode] = useState(false);
+
+  const handlePromote = async (image: ProjectImage) => {
+    if (updating) return;
+    await setPrimary(image);
+    onSelectionChange?.();
+  };
+
+  const handleCurationAction = async (e: React.MouseEvent, image: ProjectImage, state: CurationState) => {
+    e.stopPropagation();
+    await setCurationState(image.id, state);
+    onSelectionChange?.();
+    // Update lightbox state if the lightbox is showing this image
+    if (lightbox?.id === image.id) {
+      setLightbox({ ...lightbox, curation_state: state, is_primary: false, is_active: state === 'active' || state === 'candidate' });
+    }
+  };
 
   const handleSelect = async (image: ProjectImage) => {
     if (updating) return;
@@ -78,14 +149,12 @@ export function ImageSelectorGrid({
       });
       return;
     }
-    await setActiveForSlot(image);
-    onSelectionChange?.();
-  };
-
-  const handleCurationAction = async (e: React.MouseEvent, image: ProjectImage, state: CurationState) => {
-    e.stopPropagation();
-    await setCurationState(image.id, state);
-    onSelectionChange?.();
+    // Click on non-active = promote; click on active = open lightbox for review
+    if (image.curation_state === 'active' || image.is_primary) {
+      setLightbox(image);
+    } else {
+      await handlePromote(image);
+    }
   };
 
   // Group by shot type if available
@@ -97,6 +166,9 @@ export function ImageSelectorGrid({
   }
   const hasGroups = groupedByShot.size > 1 || (groupedByShot.size === 1 && !groupedByShot.has('untyped'));
 
+  const activeCount = images.filter(i => i.curation_state === 'active').length;
+  const primaryCount = images.filter(i => i.is_primary).length;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -107,6 +179,22 @@ export function ImageSelectorGrid({
 
   return (
     <div className={cn('space-y-3', className)}>
+      {/* Section policy hint */}
+      {showCurationControls && images.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {sectionPolicy.maxPrimary > 0 && (
+            <Badge variant="outline" className="text-[9px] gap-0.5 px-1.5 py-0 border-primary/30 text-primary/70">
+              <Crown className="h-2.5 w-2.5" />
+              {primaryCount}/{sectionPolicy.maxPrimary} primary
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-[9px] gap-0.5 px-1.5 py-0 border-border text-muted-foreground">
+            <Shield className="h-2.5 w-2.5" />
+            {activeCount}/{sectionPolicy.maxActive} active
+          </Badge>
+        </div>
+      )}
+
       {/* Action row */}
       {onGenerate && (
         <div className="flex items-center justify-between gap-2">
@@ -183,9 +271,11 @@ export function ImageSelectorGrid({
                       compareSelected={compareImages.some(c => c.id === img.id)}
                       showShotTypes={false}
                       showCurationControls={showCurationControls}
+                      showProvenance={showProvenance}
                       onSelect={handleSelect}
                       onLightbox={setLightbox}
                       onCurationAction={handleCurationAction}
+                      onPromote={handlePromote}
                     />
                   ))}
                 </div>
@@ -203,16 +293,18 @@ export function ImageSelectorGrid({
                 compareSelected={compareImages.some(c => c.id === img.id)}
                 showShotTypes={showShotTypes}
                 showCurationControls={showCurationControls}
+                showProvenance={showProvenance}
                 onSelect={handleSelect}
                 onLightbox={setLightbox}
                 onCurationAction={handleCurationAction}
+                onPromote={handlePromote}
               />
             ))}
           </div>
         )
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox with full curation controls */}
       <Dialog open={!!lightbox} onOpenChange={(open) => !open && setLightbox(null)}>
         <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black/95 border-border">
           <DialogTitle className="sr-only">Image detail</DialogTitle>
@@ -221,9 +313,14 @@ export function ImageSelectorGrid({
               {lightbox.signedUrl && (
                 <img src={lightbox.signedUrl} alt="" className="w-full h-auto max-h-[80vh] object-contain" />
               )}
-              {/* Metadata panel — provenance */}
+              {/* Bottom metadata panel */}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-4">
                 <div className="flex items-center gap-2 flex-wrap">
+                  {lightbox.is_primary && (
+                    <Badge className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0 gap-0.5">
+                      <Crown className="h-2.5 w-2.5" /> Primary
+                    </Badge>
+                  )}
                   {lightbox.shot_type && (
                     <Badge variant="secondary" className="text-[9px]">
                       {SHOT_TYPE_LABELS[lightbox.shot_type as ShotType] || lightbox.shot_type}
@@ -242,11 +339,23 @@ export function ImageSelectorGrid({
                   <Badge className={cn('text-[9px] px-1 py-0', STATE_COLORS[lightbox.curation_state || 'candidate'])}>
                     {STATE_LABELS[lightbox.curation_state || 'candidate']}
                   </Badge>
+                  {/* Source provenance badge */}
+                  {showProvenance && (
+                    <Badge variant="outline" className={cn(
+                      'text-[8px] px-1 py-0',
+                      isProjectNative(lightbox)
+                        ? 'border-emerald-500/30 text-emerald-400/70'
+                        : 'border-amber-500/30 text-amber-400/70',
+                    )}>
+                      {isProjectNative(lightbox) ? '● Native' : '◆ External'}
+                    </Badge>
+                  )}
                   <span className="text-[9px] text-white/50 ml-auto">{lightbox.model}</span>
                 </div>
                 {/* Extended provenance */}
                 {showProvenance && (
                   <div className="mt-2 space-y-0.5 text-[9px] text-white/50">
+                    <p>Source: <span className="text-white/70">{SOURCE_LABELS[resolveSourceType(lightbox)]}</span></p>
                     {lightbox.strategy_key && (
                       <p>Strategy: <span className="text-white/70">{lightbox.strategy_key}</span></p>
                     )}
@@ -273,24 +382,54 @@ export function ImageSelectorGrid({
                   </div>
                 )}
               </div>
-              {/* Curation actions in lightbox */}
+
+              {/* Full curation action bar in lightbox */}
               {showCurationControls && (
-                <div className="absolute top-3 right-3 flex gap-1.5">
-                  {lightbox.curation_state !== 'active' && (
+                <div className="absolute top-3 right-3 flex gap-1.5 flex-wrap justify-end">
+                  {/* Promote actions */}
+                  {!lightbox.is_primary && lightbox.curation_state !== 'active' && (
                     <Button size="sm" variant="secondary" className="h-7 text-xs gap-1"
-                      onClick={(e) => handleCurationAction(e, lightbox, 'active')}>
-                      <Star className="h-3 w-3" /> Select
+                      disabled={!!updating}
+                      onClick={() => { handlePromote(lightbox); setLightbox(null); }}>
+                      <Crown className="h-3 w-3" /> Set Primary
                     </Button>
                   )}
+                  {lightbox.curation_state !== 'active' && !lightbox.is_primary && (
+                    <Button size="sm" variant="secondary" className="h-7 text-xs gap-1"
+                      disabled={!!updating}
+                      onClick={(e) => { handleCurationAction(e, lightbox, 'active'); }}>
+                      <Star className="h-3 w-3" /> Activate
+                    </Button>
+                  )}
+                  {/* Demote actions */}
+                  {(lightbox.curation_state === 'active' || lightbox.is_primary) && (
+                    <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-white/70 hover:text-white"
+                      disabled={!!updating}
+                      onClick={(e) => { handleCurationAction(e, lightbox, 'candidate'); }}>
+                      <ArrowDown className="h-3 w-3" /> Demote
+                    </Button>
+                  )}
+                  {/* Archive */}
                   {lightbox.curation_state !== 'archived' && (
                     <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-white/70 hover:text-white"
-                      onClick={(e) => handleCurationAction(e, lightbox, 'archived')}>
+                      disabled={!!updating}
+                      onClick={(e) => { handleCurationAction(e, lightbox, 'archived'); }}>
                       <Archive className="h-3 w-3" /> Archive
                     </Button>
                   )}
+                  {/* Restore from archived/rejected */}
+                  {(lightbox.curation_state === 'archived' || lightbox.curation_state === 'rejected') && (
+                    <Button size="sm" variant="secondary" className="h-7 text-xs gap-1"
+                      disabled={!!updating}
+                      onClick={(e) => { handleCurationAction(e, lightbox, 'candidate'); }}>
+                      <RotateCcw className="h-3 w-3" /> Restore
+                    </Button>
+                  )}
+                  {/* Reject */}
                   {lightbox.curation_state !== 'rejected' && (
                     <Button size="sm" variant="ghost" className="h-7 text-xs gap-1 text-white/70 hover:text-white"
-                      onClick={(e) => handleCurationAction(e, lightbox, 'rejected')}>
+                      disabled={!!updating}
+                      onClick={(e) => { handleCurationAction(e, lightbox, 'rejected'); }}>
                       <X className="h-3 w-3" /> Reject
                     </Button>
                   )}
@@ -313,30 +452,36 @@ interface ImageCardProps {
   compareSelected: boolean;
   showShotTypes: boolean;
   showCurationControls: boolean;
+  showProvenance: boolean;
   onSelect: (img: ProjectImage) => void;
   onLightbox: (img: ProjectImage) => void;
   onCurationAction: (e: React.MouseEvent, img: ProjectImage, state: CurationState) => void;
+  onPromote: (img: ProjectImage) => void;
 }
 
 function ImageCard({
   img, updating, compareMode, compareSelected,
-  showShotTypes, showCurationControls,
-  onSelect, onLightbox, onCurationAction,
+  showShotTypes, showCurationControls, showProvenance,
+  onSelect, onLightbox, onCurationAction, onPromote,
 }: ImageCardProps) {
   const isActive = img.curation_state === 'active' || img.is_primary;
   const isArchived = img.curation_state === 'archived' || img.curation_state === 'rejected';
+  const isPrimary = img.is_primary;
+  const native = isProjectNative(img);
 
   return (
     <div
       className={cn(
         'group relative rounded-md overflow-hidden border-2 cursor-pointer transition-all aspect-video bg-muted',
-        isActive
-          ? 'border-primary ring-1 ring-primary/30'
-          : compareSelected
-            ? 'border-accent ring-1 ring-accent/40'
-            : isArchived
-              ? 'border-border/30 opacity-50'
-              : 'border-border/50 hover:border-primary/40',
+        isPrimary
+          ? 'border-primary ring-2 ring-primary/40'
+          : isActive
+            ? 'border-primary/60 ring-1 ring-primary/20'
+            : compareSelected
+              ? 'border-accent ring-1 ring-accent/40'
+              : isArchived
+                ? 'border-border/30 opacity-50'
+                : 'border-border/50 hover:border-primary/40',
       )}
       onClick={() => onSelect(img)}
     >
@@ -348,17 +493,28 @@ function ImageCard({
         </div>
       )}
 
-      {/* State badge */}
-      {isActive && (
-        <div className="absolute top-1 left-1">
-          <Badge className="text-[9px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5">
+      {/* State badges — top left */}
+      <div className="absolute top-1 left-1 flex flex-col gap-0.5">
+        {isPrimary && (
+          <Badge className="text-[8px] bg-primary text-primary-foreground px-1 py-0 gap-0.5">
+            <Crown className="h-2 w-2" /> Primary
+          </Badge>
+        )}
+        {isActive && !isPrimary && (
+          <Badge className="text-[9px] bg-primary/80 text-primary-foreground px-1 py-0 gap-0.5">
             <Check className="h-2 w-2" /> Active
           </Badge>
-        </div>
-      )}
+        )}
+        {/* External indicator */}
+        {showProvenance && !native && (
+          <Badge variant="outline" className="text-[7px] px-1 py-0 border-amber-500/40 text-amber-400 bg-black/40">
+            External
+          </Badge>
+        )}
+      </div>
 
       {/* Shot type badge */}
-      {showShotTypes && img.shot_type && !isActive && (
+      {showShotTypes && img.shot_type && !isActive && !isPrimary && (
         <div className="absolute top-1 left-1">
           <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-black/50 text-white/80 border-0">
             {SHOT_TYPE_LABELS[img.shot_type as ShotType] || img.shot_type}
@@ -384,19 +540,62 @@ function ImageCard({
         ) : null}
       </div>
 
-      {/* Bottom actions */}
+      {/* Bottom actions — context menu + expand */}
       <div className="absolute bottom-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        {showCurationControls && !isArchived && img.curation_state !== 'active' && (
-          <button
-            className="p-1 rounded bg-black/50 text-white hover:bg-black/70"
-            onClick={(e) => onCurationAction(e, img, 'archived')}
-            title="Archive"
-          >
-            <Archive className="h-3 w-3" />
-          </button>
+        {showCurationControls && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="p-1 rounded bg-black/60 text-white hover:bg-black/80"
+                onClick={(e) => e.stopPropagation()}
+                title="Curation actions"
+              >
+                <MoreVertical className="h-3 w-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[140px]">
+              {/* Promote actions */}
+              {!isPrimary && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onPromote(img); }}>
+                  <Crown className="h-3 w-3 mr-1.5" /> Set as Primary
+                </DropdownMenuItem>
+              )}
+              {img.curation_state !== 'active' && !isPrimary && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCurationAction(e as any, img, 'active'); }}>
+                  <Star className="h-3 w-3 mr-1.5" /> Activate
+                </DropdownMenuItem>
+              )}
+              {/* Demote actions */}
+              {(isActive || isPrimary) && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCurationAction(e as any, img, 'candidate'); }}>
+                    <ArrowDown className="h-3 w-3 mr-1.5" /> Demote to Candidate
+                  </DropdownMenuItem>
+                </>
+              )}
+              {/* Archive / Restore */}
+              <DropdownMenuSeparator />
+              {img.curation_state !== 'archived' && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCurationAction(e as any, img, 'archived'); }}>
+                  <Archive className="h-3 w-3 mr-1.5" /> Archive
+                </DropdownMenuItem>
+              )}
+              {(img.curation_state === 'archived' || img.curation_state === 'rejected') && (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onCurationAction(e as any, img, 'candidate'); }}>
+                  <RotateCcw className="h-3 w-3 mr-1.5" /> Restore
+                </DropdownMenuItem>
+              )}
+              {img.curation_state !== 'rejected' && (
+                <DropdownMenuItem className="text-destructive" onClick={(e) => { e.stopPropagation(); onCurationAction(e as any, img, 'rejected'); }}>
+                  <X className="h-3 w-3 mr-1.5" /> Reject
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         <button
-          className="p-1 rounded bg-black/50 text-white hover:bg-black/70"
+          className="p-1 rounded bg-black/60 text-white hover:bg-black/80"
           onClick={(e) => { e.stopPropagation(); onLightbox(img); }}
           title="Enlarge"
         >
