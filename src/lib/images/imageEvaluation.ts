@@ -191,9 +191,11 @@ export function evaluateImageAgainstDNA(
   
   // Build summary
   const summaryParts: string[] = [];
-  if (result.canonMatch !== 'unknown') summaryParts.push(`Canon: ${result.canonMatch}`);
+  const finalCanon: string = result.canonMatch;
+  const finalDrift: string = result.driftRisk;
+  if (finalCanon !== 'unknown') summaryParts.push(`Canon: ${finalCanon}`);
   if (invariantsViolated.length > 0) summaryParts.push(`${invariantsViolated.length} invariant(s) at risk`);
-  if (result.driftRisk !== 'none' && result.driftRisk !== 'unknown') summaryParts.push(`Drift risk: ${result.driftRisk}`);
+  if (finalDrift !== 'none' && finalDrift !== 'unknown') summaryParts.push(`Drift risk: ${finalDrift}`);
   result.evaluationSummary = summaryParts.join('. ') || 'Evaluation complete.';
   
   return result;
