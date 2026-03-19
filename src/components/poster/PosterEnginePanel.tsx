@@ -115,7 +115,22 @@ export default function PosterEnginePanel() {
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [showCreditsEditor, setShowCreditsEditor] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<PosterLayoutVariant>("cinematic-dark");
+  // ── Visual Decision: Poster Style ──
+  const posterStyleDecision = useVisualDecision(projectId, 'poster_style');
+  const selectedTemplate = (posterStyleDecision.effective || 'cinematic-dark') as PosterLayoutVariant;
+  const setSelectedTemplate = useCallback((v: string) => {
+    posterStyleDecision.select(v);
+  }, [posterStyleDecision]);
+
+  // Auto-seed recommendation on first load
+  useEffect(() => {
+    if (projectId && !posterStyleDecision.recommended && !posterStyleDecision.isLoading) {
+      posterStyleDecision.refreshRecommendation();
+    }
+  }, [projectId, posterStyleDecision.recommended, posterStyleDecision.isLoading]);
+
+  // ── Visual Decision: Primary Poster ──
+  const posterPrimaryDecision = useVisualDecision(projectId, 'poster_primary');
 
   const isGenerating = generatePoster.isPending;
   const isUploading = uploadPoster.isPending;
