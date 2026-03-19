@@ -186,7 +186,11 @@ export default function PosterEnginePanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [showCreditsEditor, setShowCreditsEditor] = useState(false);
+  const [showCreditsEditor, setShowCreditsEditor] = false);
+  const [showTitleStyle, setShowTitleStyle] = useState(false);
+
+  // Title typography state
+  const [titleStyle, setTitleStyle] = useState<TitleStyleConfig>({});
 
   // Expanded poster modal
   const [expandedPoster, setExpandedPoster] = useState<ProjectPoster | null>(null);
