@@ -47,13 +47,22 @@ const SECTION_ICONS: Record<string, typeof BookOpen> = {
   format: Film,
   visual: Eye,
 };
+ 
+/* ── Canon text normalizer ── */
+function normalizeCanonText(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return value.map(item => typeof item === 'object' ? JSON.stringify(item) : String(item)).join('\n');
+  if (typeof value === 'object' && value !== null) return JSON.stringify(value);
+  if (value == null) return '';
+  return String(value).trim();
+}
 
 /* ── Section content renderers ── */
 
 function PremiseContent({ canon }: { canon: any }) {
-  const hasLogline = canon.logline?.trim();
-  const hasPremise = canon.premise?.trim();
-  const hasThreads = canon.ongoing_threads?.trim();
+  const hasLogline = normalizeCanonText(canon.logline);
+  const hasPremise = normalizeCanonText(canon.premise);
+  const hasThreads = normalizeCanonText(canon.ongoing_threads);
   if (!hasLogline && !hasPremise) {
     return <p className="text-sm text-muted-foreground/70 italic">No logline or premise has been defined for this project.</p>;
   }
