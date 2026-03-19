@@ -44,6 +44,12 @@ const USAGE_TIER_COLORS: Record<string, string> = {
   minor: 'bg-muted/50 text-muted-foreground border-border/20',
 };
 
+const BINDING_STATUS_CONFIG: Record<LocationBindingStatus, { label: string; color: string; icon: typeof Link2 }> = {
+  canon_bound: { label: 'ID-Bound', color: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20', icon: Link2 },
+  partially_bound: { label: 'Partial', color: 'text-amber-600 bg-amber-500/10 border-amber-500/20', icon: Link2 },
+  unresolved: { label: 'Unresolved', color: 'text-destructive bg-destructive/10 border-destructive/20', icon: Unlink2 },
+};
+
 // ── Multi-pass location extraction (for seeding) ──
 
 function multiPassExtractLocations(canonJson: any) {
