@@ -382,11 +382,14 @@ serve(async (req) => {
               variant_index: i,
               shot_type: shotType,
             },
-            // New Visual Asset System fields
+            // Visual Asset System + Provenance fields
             asset_group: assetGroup,
             subject: character_name || null,
             shot_type: shotType,
             curation_state: "candidate",
+            subject_type: assetGroup === "character" ? "character" : assetGroup === "world" ? "world" : null,
+            subject_ref: character_name || null,
+            generation_purpose: base_look_mode ? "character_reference" : `lookbook_${section}`,
           })
           .select("id")
           .single();
