@@ -349,7 +349,7 @@ export async function generateLookBookData(
     bullets: [
       genre ? `Genre: ${genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
-      (canon.tone_style as string) ? `Tone: ${canon.tone_style}` : '',
+      normalizeCanonText(canon.tone_style, 'tone_style') ? `Tone: ${normalizeCanonText(canon.tone_style)}` : '',
       (project as any).target_audience ? `Audience: ${(project as any).target_audience}` : '',
       (project as any).assigned_lane ? `Lane: ${(project as any).assigned_lane}` : '',
     ].filter(Boolean),
