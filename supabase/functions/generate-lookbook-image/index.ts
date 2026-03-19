@@ -360,9 +360,14 @@ serve(async (req) => {
 
     for (let i = 0; i < genCount; i++) {
       const shotType = shotsToGenerate[i] || null;
-      const prompt = shotType
+      let prompt = shotType
         ? buildPackPrompt(assetGroup, shotType, ctx)
         : buildSectionPrompt(section, ctx, i);
+
+      // Phase 3: Inject state variant modifier into prompt
+      if (state_prompt_modifier) {
+        prompt = prompt + `\n\nSTATE VARIANT: ${state_prompt_modifier}\nThis is a state-specific reference showing the subject in this particular condition/state. Maintain visual continuity with the base reference while clearly showing the state change.`;
+      }
 
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
@@ -371,7 +376,8 @@ serve(async (req) => {
       try {
         const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl);
 
-        const storagePath = `${project_id}/lookbook/${section}/${Date.now()}-${shotType || `v${i}`}.${imageResult.format}`;
+        const stateSegment = state_key ? `-${state_key}` : '';
+        const storagePath = `${project_id}/lookbook/${section}/${Date.now()}-${shotType || `v${i}`}${stateSegment}.${imageResult.format}`;
         const { error: uploadErr } = await supabase.storage
           .from("project-posters")
           .upload(storagePath, imageResult.rawBytes, {
@@ -406,6 +412,7 @@ serve(async (req) => {
               section,
               variant_index: i,
               shot_type: shotType,
+              state_key: state_key || null,
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,
@@ -420,9 +427,13 @@ serve(async (req) => {
               : null,
             subject_ref: character_name || location_name || null,
             location_ref: location_name || null,
-            generation_purpose: base_look_mode ? "character_reference"
+            generation_purpose: state_key ? `state_variant_${state_key}`
+              : base_look_mode ? "character_reference"
               : location_ref_mode ? "location_reference"
               : `lookbook_${section}`,
+            // Phase 3 — state fields
+            state_key: state_key || null,
+            state_label: state_label || null,
           })
           .select("id")
           .single();
