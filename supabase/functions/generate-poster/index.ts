@@ -720,6 +720,9 @@ serve(async (req) => {
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
 
+    // ── Capture visual truth snapshot for dependency tracking ──
+    const truthSnapshot = await captureVisualTruthSnapshot(supabase, project_id);
+
     // Resolve image generation config via shared API resolver
     const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
 
