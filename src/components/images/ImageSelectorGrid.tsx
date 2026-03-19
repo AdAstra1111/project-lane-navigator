@@ -60,6 +60,7 @@ export function ImageSelectorGrid({
   showShotTypes = true,
   showCurationControls = true,
   enableCompare = false,
+  showProvenance = false,
 }: ImageSelectorGridProps) {
   const { setActiveForSlot, setCurationState, updating } = useImageCuration(projectId);
   const [lightbox, setLightbox] = useState<ProjectImage | null>(null);
