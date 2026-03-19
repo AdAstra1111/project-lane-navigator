@@ -279,6 +279,17 @@ export function formatDNAPromptContext(dna: CharacterVisualDNA): string {
       ...compatibleGuidance.map(g => `- ${g.text}`),
     ].join('\n'));
   }
+
+  // 6. Evidence-extracted traits — DRAFT ONLY, clearly demarcated as weak/suggestive
+  // Only high-confidence evidence traits are injected, explicitly marked as non-authoritative
+  const highConfEvidence = dna.evidenceTraits.filter(t => t.confidence === 'high' || t.confidence === 'medium');
+  if (highConfEvidence.length > 0) {
+    blocks.push([
+      '[EVIDENCE-SUGGESTED TRAITS — DRAFT, NON-AUTHORITATIVE]',
+      '(These are AI-inferred from project documents. They may be overridden by any canon or producer guidance above.)',
+      ...highConfEvidence.map(t => `- ${t.label} (${t.category}, ${t.confidence} confidence)`),
+    ].join('\n'));
+  }
   
   return blocks.join('\n\n');
 }

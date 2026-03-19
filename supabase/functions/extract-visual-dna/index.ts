@@ -242,18 +242,27 @@ Return JSON:
       parsed = { traits: [] };
     }
 
-    // Validate and clean
+    // Validate, clean, and apply governance caps
     const validCategories = new Set(["age", "gender", "build", "face", "hair", "skin", "clothing", "posture", "marker", "other"]);
     const validConfidence = new Set(["high", "medium", "low"]);
+    // Sensitive categories: cap confidence at "medium" to prevent false authority
+    const SENSITIVE_CATEGORIES = new Set(["skin", "gender", "age"]);
     const cleanTraits = (parsed.traits || [])
       .filter((t: any) => t.label && validCategories.has(t.category))
-      .map((t: any) => ({
-        label: String(t.label).slice(0, 100),
-        category: t.category,
-        confidence: validConfidence.has(t.confidence) ? t.confidence : "low",
-        evidence_source: String(t.evidence_source || "unknown").slice(0, 200),
-        evidence_excerpt: String(t.evidence_excerpt || "").slice(0, 120),
-      }));
+      .map((t: any) => {
+        let confidence = validConfidence.has(t.confidence) ? t.confidence : "low";
+        // Governance: sensitive categories never get "high" from AI extraction
+        if (SENSITIVE_CATEGORIES.has(t.category) && confidence === "high") {
+          confidence = "medium";
+        }
+        return {
+          label: String(t.label).slice(0, 100),
+          category: t.category,
+          confidence,
+          evidence_source: String(t.evidence_source || "unknown").slice(0, 200),
+          evidence_excerpt: String(t.evidence_excerpt || "").slice(0, 120),
+        };
+      });
 
     return new Response(JSON.stringify({
       traits: cleanTraits,
