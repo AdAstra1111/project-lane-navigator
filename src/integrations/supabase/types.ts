@@ -8343,6 +8343,66 @@ export type Database = {
           },
         ]
       }
+      lookbook_sections: {
+        Row: {
+          created_at: string
+          display_order: number
+          id: string
+          metadata: Json
+          pack_count: number
+          project_id: string
+          readiness_state: string
+          section_key: string
+          section_label: string
+          section_status: string
+          slot_count: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          metadata?: Json
+          pack_count?: number
+          project_id: string
+          readiness_state?: string
+          section_key: string
+          section_label: string
+          section_status?: string
+          slot_count?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_order?: number
+          id?: string
+          metadata?: Json
+          pack_count?: number
+          project_id?: string
+          readiness_state?: string
+          section_key?: string
+          section_label?: string
+          section_status?: string
+          slot_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lookbook_sections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "lookbook_sections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       market_buyers: {
         Row: {
           appetite_notes: string
@@ -25676,6 +25736,10 @@ export type Database = {
     }
     Functions: {
       accept_invite_link: { Args: { _token: string }; Returns: Json }
+      bootstrap_lookbook_sections: {
+        Args: { p_project_id: string }
+        Returns: Json
+      }
       can_access_project: { Args: { p_project_id: string }; Returns: boolean }
       check_document_access: {
         Args: { _file_path: string; _user_id: string }
