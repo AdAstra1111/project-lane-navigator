@@ -609,6 +609,12 @@ serve(async (req) => {
         prompt += `\n\nSHOT-TYPE CONSTRAINT: ${SHOT_TYPE_IDENTITY_CONSTRAINTS[shotType as ShotType]}`;
       }
 
+      // Step 8: VSAL — Visual Style Authority Lock (mandatory, supersedes generic style)
+      prompt += `\n\n${vsalPromptBlock}`;
+      if (visualStyleLock.forbid.length > 0) {
+        prompt += `\n\nADDITIONAL PROHIBITIONS (VSAL): ${visualStyleLock.forbid.join(", ")}`;
+      }
+
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
