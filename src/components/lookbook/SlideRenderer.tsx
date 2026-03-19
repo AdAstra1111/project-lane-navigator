@@ -425,7 +425,7 @@ function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInd
   );
 }
 
-/* ── Character Slide ── */
+/* ── Character Slide — with character images ── */
 function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
   const chars = slide.characters || [];
   return (
@@ -443,23 +443,30 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
         {chars.map((c, i) => (
           <div
             key={i}
-            className="p-8 rounded-lg"
+            className="rounded-lg overflow-hidden flex flex-col"
             style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}` }}
           >
-            <h3
-              className="text-2xl font-semibold mb-2"
-              style={{ color: colors.accent, fontFamily: '"Fraunces", serif' }}
-            >
-              {c.name}
-            </h3>
-            {c.role && (
-              <p className="text-sm tracking-wider uppercase mb-4" style={{ color: colors.textMuted }}>
-                {c.role}
-              </p>
+            {c.imageUrl && (
+              <div className="h-48 overflow-hidden">
+                <img src={c.imageUrl} alt={c.name} className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.8) contrast(1.05)' }} />
+              </div>
             )}
-            <p className="text-base leading-relaxed" style={{ color: colors.text, opacity: 0.85 }}>
-              {c.description}
-            </p>
+            <div className="p-8 flex-1">
+              <h3
+                className="text-2xl font-semibold mb-2"
+                style={{ color: colors.accent, fontFamily: '"Fraunces", serif' }}
+              >
+                {c.name}
+              </h3>
+              {c.role && (
+                <p className="text-sm tracking-wider uppercase mb-4" style={{ color: colors.textMuted }}>
+                  {c.role}
+                </p>
+              )}
+              <p className="text-base leading-relaxed" style={{ color: colors.text, opacity: 0.85 }}>
+                {c.description}
+              </p>
+            </div>
           </div>
         ))}
       </div>
