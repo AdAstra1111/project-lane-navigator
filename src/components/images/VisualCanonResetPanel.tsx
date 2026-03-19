@@ -331,7 +331,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         currentPhase: PHASE_LABELS[slot.phase] || null,
       } : prev);
 
-      // Build request body
+      // Build request body with enforced aspect ratio dimensions
+      const dims = getDimensionsForShot(slot.shotType);
       const genBody: Record<string, any> = {
         project_id: projectId,
         section: slot.section,
@@ -339,6 +340,9 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         asset_group: slot.assetGroup,
         pack_mode: false,
         forced_shot_type: slot.shotType,
+        width: dims.width,
+        height: dims.height,
+        aspect_ratio: dims.aspectRatio,
       };
 
       if (slot.assetGroup === 'character') {
