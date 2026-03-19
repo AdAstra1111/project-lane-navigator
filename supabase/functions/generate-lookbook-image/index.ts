@@ -99,7 +99,11 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
         : ctx.characters || "The protagonist — a compelling screen presence with emotional depth.";
       break;
     case "world":
-      subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
+      if (ctx.locationName) {
+        subjectDescription = `Location: "${ctx.locationName}". ${ctx.locationDescription || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+      } else {
+        subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
+      }
       break;
     case "key_moment":
       subjectDescription = ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.";
