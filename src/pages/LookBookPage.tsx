@@ -248,6 +248,13 @@ export default function LookBookPage() {
             ))}
           </div>
 
+          {/* World & Location Reference System */}
+          {projectId && (
+            <div className="mt-6 border-t border-border pt-4">
+              <WorldLocationLookPanel projectId={projectId} />
+            </div>
+          )}
+
           {/* Character Base Look System */}
           {projectId && (
             <div className="mt-6 border-t border-border pt-4">
