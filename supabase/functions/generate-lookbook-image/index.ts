@@ -42,7 +42,7 @@ function resolveStylePolicy(format: string, genres: string[]): ImageStylePolicy 
 // ── Shot taxonomy prompt builders ────────────────────────────────────────────
 
 type AssetGroup = "character" | "world" | "key_moment" | "visual_language" | "poster";
-type ShotType = "close_up" | "medium" | "wide" | "full_body" | "profile" | "over_shoulder" | "detail" | "tableau" | "emotional_variant" | "atmospheric" | "time_variant" | "lighting_ref" | "texture_ref" | "composition_ref" | "color_ref";
+type ShotType = "close_up" | "medium" | "wide" | "full_body" | "profile" | "over_shoulder" | "detail" | "tableau" | "emotional_variant" | "atmospheric" | "time_variant" | "lighting_ref" | "texture_ref" | "composition_ref" | "color_ref" | "identity_headshot" | "identity_profile" | "identity_full_body";
 type LookbookSection = "world" | "character" | "key_moment" | "visual_language";
 
 const SHOT_PACKS: Record<AssetGroup, ShotType[]> = {
