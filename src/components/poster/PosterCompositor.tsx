@@ -200,6 +200,18 @@ const TEMPLATE_TYPOGRAPHY_DEFAULTS: Record<PosterLayoutVariant, TitleTypographyM
   minimal: "minimalist_elegant",
 };
 
+// ── Template → Default auto-position bias ────────────────────────────────────
+
+const TEMPLATE_AUTO_POSITION_BIAS: Record<PosterLayoutVariant, TitlePositionMode> = {
+  "classic-theatrical": "lower_center",
+  "prestige-awards": "lower_third",
+  prestige: "lower_third",
+  commercial: "lower_center",
+  "cinematic-dark": "lower_center",
+  "cinematic-light": "lower_center",
+  minimal: "lower_third",
+};
+
 // ── Template → Default Title Color (warm tones instead of harsh white) ───────
 
 const TEMPLATE_COLOR_HINTS: Record<PosterLayoutVariant, string> = {
