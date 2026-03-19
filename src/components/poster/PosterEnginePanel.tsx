@@ -186,7 +186,7 @@ export default function PosterEnginePanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [showCreditsEditor, setShowCreditsEditor] = false);
+  const [showCreditsEditor, setShowCreditsEditor] = useState(false);
   const [showTitleStyle, setShowTitleStyle] = useState(false);
 
   // Title typography state
