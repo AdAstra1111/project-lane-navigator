@@ -157,7 +157,7 @@ function WorldContent({ canon, locations }: { canon: any; locations: any[] }) {
 
 function ToneContent({ canon, project }: { canon: any; project: any }) {
   const genres = project?.genres as string[] | null;
-  const tone = canon.tone_style?.trim() || project?.tone;
+  const tone = normalizeCanonText(canon.tone_style) || project?.tone;
   if (!tone && (!genres || genres.length === 0)) {
     return <p className="text-sm text-muted-foreground/70 italic">No tone or genre information defined.</p>;
   }
