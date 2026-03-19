@@ -2,6 +2,12 @@
  * PosterCompositor — Deterministic cinematic poster layout engine.
  * Takes key art + structured credits → renders a branded poster with title + billing block.
  * All text is deterministic — NO hallucinated names.
+ *
+ * Layout system:
+ *   Upper 70%  — visual key art
+ *   Mid zone   — large title (centered)
+ *   Lower zone — credits + billing block
+ *   Bottom bar — company branding
  */
 import { useRef, useEffect, useState } from "react";
 
@@ -12,6 +18,8 @@ export interface PosterCreditsData {
   basedOnCredit?: string | null;
 }
 
+export type PosterLayoutVariant = "prestige" | "commercial" | "cinematic-dark" | "cinematic-light" | "minimal";
+
 interface PosterCompositorProps {
   keyArtUrl: string;
   title: string;
@@ -20,20 +28,23 @@ interface PosterCompositorProps {
   companyName?: string | null;
   credits?: PosterCreditsData;
   aspectRatio?: "2:3" | "1:1" | "16:9";
-  layoutVariant?: "cinematic-dark" | "cinematic-light" | "minimal";
+  layoutVariant?: PosterLayoutVariant;
   width?: number;
   onRender?: (canvas: HTMLCanvasElement) => void;
   className?: string;
 }
 
-// Brand colors
+// Brand palette
 const BRAND = {
-  dark: "#141519",
+  dark: "#0C0D10",
+  darkMid: "#141519",
   amber: "#C4913A",
   amberLight: "#D4A84E",
+  amberDim: "#A07830",
   white: "#F5F2ED",
   silver: "#B8B5AE",
-  creditGray: "#9A978F",
+  creditGray: "#8A877F",
+  billingGray: "#6E6B64",
 };
 
 const ASPECT_RATIOS: Record<string, { w: number; h: number }> = {
@@ -135,6 +146,73 @@ export function PosterCompositor({
   );
 }
 
+// ── Layout Variant Config ────────────────────────────────────────────────────
+
+interface LayoutConfig {
+  /** Where the title baseline sits (as fraction of canvas height) */
+  titleZoneY: number;
+  /** Gradient coverage from bottom (as fraction) */
+  gradientCoverage: number;
+  /** Gradient darkness at bottom (0-1) */
+  gradientMaxAlpha: number;
+  /** Title tracking (letter-spacing relative to font size) */
+  titleTracking: number;
+  /** Whether to show the amber accent line */
+  showAccentLine: boolean;
+  /** Billing block condensed mode */
+  billingCondensed: boolean;
+  /** Title font weight */
+  titleWeight: number;
+}
+
+const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
+  prestige: {
+    titleZoneY: 0.80,
+    gradientCoverage: 0.55,
+    gradientMaxAlpha: 0.97,
+    titleTracking: 0.25,
+    showAccentLine: false,
+    billingCondensed: true,
+    titleWeight: 300,
+  },
+  commercial: {
+    titleZoneY: 0.76,
+    gradientCoverage: 0.50,
+    gradientMaxAlpha: 0.95,
+    titleTracking: 0.08,
+    showAccentLine: true,
+    billingCondensed: false,
+    titleWeight: 800,
+  },
+  "cinematic-dark": {
+    titleZoneY: 0.78,
+    gradientCoverage: 0.50,
+    gradientMaxAlpha: 0.95,
+    titleTracking: 0.12,
+    showAccentLine: true,
+    billingCondensed: false,
+    titleWeight: 700,
+  },
+  "cinematic-light": {
+    titleZoneY: 0.78,
+    gradientCoverage: 0.50,
+    gradientMaxAlpha: 0.90,
+    titleTracking: 0.12,
+    showAccentLine: true,
+    billingCondensed: false,
+    titleWeight: 700,
+  },
+  minimal: {
+    titleZoneY: 0.82,
+    gradientCoverage: 0.45,
+    gradientMaxAlpha: 0.92,
+    titleTracking: 0.30,
+    showAccentLine: false,
+    billingCondensed: true,
+    titleWeight: 300,
+  },
+};
+
 // ── Deterministic Layout Engine ──────────────────────────────────────────────
 
 function applyLayout(
@@ -148,185 +226,314 @@ function applyLayout(
   credits?: PosterCreditsData,
 ) {
   const { w, h } = dims;
+  const cfg = LAYOUT_CONFIGS[variant] || LAYOUT_CONFIGS["cinematic-dark"];
 
-  // ── Bottom gradient overlay for text legibility ──
-  const gradientHeight = h * 0.5;
+  // ── Bottom gradient overlay — the foundation of the title zone ──
+  const gradientHeight = h * cfg.gradientCoverage;
   const grad = ctx.createLinearGradient(0, h - gradientHeight, 0, h);
-  grad.addColorStop(0, "rgba(20, 21, 25, 0)");
-  grad.addColorStop(0.3, "rgba(20, 21, 25, 0.5)");
-  grad.addColorStop(0.6, "rgba(20, 21, 25, 0.8)");
-  grad.addColorStop(1, "rgba(20, 21, 25, 0.95)");
+  grad.addColorStop(0, "rgba(12, 13, 16, 0)");
+  grad.addColorStop(0.25, `rgba(12, 13, 16, ${cfg.gradientMaxAlpha * 0.3})`);
+  grad.addColorStop(0.5, `rgba(12, 13, 16, ${cfg.gradientMaxAlpha * 0.65})`);
+  grad.addColorStop(0.75, `rgba(12, 13, 16, ${cfg.gradientMaxAlpha * 0.85})`);
+  grad.addColorStop(1, `rgba(12, 13, 16, ${cfg.gradientMaxAlpha})`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, h - gradientHeight, w, gradientHeight);
 
+  // ── Solid black strip at very bottom for billing block legibility ──
+  const stripH = h * 0.12;
+  ctx.fillStyle = `rgba(12, 13, 16, ${Math.min(cfg.gradientMaxAlpha + 0.02, 1)})`;
+  ctx.fillRect(0, h - stripH, w, stripH);
+
   // ── Top subtle vignette ──
-  const topGrad = ctx.createLinearGradient(0, 0, 0, h * 0.15);
-  topGrad.addColorStop(0, "rgba(20, 21, 25, 0.4)");
-  topGrad.addColorStop(1, "rgba(20, 21, 25, 0)");
+  const topGrad = ctx.createLinearGradient(0, 0, 0, h * 0.12);
+  topGrad.addColorStop(0, "rgba(12, 13, 16, 0.35)");
+  topGrad.addColorStop(1, "rgba(12, 13, 16, 0)");
   ctx.fillStyle = topGrad;
-  ctx.fillRect(0, 0, w, h * 0.15);
+  ctx.fillRect(0, 0, w, h * 0.12);
 
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
 
-  // ── Title treatment ──
-  const titleFontSize = calculateTitleFontSize(title, w);
-  const titleY = h * 0.78;
-  const titleX = w / 2;
+  // ── Amber accent line above title ──
+  const titleFontSize = calculateTitleFontSize(title, w, cfg);
+  const titleY = h * cfg.titleZoneY;
 
-  // Title shadow
-  ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-  ctx.shadowBlur = 20;
-  ctx.shadowOffsetY = 4;
-
-  ctx.fillStyle = BRAND.white;
-  ctx.font = `700 ${titleFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-
-  const lines = wrapText(ctx, title.toUpperCase(), w * 0.8);
-  const lineHeight = titleFontSize * 1.15;
+  const lines = wrapText(ctx, title.toUpperCase(), w * 0.82, `${cfg.titleWeight} ${titleFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`);
+  const lineHeight = titleFontSize * 1.12;
   const totalTitleHeight = lines.length * lineHeight;
   const startY = titleY - totalTitleHeight / 2;
+  const titleX = w / 2;
 
+  if (cfg.showAccentLine) {
+    const accentLineY = startY - 14;
+    const accentLineW = Math.min(60, w * 0.075);
+    ctx.strokeStyle = BRAND.amber;
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(titleX - accentLineW / 2, accentLineY);
+    ctx.lineTo(titleX + accentLineW / 2, accentLineY);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Title treatment ──
+  ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 3;
+
+  ctx.fillStyle = BRAND.white;
+  ctx.font = `${cfg.titleWeight} ${titleFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+
+  // Apply letter-spacing via manual character placement
   lines.forEach((line, i) => {
-    ctx.fillText(line, titleX, startY + i * lineHeight + titleFontSize);
+    const y = startY + i * lineHeight + titleFontSize;
+    if (cfg.titleTracking > 0.15) {
+      drawTrackedText(ctx, line, titleX, y, cfg.titleTracking * titleFontSize);
+    } else {
+      ctx.fillText(line, titleX, y);
+    }
   });
 
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 
-  // ── Amber accent line above title ──
-  const accentLineY = startY - 16;
-  const accentLineW = Math.min(80, w * 0.1);
-  ctx.strokeStyle = BRAND.amber;
-  ctx.lineWidth = 2;
-  ctx.globalAlpha = 0.6;
-  ctx.beginPath();
-  ctx.moveTo(titleX - accentLineW / 2, accentLineY);
-  ctx.lineTo(titleX + accentLineW / 2, accentLineY);
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-
   // ── Tagline ──
-  let nextY = startY + lines.length * lineHeight + titleFontSize + 20;
+  let nextY = startY + lines.length * lineHeight + titleFontSize + 16;
   if (tagline) {
-    ctx.font = `400 ${Math.round(titleFontSize * 0.3)}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const tagSize = Math.max(10, Math.round(titleFontSize * 0.26));
+    ctx.font = `400 ${tagSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.amberLight;
-    ctx.globalAlpha = 0.9;
-    ctx.fillText(tagline.toUpperCase(), titleX, nextY);
+    ctx.globalAlpha = 0.85;
+    drawTrackedText(ctx, tagline.toUpperCase(), titleX, nextY, tagSize * 0.15);
     ctx.globalAlpha = 1;
-    nextY += Math.round(titleFontSize * 0.3) + 16;
+    nextY += tagSize + 14;
   }
 
-  // ── Billing block (structured credits) ──
+  // ── Billing Block (structured credits) ──
   const hasCredits = credits && (
     (credits.writtenBy && credits.writtenBy.length > 0) ||
     (credits.producedBy && credits.producedBy.length > 0)
   );
 
   if (hasCredits) {
-    // Thin separator line
-    const sepW = w * 0.5;
-    ctx.strokeStyle = BRAND.amber;
-    ctx.lineWidth = 0.5;
-    ctx.globalAlpha = 0.35;
-    ctx.beginPath();
-    ctx.moveTo(titleX - sepW / 2, nextY);
-    ctx.lineTo(titleX + sepW / 2, nextY);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    nextY += 14;
+    // Position billing block in the solid bottom zone
+    const billingStartY = h - stripH + 16;
+    let billingY = billingStartY;
 
-    const creditFontSize = Math.max(9, Math.round(w * 0.014));
-    const labelFontSize = Math.max(7, Math.round(w * 0.009));
-
-    // Written by
-    if (credits.writtenBy && credits.writtenBy.length > 0) {
-      ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = BRAND.creditGray;
-      ctx.globalAlpha = 0.7;
-      ctx.fillText("WRITTEN BY", titleX, nextY);
-      nextY += labelFontSize + 3;
-
-      ctx.font = `500 ${creditFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = BRAND.silver;
-      ctx.globalAlpha = 0.9;
-      ctx.fillText(credits.writtenBy.join("  ·  ").toUpperCase(), titleX, nextY);
-      ctx.globalAlpha = 1;
-      nextY += creditFontSize + 10;
+    if (cfg.billingCondensed) {
+      // ── Condensed billing: single-line format like real theatrical posters ──
+      billingY = renderCondensedBilling(ctx, w, billingY, credits);
+    } else {
+      // ── Standard billing: labeled sections ──
+      billingY = renderStandardBilling(ctx, w, billingY, credits);
     }
 
-    // Produced by
-    if (credits.producedBy && credits.producedBy.length > 0) {
-      ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = BRAND.creditGray;
-      ctx.globalAlpha = 0.7;
-      ctx.fillText("PRODUCED BY", titleX, nextY);
-      nextY += labelFontSize + 3;
-
-      ctx.font = `500 ${creditFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = BRAND.silver;
-      ctx.globalAlpha = 0.9;
-      // Wrap long producer lists
-      const producerText = credits.producedBy.join("  ·  ").toUpperCase();
-      const prodLines = wrapText(ctx, producerText, w * 0.75);
-      prodLines.forEach((line) => {
-        ctx.fillText(line, titleX, nextY);
-        nextY += creditFontSize + 3;
-      });
-      ctx.globalAlpha = 1;
-      nextY += 6;
-    }
-
-    // Created by / Based on
+    // Created by / Based on (if present)
+    const microSize = Math.max(7, Math.round(w * 0.009));
     if (credits.createdByCredit) {
-      ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = BRAND.creditGray;
-      ctx.globalAlpha = 0.6;
-      ctx.fillText(credits.createdByCredit.toUpperCase(), titleX, nextY);
+      ctx.font = `400 ${microSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+      ctx.fillStyle = BRAND.billingGray;
+      ctx.globalAlpha = 0.55;
+      ctx.fillText(credits.createdByCredit.toUpperCase(), w / 2, billingY);
       ctx.globalAlpha = 1;
-      nextY += labelFontSize + 6;
+      billingY += microSize + 4;
     }
     if (credits.basedOnCredit) {
-      ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
-      ctx.fillStyle = BRAND.creditGray;
-      ctx.globalAlpha = 0.6;
-      ctx.fillText(credits.basedOnCredit.toUpperCase(), titleX, nextY);
+      ctx.font = `400 ${microSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+      ctx.fillStyle = BRAND.billingGray;
+      ctx.globalAlpha = 0.55;
+      ctx.fillText(credits.basedOnCredit.toUpperCase(), w / 2, billingY);
       ctx.globalAlpha = 1;
-      nextY += labelFontSize + 6;
     }
   }
 
   // ── Bottom branding: company logo or name ──
-  const footerY = h - 18;
+  const footerY = h - 10;
   if (logoImg && logoImg.naturalWidth > 0) {
-    const maxLogoH = Math.max(14, Math.round(h * 0.03));
+    const maxLogoH = Math.max(12, Math.round(h * 0.025));
     const aspect = logoImg.naturalWidth / logoImg.naturalHeight;
     const lh = maxLogoH;
     const lw = lh * aspect;
-    ctx.globalAlpha = 0.7;
-    ctx.drawImage(logoImg, w / 2 - lw / 2, footerY - lh + 4, lw, lh);
+    ctx.globalAlpha = 0.6;
+    ctx.drawImage(logoImg, w / 2 - lw / 2, footerY - lh + 2, lw, lh);
     ctx.globalAlpha = 1;
   } else if (companyName) {
-    ctx.font = `500 ${Math.max(9, Math.round(w * 0.013))}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    const compSize = Math.max(8, Math.round(w * 0.012));
+    ctx.font = `500 ${compSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
     ctx.fillStyle = BRAND.amber;
-    ctx.globalAlpha = 0.5;
-    ctx.fillText(companyName.toUpperCase(), w / 2, footerY);
+    ctx.globalAlpha = 0.45;
+    drawTrackedText(ctx, companyName.toUpperCase(), w / 2, footerY, compSize * 0.25);
     ctx.globalAlpha = 1;
   }
 }
 
-function calculateTitleFontSize(title: string, canvasWidth: number): number {
-  const charCount = title.length;
-  const baseSize = canvasWidth * 0.08;
-  if (charCount <= 8) return baseSize * 1.2;
-  if (charCount <= 15) return baseSize;
-  if (charCount <= 25) return baseSize * 0.85;
-  if (charCount <= 40) return baseSize * 0.7;
-  return baseSize * 0.55;
+// ── Standard billing block (labeled rows) ────────────────────────────────────
+
+function renderStandardBilling(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  startY: number,
+  credits: PosterCreditsData,
+): number {
+  let y = startY;
+  const titleX = w / 2;
+  const creditFontSize = Math.max(9, Math.round(w * 0.013));
+  const labelFontSize = Math.max(7, Math.round(w * 0.008));
+
+  // Thin separator
+  const sepW = w * 0.35;
+  ctx.strokeStyle = BRAND.amberDim;
+  ctx.lineWidth = 0.5;
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath();
+  ctx.moveTo(titleX - sepW / 2, y);
+  ctx.lineTo(titleX + sepW / 2, y);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  y += 12;
+
+  // Written by
+  if (credits.writtenBy && credits.writtenBy.length > 0) {
+    ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.billingGray;
+    ctx.globalAlpha = 0.6;
+    ctx.fillText("WRITTEN BY", titleX, y);
+    y += labelFontSize + 3;
+
+    ctx.font = `500 ${creditFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.silver;
+    ctx.globalAlpha = 0.85;
+    ctx.fillText(credits.writtenBy.join("  ·  ").toUpperCase(), titleX, y);
+    ctx.globalAlpha = 1;
+    y += creditFontSize + 8;
+  }
+
+  // Produced by
+  if (credits.producedBy && credits.producedBy.length > 0) {
+    ctx.font = `400 ${labelFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.billingGray;
+    ctx.globalAlpha = 0.6;
+    ctx.fillText("PRODUCED BY", titleX, y);
+    y += labelFontSize + 3;
+
+    ctx.font = `500 ${creditFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.silver;
+    ctx.globalAlpha = 0.85;
+    const producerText = credits.producedBy.join("  ·  ").toUpperCase();
+    const prodLines = wrapText(ctx, producerText, w * 0.7, ctx.font);
+    prodLines.forEach((line) => {
+      ctx.fillText(line, titleX, y);
+      y += creditFontSize + 2;
+    });
+    ctx.globalAlpha = 1;
+    y += 4;
+  }
+
+  return y;
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+// ── Condensed billing block (prestige / minimal — single dense block) ────────
+
+function renderCondensedBilling(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  startY: number,
+  credits: PosterCreditsData,
+): number {
+  const titleX = w / 2;
+  let y = startY;
+
+  // Build a single condensed billing string like real theatrical posters:
+  // WRITTEN BY SEBASTIAN STREET   PRODUCED BY SEBASTIAN STREET  MERLIN MERTON  ALEX CHANG  GREER ELLISON
+  const parts: string[] = [];
+
+  if (credits.writtenBy && credits.writtenBy.length > 0) {
+    parts.push(`WRITTEN BY  ${credits.writtenBy.join("  ").toUpperCase()}`);
+  }
+  if (credits.producedBy && credits.producedBy.length > 0) {
+    parts.push(`PRODUCED BY  ${credits.producedBy.join("  ").toUpperCase()}`);
+  }
+
+  if (parts.length === 0) return y;
+
+  // Thin separator
+  const sepW = w * 0.3;
+  ctx.strokeStyle = BRAND.amberDim;
+  ctx.lineWidth = 0.5;
+  ctx.globalAlpha = 0.25;
+  ctx.beginPath();
+  ctx.moveTo(titleX - sepW / 2, y);
+  ctx.lineTo(titleX + sepW / 2, y);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  y += 10;
+
+  const billingFontSize = Math.max(7, Math.round(w * 0.0095));
+
+  // Render each credit line in condensed format
+  for (const part of parts) {
+    ctx.font = `400 ${billingFontSize}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+    ctx.fillStyle = BRAND.creditGray;
+    ctx.globalAlpha = 0.7;
+
+    const billingLines = wrapText(ctx, part, w * 0.7, ctx.font);
+    for (const line of billingLines) {
+      drawTrackedText(ctx, line, titleX, y, billingFontSize * 0.15);
+      y += billingFontSize + 2;
+    }
+    y += 2;
+  }
+
+  ctx.globalAlpha = 1;
+  return y;
+}
+
+// ── Typography Helpers ───────────────────────────────────────────────────────
+
+function calculateTitleFontSize(title: string, canvasWidth: number, cfg: LayoutConfig): number {
+  const charCount = title.length;
+  const baseSize = canvasWidth * 0.08;
+  let size: number;
+  if (charCount <= 8) size = baseSize * 1.2;
+  else if (charCount <= 15) size = baseSize;
+  else if (charCount <= 25) size = baseSize * 0.85;
+  else if (charCount <= 40) size = baseSize * 0.7;
+  else size = baseSize * 0.55;
+
+  // Prestige / minimal variants use slightly smaller, more elegant titles
+  if (cfg.titleWeight <= 300) {
+    size *= 0.92;
+  }
+  return size;
+}
+
+function drawTrackedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  centerX: number,
+  y: number,
+  spacing: number,
+) {
+  // Measure total width with spacing
+  const chars = text.split("");
+  let totalWidth = 0;
+  for (const ch of chars) {
+    totalWidth += ctx.measureText(ch).width + spacing;
+  }
+  totalWidth -= spacing; // no trailing space
+
+  let x = centerX - totalWidth / 2;
+  for (const ch of chars) {
+    const charW = ctx.measureText(ch).width;
+    ctx.fillText(ch, x + charW / 2, y);
+    x += charW + spacing;
+  }
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, font?: string): string[] {
+  if (font) ctx.font = font;
   const words = text.split(" ");
   const lines: string[] = [];
   let currentLine = "";
