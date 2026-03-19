@@ -304,6 +304,22 @@ export default function ProjectDetail() {
   const handleExportDeliverablesCSV = () => { if (project) exportDeliverablesCSV(deliverables, project.title); };
   const handleExportCostsCSV = () => { if (project) exportCostsCSV(costEntries, project.title); };
 
+  // Resolve effective mode — hooks must be before early returns
+  const { mode: userMode, setMode } = useUIMode();
+  const effectiveMode = getEffectiveMode(userMode, (project as any)?.ui_mode_override);
+
+  const { data: activePoster } = useActiveProjectPoster(id);
+
+  // Accordion state — only "state" open by default
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    state: true,
+    development: false,
+    visual: false,
+    diagnostics: false,
+    repair: false,
+    autorun: false,
+  });
+
   // ProjectDetail is always rendered inside ProjectShell now (Week 2 refactor)
 
   if (isLoading) {
@@ -338,21 +354,7 @@ export default function ProjectDetail() {
   const hasDocuments = documents.length > 0;
   const hasScript = scripts.length > 0;
 
-  // Resolve effective mode
-  const { mode: userMode, setMode } = useUIMode();
-  const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
-
-  const { data: activePoster } = useActiveProjectPoster(id);
   const heroImageUrl = activePoster.url || (project as any).hero_image_url;
-
-  // Accordion state — only "state" open by default
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    state: true,
-    development: false,
-    visual: false,
-    diagnostics: false,
-    repair: false,
-    autorun: false,
   });
 
   const toggleSection = (key: string) => {
