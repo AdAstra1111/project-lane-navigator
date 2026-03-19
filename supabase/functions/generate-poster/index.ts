@@ -4,7 +4,8 @@ import { resolveImageGenerationConfig, buildImageRepositoryMeta } from "../_shar
 import type { ImageRole, ImageStyleMode } from "../_shared/imageGenerationResolver.ts";
 import { resolveVisualStyleProfile, validateStyleOrError } from "../_shared/visualStyleAuthority.ts";
 import type { VisualStyleLock } from "../_shared/visualStyleAuthority.ts";
-import { resolveFormatToLane, resolvePrestigeStyle } from "../_shared/prestigeStyleSystem.ts";
+import { resolveFormatToLane, resolvePrestigeStyle, assemblePrestigePrompt } from "../_shared/prestigeStyleSystem.ts";
+import type { StyleComposite } from "../_shared/prestigeStyleSystem.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
