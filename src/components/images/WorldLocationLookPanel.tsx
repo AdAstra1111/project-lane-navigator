@@ -19,6 +19,7 @@ import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { useHydratedLocations, type HydratedLocation, type LocationReadiness, type LocationBindingStatus } from '@/hooks/useHydratedLocations';
+import { useLocationBindingBackfill } from '@/hooks/useLocationBindingBackfill';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -187,6 +188,7 @@ function ManualLocationForm({ projectId, onCreated }: { projectId: string; onCre
 
 export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProps) {
   const { locations, isLoading, canonLocations, seedFromCanon, refetch, stats } = useHydratedLocations(projectId);
+  const { runBackfill, running: backfilling, lastResult: backfillResult } = useLocationBindingBackfill(projectId);
   const [canonJson, setCanonJson] = useState<any>(null);
   const [canonLoading, setCanonLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
@@ -311,7 +313,25 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
             {stats.unresolvedWorldRefs > 0 && (
               <span className="text-[10px] text-amber-600">{stats.unresolvedWorldRefs} world ref{stats.unresolvedWorldRefs !== 1 ? 's' : ''}</span>
             )}
-            <span className="text-[9px] text-muted-foreground italic ml-auto">Not matched to any canonical location</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-[9px] h-5 ml-auto border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
+              onClick={() => runBackfill(false)}
+              disabled={backfilling}
+            >
+              {backfilling ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Link2 className="h-2.5 w-2.5" />}
+              Backfill Bindings
+            </Button>
+          </div>
+        )}
+
+        {/* Backfill result summary */}
+        {backfillResult && (
+          <div className="mb-3 px-2 py-1.5 rounded-md bg-muted/30 border border-border/30 text-[9px] text-muted-foreground space-y-0.5">
+            <div className="font-medium text-foreground text-[10px]">Last backfill: {backfillResult.dry_run ? 'Dry run' : 'Applied'}</div>
+            <div>Scenes — bound: {backfillResult.report.scenes.bound}, unresolved: {backfillResult.report.scenes.unresolved}, ambiguous: {backfillResult.report.scenes.ambiguous}</div>
+            <div>Images — bound: {backfillResult.report.images.bound}, unresolved: {backfillResult.report.images.unresolved}, ambiguous: {backfillResult.report.images.ambiguous}</div>
           </div>
         )}
 
@@ -632,7 +652,7 @@ function HydratedLocationRow({
         )}
 
         {locImages.length > 0 && (
-          <EntityStateVariantsPanel projectId={projectId} entityType="location" entityName={location.canonical_name} entityDescription={location.description || undefined} />
+          <EntityStateVariantsPanel projectId={projectId} entityType="location" entityName={location.canonical_name} entityDescription={location.description || undefined} entityCanonId={location.id} />
         )}
 
         {/* Generate button */}

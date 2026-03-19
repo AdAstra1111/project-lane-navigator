@@ -352,6 +352,7 @@ serve(async (req) => {
       base_look_mode = false,
       location_name, location_description,
       location_ref_mode = false,
+      location_id = null,
       state_key = null,
       state_label = null,
       state_prompt_modifier = null,
@@ -374,6 +375,7 @@ serve(async (req) => {
       location_name?: string;
       location_description?: string;
       location_ref_mode?: boolean;
+      location_id?: string | null;
       state_key?: string | null;
       state_label?: string | null;
       state_prompt_modifier?: string | null;
@@ -385,6 +387,11 @@ serve(async (req) => {
       identity_signature_block?: string | null;
       forced_shot_type?: string | null;
     };
+
+    // IEL: location_binding_write_enforcement — warn if world image without canon location_id
+    if (requestedAssetGroup === "world" && location_name && !location_id) {
+      console.warn("[IEL:location_binding_write_enforcement_violation] World image generation requested without location_id — subject_ref fallback only");
+    }
 
     if (!project_id || !section) {
       return new Response(JSON.stringify({ error: "project_id and section required" }), {
@@ -663,6 +670,7 @@ serve(async (req) => {
               : null,
             subject_ref: character_name || location_name || null,
             location_ref: location_name || null,
+            canon_location_id: location_id || null,
             generation_purpose: isIdentityGeneration ? "character_identity"
               : state_key ? `state_variant_${state_key}`
               : base_look_mode ? "character_reference"

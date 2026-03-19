@@ -25,10 +25,12 @@ interface EntityStateVariantsPanelProps {
   entityType: 'character' | 'location';
   entityName: string;
   entityDescription?: string;
+  /** Canonical location ID — required for location entities when available */
+  entityCanonId?: string;
 }
 
 export function EntityStateVariantsPanel({
-  projectId, entityType, entityName, entityDescription,
+  projectId, entityType, entityName, entityDescription, entityCanonId,
 }: EntityStateVariantsPanelProps) {
   const presets = entityType === 'character' ? CHARACTER_STATE_PRESETS : LOCATION_STATE_PRESETS;
   const categories = entityType === 'character' ? CHARACTER_STATE_CATEGORIES : LOCATION_STATE_CATEGORIES;
@@ -77,6 +79,7 @@ export function EntityStateVariantsPanel({
         entityType={entityType}
         entityName={entityName}
         entityDescription={entityDescription}
+        entityCanonId={entityCanonId}
         presets={presets}
         existingStates={existingStates}
         onStateCreated={() => {}}
@@ -139,6 +142,7 @@ export function EntityStateVariantsPanel({
         entityType={entityType}
         entityName={entityName}
         entityDescription={entityDescription}
+        entityCanonId={entityCanonId}
         presets={presets}
         existingStates={allStateKeys}
         onStateCreated={() => {}}
@@ -277,12 +281,13 @@ function StateImageCard({
 }
 
 function StateGenerationBar({
-  projectId, entityType, entityName, entityDescription, presets, existingStates, onStateCreated,
+  projectId, entityType, entityName, entityDescription, entityCanonId, presets, existingStates, onStateCreated,
 }: {
   projectId: string;
   entityType: 'character' | 'location';
   entityName: string;
   entityDescription?: string;
+  entityCanonId?: string;
   presets: StatePreset[];
   existingStates: string[];
   onStateCreated: () => void;
@@ -337,6 +342,7 @@ function StateGenerationBar({
           character_name: isCharacter ? entityName : undefined,
           location_name: !isCharacter ? entityName : undefined,
           location_description: !isCharacter ? entityDescription : undefined,
+          location_id: !isCharacter ? entityCanonId : undefined,
           asset_group: isCharacter ? 'character' : 'world',
           pack_mode: true,
           base_look_mode: isCharacter,
