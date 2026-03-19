@@ -614,7 +614,7 @@ function CharacterTraitDisplay({
         className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors mb-1"
       >
         <Tag className="h-2.5 w-2.5" />
-        Visual Traits ({traits.length})
+        Character Visual Truth ({traits.length})
         {contradictions.length > 0 && (
           <Badge variant="destructive" className="text-[7px] px-1 py-0 ml-1">
             {contradictions.length} conflict{contradictions.length !== 1 ? 's' : ''}
@@ -651,10 +651,10 @@ function CharacterTraitDisplay({
             </div>
           )}
           <div className="flex flex-wrap gap-1.5 text-[7px] text-muted-foreground pt-0.5">
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.script)}>SCRIPT</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.narrative)}>NARRATIVE</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.inferred)}>INFERRED</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.user)}>USER</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.script)}>SCRIPT (locked)</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.narrative)}>NARRATIVE (visible markers)</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.inferred)}>INFERRED (flexible)</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.user)}>USER (your notes)</span>
           </div>
         </div>
       )}
