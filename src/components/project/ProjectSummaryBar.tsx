@@ -15,7 +15,7 @@ import { getFormatMeta } from '@/lib/mode-engine';
 import type { PackagingMode, PackagingStage } from '@/lib/role-gravity-engine';
 import { BEHAVIOR_LABELS, BEHAVIOR_COLORS, type DevelopmentBehavior } from '@/lib/dev-os-config';
 import { getProjectModality, MODALITY_LABELS, type ProductionModality } from '@/config/productionModality';
-import { RenameProjectDialog } from '@/components/project/RenameProjectDialog';
+import { ProjectTitleManager } from '@/components/project/ProjectTitleManager';
 import { useProjects } from '@/hooks/useProjects';
 import { toast } from 'sonner';
 
