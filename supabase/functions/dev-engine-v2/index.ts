@@ -18389,14 +18389,14 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
       }
 
       console.log("[dev-engine-v2] build_narrative_obligations", {
-        project_id: projectId, seed_id: seedId, count: obligationRows.length,
+        project_id: projectId, provenance_source: provenanceSource, count: obligationRows.length,
       });
 
       return new Response(JSON.stringify({
         ok:         true,
         action:     "build_narrative_obligations",
         project_id: projectId,
-        seed_id:    seedId,
+        provenance_source: provenanceSource,
         obligations: upserted ?? obligationRows.map(r => ({
           obligation_id: r.obligation_id,
           obligation_type: r.obligation_type,
