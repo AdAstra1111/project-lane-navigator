@@ -86,6 +86,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
     approveIntoCanon, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
 
+  const vs = useVisualSets(projectId);
+
   const { refetch: refetchImages } = useProjectImages(projectId, {
     activeOnly: false,
     curationStates: ['active', 'candidate', 'archived', 'rejected'],
