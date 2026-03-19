@@ -1,15 +1,18 @@
 /**
  * WorldLocationLookPanel — Phase 2 world + location visual identity system.
- * Now uses structured canon_locations as authority source.
- * Falls back to canon_json extraction if no structured locations exist.
+ * Uses structured canon_locations as authority source.
+ * Multi-pass extraction with manual and assisted fallbacks.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle } from 'lucide-react';
+import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
@@ -33,8 +36,210 @@ interface LocationInfo {
   source: 'structured' | 'canon_json';
 }
 
+// ── Multi-pass location extraction ──
+
+function multiPassExtractLocations(canonJson: any): LocationInfo[] {
+  if (!canonJson) return [];
+  const locations: LocationInfo[] = [];
+  const seen = new Set<string>();
+
+  const addLoc = (name: string, desc?: string, type?: string, intExt?: string, importance?: number) => {
+    const norm = name.toLowerCase().trim();
+    if (!norm || norm === 'unknown' || seen.has(norm)) return;
+    seen.add(norm);
+    locations.push({ name: name.trim(), description: desc, type, interior_or_exterior: intExt, importance: importance ?? locations.length, source: 'canon_json' });
+  };
+
+  // Pass 1: Structured canon keys
+  const locArr = canonJson.locations || canonJson.settings || canonJson.key_locations;
+  if (Array.isArray(locArr)) {
+    for (const loc of locArr) {
+      if (typeof loc === 'string') {
+        addLoc(loc);
+      } else if (loc && typeof loc === 'object') {
+        const name = (loc.name || loc.location_name || loc.setting || '').trim();
+        addLoc(name, loc.description || loc.visual_description, loc.type || 'location', loc.interior_or_exterior || loc.int_ext);
+      }
+    }
+  }
+
+  // Pass 1b: scenes[].location
+  if (Array.isArray(canonJson.scenes)) {
+    for (const scene of canonJson.scenes) {
+      const locName = (scene.location || scene.setting || '').trim();
+      if (locName) addLoc(locName, undefined, 'location', scene.int_ext || scene.interior_or_exterior);
+    }
+  }
+
+  // Pass 1c: world_description / setting
+  if (locations.length === 0) {
+    const worldDesc = canonJson.world_description || canonJson.setting;
+    if (typeof worldDesc === 'string' && worldDesc.length > 5) {
+      addLoc('Primary World', worldDesc.slice(0, 500), 'primary');
+    }
+  }
+
+  // Pass 2: Semi-structured story fields
+  const storyFields = [
+    canonJson.synopsis, canonJson.logline, canonJson.treatment,
+    canonJson.world_notes, canonJson.atmosphere, canonJson.setting_description,
+  ].filter(v => typeof v === 'string' && v.length > 10);
+
+  for (const field of storyFields) {
+    // Extract INT./EXT. headings
+    const headingPattern = /\b(?:INT\.|EXT\.|INT\/EXT\.?)\s+([A-Z][A-Z\s\-']+?)(?:\s*[-–—]\s*|\s*$)/gm;
+    let match;
+    while ((match = headingPattern.exec(field)) !== null) {
+      const name = match[1].trim().replace(/\s+/g, ' ');
+      if (name.length > 2 && name.length < 60) {
+        const intExt = match[0].includes('INT/EXT') ? 'INT/EXT' : match[0].includes('INT') ? 'INT' : 'EXT';
+        addLoc(name, undefined, 'location', intExt);
+      }
+    }
+  }
+
+  // Pass 3: Episode/beat/outline structures
+  const episodes = canonJson.episodes || canonJson.episode_grid || canonJson.episode_outlines;
+  if (Array.isArray(episodes)) {
+    for (const ep of episodes) {
+      if (!ep || typeof ep !== 'object') continue;
+      const epLocations = ep.locations || ep.settings;
+      if (Array.isArray(epLocations)) {
+        for (const l of epLocations) {
+          if (typeof l === 'string') addLoc(l);
+          else if (l?.name) addLoc(l.name, l.description);
+        }
+      }
+      // Check beats
+      const beats = ep.beats || ep.scenes;
+      if (Array.isArray(beats)) {
+        for (const b of beats) {
+          if (b?.location) addLoc(typeof b.location === 'string' ? b.location : b.location.name);
+          if (b?.setting) addLoc(typeof b.setting === 'string' ? b.setting : b.setting.name);
+        }
+      }
+    }
+  }
+
+  // Pass 3b: Plain text extraction from any text blob
+  if (locations.length === 0) {
+    const allText = JSON.stringify(canonJson);
+    const intExtPattern = /(?:INT\.|EXT\.|INT\/EXT\.?)\s+([A-Z][A-Z\s\-']{2,40})/g;
+    let m;
+    while ((m = intExtPattern.exec(allText)) !== null) {
+      addLoc(m[1].trim());
+    }
+  }
+
+  locations.sort((a, b) => (a.importance || 0) - (b.importance || 0));
+  return locations.slice(0, 20);
+}
+
+// ── Manual Location Form ──
+
+function ManualLocationForm({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState('');
+  const [locType, setLocType] = useState('location');
+  const [intExt, setIntExt] = useState('');
+  const [description, setDescription] = useState('');
+  const [importance, setImportance] = useState('secondary');
+
+  const handleSave = useCallback(async () => {
+    if (!name.trim()) { toast.error('Location name required'); return; }
+    setSaving(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('canon_locations')
+        .insert({
+          project_id: projectId,
+          canonical_name: name.trim(),
+          normalized_name: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+          location_type: locType,
+          interior_or_exterior: intExt || null,
+          description: description.trim() || null,
+          story_importance: importance,
+          provenance: 'manual_entry',
+          active: true,
+          associated_characters: [],
+          source_document_ids: [],
+        });
+      if (error) throw error;
+      toast.success(`Location "${name}" added`);
+      setName(''); setDescription(''); setIntExt('');
+      onCreated();
+      setOpen(false);
+    } catch (e: any) {
+      toast.error(`Failed: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }, [projectId, name, locType, intExt, description, importance, onCreated]);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <Button size="sm" variant="outline" className="gap-1.5 text-xs h-7">
+          <PenLine className="h-3 w-3" /> Add Location Manually
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2">
+        <Card className="border-border/50">
+          <CardContent className="p-3 space-y-2">
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Location name (e.g. Village Square)"
+              className="text-xs h-8"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={locType} onValueChange={setLocType}>
+                <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="location">Location</SelectItem>
+                  <SelectItem value="interior">Interior</SelectItem>
+                  <SelectItem value="exterior">Exterior</SelectItem>
+                  <SelectItem value="landmark">Landmark</SelectItem>
+                  <SelectItem value="world">World</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={intExt} onValueChange={setIntExt}>
+                <SelectTrigger className="text-xs h-8"><SelectValue placeholder="INT/EXT" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INT">INT</SelectItem>
+                  <SelectItem value="EXT">EXT</SelectItem>
+                  <SelectItem value="INT/EXT">INT/EXT</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Select value={importance} onValueChange={setImportance}>
+              <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="primary">Primary</SelectItem>
+                <SelectItem value="secondary">Secondary</SelectItem>
+                <SelectItem value="tertiary">Tertiary</SelectItem>
+              </SelectContent>
+            </Select>
+            <Textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Brief visual description..."
+              className="text-xs min-h-[50px] resize-none"
+            />
+            <Button size="sm" className="w-full h-7 text-xs" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+              Save Location
+            </Button>
+          </CardContent>
+        </Card>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProps) {
-  const { locations: structuredLocations, isLoading: structuredLoading, seedFromCanon } = useCanonLocations(projectId);
+  const { locations: structuredLocations, isLoading: structuredLoading, seedFromCanon, refetch } = useCanonLocations(projectId);
   const [canonJson, setCanonJson] = useState<any>(null);
   const [canonLoading, setCanonLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
@@ -53,7 +258,7 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
 
   const loading = structuredLoading || canonLoading;
 
-  // Merge structured locations as primary source, canon_json as fallback
+  // Merge structured locations as primary source, multi-pass canon_json as fallback
   const locations: LocationInfo[] = useMemo(() => {
     if (structuredLocations.length > 0) {
       return structuredLocations.map((loc, idx) => ({
@@ -65,8 +270,7 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
         source: 'structured' as const,
       }));
     }
-    // Fallback: extract from canon_json
-    return extractLocationsFromCanon(canonJson);
+    return multiPassExtractLocations(canonJson);
   }, [structuredLocations, canonJson]);
 
   const handleSeedLocations = useCallback(async () => {
@@ -76,7 +280,27 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     }
     setSeeding(true);
     try {
-      await seedFromCanon.mutateAsync({ canonJson });
+      // Use multi-pass extraction results to seed
+      const extracted = multiPassExtractLocations(canonJson);
+      if (extracted.length === 0) {
+        toast.info('No locations confidently extracted. Try adding manually or using assisted suggestions.');
+        return;
+      }
+      // Build a synthetic canonJson with locations for the hook
+      const syntheticCanon = { ...canonJson, locations: extracted.map(l => ({
+        name: l.name,
+        description: l.description,
+        type: l.type,
+        interior_or_exterior: l.interior_or_exterior,
+        importance: l.type === 'primary' ? 'primary' : 'secondary',
+      })) };
+      await seedFromCanon.mutateAsync({ canonJson: syntheticCanon });
+    } catch (e: any) {
+      if (e.message?.includes('No locations found')) {
+        toast.info('No locations confidently extracted. Try adding manually.');
+      } else {
+        toast.error(e.message);
+      }
     } finally {
       setSeeding(false);
     }
@@ -91,7 +315,7 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     );
   }
 
-  // Empty state with extraction CTA
+  // Empty state with multi-path recovery
   if (locations.length === 0) {
     return (
       <div className="py-4">
@@ -105,19 +329,22 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
               Extract locations from your story materials to build governed world/location visual references.
               No images will be generated without structured location canon.
             </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 text-xs"
-              onClick={handleSeedLocations}
-              disabled={seeding || !canonJson}
-            >
-              {seeding ? (
-                <><Loader2 className="h-3 w-3 animate-spin" /> Extracting...</>
-              ) : (
-                <><Wand2 className="h-3 w-3" /> Extract Locations from Story</>
-              )}
-            </Button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs"
+                onClick={handleSeedLocations}
+                disabled={seeding || !canonJson}
+              >
+                {seeding ? (
+                  <><Loader2 className="h-3 w-3 animate-spin" /> Extracting...</>
+                ) : (
+                  <><Wand2 className="h-3 w-3" /> Extract Locations from Story</>
+                )}
+              </Button>
+              <ManualLocationForm projectId={projectId} onCreated={refetch} />
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -153,12 +380,13 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
         </div>
       </div>
 
-      {structuredCount === 0 && canonJson && (
-        <div className="mb-3">
+      {/* Seed / manual add controls */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {structuredCount === 0 && canonJson && (
           <Button
             size="sm"
             variant="outline"
-            className="gap-1.5 text-[10px] h-7 w-full"
+            className="gap-1.5 text-[10px] h-7"
             onClick={handleSeedLocations}
             disabled={seeding}
           >
@@ -168,8 +396,9 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
               <><Wand2 className="h-3 w-3" /> Seed Structured Location Canon</>
             )}
           </Button>
-        </div>
-      )}
+        )}
+        <ManualLocationForm projectId={projectId} onCreated={refetch} />
+      </div>
 
       <p className="text-[10px] text-muted-foreground mb-3">
         Generate establishing + atmospheric + detail references per location. Select primary references to anchor world visual identity.
@@ -179,39 +408,6 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
       ))}
     </div>
   );
-}
-
-/** Fallback extraction from canon_json */
-function extractLocationsFromCanon(canonJson: any): LocationInfo[] {
-  if (!canonJson) return [];
-  const locations: LocationInfo[] = [];
-  const raw = canonJson.locations || canonJson.settings || canonJson.key_locations;
-  if (Array.isArray(raw) && raw.length > 0) {
-    raw.forEach((loc: any, idx: number) => {
-      if (typeof loc === 'string') {
-        const name = loc.trim();
-        if (name && name !== 'Unknown') locations.push({ name, importance: idx, source: 'canon_json' });
-      } else if (loc && typeof loc === 'object') {
-        const name = (loc.name || loc.location_name || loc.setting || '').trim();
-        if (!name || name === 'Unknown') return;
-        locations.push({
-          name,
-          description: (loc.description || loc.visual_description || '').trim() || undefined,
-          importance: idx,
-          type: loc.type || 'secondary',
-          source: 'canon_json',
-        });
-      }
-    });
-  }
-  if (locations.length === 0) {
-    const worldDesc = canonJson.world_description || canonJson.setting || '';
-    if (typeof worldDesc === 'string' && worldDesc.length > 0) {
-      locations.push({ name: 'Primary World', description: worldDesc.slice(0, 300), importance: 0, type: 'primary', source: 'canon_json' });
-    }
-  }
-  locations.sort((a, b) => (a.importance || 0) - (b.importance || 0));
-  return locations.slice(0, 8);
 }
 
 type LocFilter = 'all' | 'active' | 'candidate' | 'archived';
@@ -442,50 +638,35 @@ function LocationImageCard({
           <MapPin className="h-6 w-6 text-muted-foreground/30" />
         </div>
       )}
-
       {isPrimary && (
         <div className="absolute top-1 left-1">
-          <Badge className="text-[9px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5">
-            <Star className="h-2 w-2" /> Primary
+          <Badge className="text-[7px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5">
+            <Star className="h-1.5 w-1.5" /> Primary
           </Badge>
         </div>
       )}
-
-      {!isPrimary && (
-        <div className="absolute top-1 left-1">
-          <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-black/50 text-white/80 border-0">
-            {image.shot_type?.replace('_', ' ') || 'ref'}
-          </Badge>
-        </div>
-      )}
-
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
         <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isPrimary && !isArchived && (
             <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1.5 py-1 rounded bg-primary/80 text-primary-foreground text-[9px] font-medium hover:bg-primary/90"
+              className="flex-1 flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-primary/80 text-primary-foreground text-[8px] font-medium hover:bg-primary/90"
               onClick={(e) => { e.stopPropagation(); onSetPrimary(); }}
               disabled={isUpdating}
             >
-              {isUpdating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Star className="h-2.5 w-2.5" />}
-              Set Primary
+              {isUpdating ? <Loader2 className="h-2 w-2 animate-spin" /> : <Star className="h-2 w-2" />}
+              Primary
             </button>
           )}
           {!isArchived && (
-            <button
-              className="p-1 rounded bg-black/50 text-white hover:bg-black/70"
-              onClick={(e) => { e.stopPropagation(); onArchive(); }}
-              title="Archive"
-            >
-              <Archive className="h-3 w-3" />
+            <button className="p-0.5 rounded bg-black/50 text-white hover:bg-black/70"
+              onClick={(e) => { e.stopPropagation(); onArchive(); }} title="Archive">
+              <Archive className="h-2.5 w-2.5" />
             </button>
           )}
           {isArchived && (
-            <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1.5 py-1 rounded bg-muted/80 text-foreground text-[9px] font-medium"
-              onClick={(e) => { e.stopPropagation(); onRestore(); }}
-            >
-              <RotateCcw className="h-2.5 w-2.5" /> Restore
+            <button className="flex-1 flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-muted/80 text-foreground text-[8px] font-medium"
+              onClick={(e) => { e.stopPropagation(); onRestore(); }}>
+              <RotateCcw className="h-2 w-2" /> Restore
             </button>
           )}
         </div>

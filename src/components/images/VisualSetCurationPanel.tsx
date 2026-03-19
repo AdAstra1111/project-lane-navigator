@@ -83,6 +83,17 @@ export function VisualSetCurationPanel({ projectId, domain, targetName }: Props)
     );
   }
 
+  // Group active sets by entity + state for clear visualization
+  const groupedSets = useMemo(() => {
+    const groups = new Map<string, VisualSet[]>();
+    for (const set of activeSets) {
+      const key = `${set.target_name}__${set.domain}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(set);
+    }
+    return groups;
+  }, [activeSets]);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -104,17 +115,31 @@ export function VisualSetCurationPanel({ projectId, domain, targetName }: Props)
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {activeSets.map(set => (
-            <VisualSetCard
-              key={set.id}
-              projectId={projectId}
-              set={set}
-              expanded={expandedSetId === set.id}
-              onToggle={() => setExpandedSetId(expandedSetId === set.id ? null : set.id)}
-              vs={vs}
-            />
-          ))}
+        <div className="space-y-3">
+          {Array.from(groupedSets.entries()).map(([groupKey, sets]) => {
+            const hasMultipleStates = sets.length > 1 || sets.some(s => s.entity_state_key);
+            return (
+              <div key={groupKey}>
+                {hasMultipleStates && (
+                  <p className="text-[10px] font-semibold text-foreground mb-1 px-1">
+                    {sets[0].target_name} <span className="text-muted-foreground font-normal">— {sets[0].domain}</span>
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {sets.map(set => (
+                    <VisualSetCard
+                      key={set.id}
+                      projectId={projectId}
+                      set={set}
+                      expanded={expandedSetId === set.id}
+                      onToggle={() => setExpandedSetId(expandedSetId === set.id ? null : set.id)}
+                      vs={vs}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
