@@ -31,7 +31,11 @@ export type ShotType =
   | 'lighting_ref'
   | 'texture_ref'
   | 'composition_ref'
-  | 'color_ref';
+  | 'color_ref'
+  // Identity-specific shot types — NOT interchangeable with cinematic types
+  | 'identity_headshot'
+  | 'identity_profile'
+  | 'identity_full_body';
 
 export type CurationState = 'active' | 'candidate' | 'archived' | 'rejected';
 
