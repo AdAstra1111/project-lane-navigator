@@ -13,12 +13,13 @@ import { Badge } from '@/components/ui/badge';
 
 const SECTIONS = [
   {
-    title: 'Visual Units',
-    description: 'Canonical visual unit library extracted from your script — the foundation for storyboards and trailers.',
+    title: 'Cast Photos & Identity',
+    description: 'Generate and lock character headshots, full-body references, and identity anchors — the casting photos that define each character.',
     icon: Layers,
-    cta: 'Review Visual Units',
+    cta: 'Open Character Identity',
     href: (id: string) => `/projects/${id}/visual-units`,
-    badge: 'Canonical',
+    badge: 'Identity',
+    highlight: true,
   },
   {
     title: 'Shot Lists',
@@ -47,7 +48,6 @@ const SECTIONS = [
     icon: Film,
     cta: 'Open Trailer Hub',
     href: (id: string) => `/projects/${id}/visual-dev/trailer`,
-    highlight: true,
     badge: 'New',
   },
 ];
