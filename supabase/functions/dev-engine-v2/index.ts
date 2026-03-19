@@ -21168,10 +21168,12 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       if (!newScene) throw new Error("Failed to create merged scene");
 
       const parsed = mergedSlugline ? sgParseSlugline(mergedSlugline) : sgParseSlugline(mergedContent.split('\n')[0] || '');
+      const mergeCanonLocId = await sgResolveCanonLocationId(supabase, projectId, parsed.location);
       const { data: ver } = await supabase.from("scene_graph_versions").insert({
         scene_id: newScene.id, project_id: projectId, version_number: 1, status: 'draft',
         created_by: user.id, slugline: parsed.slugline || mergedSlugline, location: parsed.location,
         time_of_day: parsed.time_of_day, content: mergedContent,
+        canon_location_id: mergeCanonLocId,
       }).select().single();
 
       await supabase.from("scene_graph_order").insert({
