@@ -347,6 +347,7 @@ serve(async (req) => {
       identity_anchor_paths?: { headshot?: string; fullBody?: string } | null;
       identity_notes?: string | null;
       identity_canon_facts?: string | null;
+      identity_traits_block?: string | null;
     };
 
     if (!project_id || !section) {
