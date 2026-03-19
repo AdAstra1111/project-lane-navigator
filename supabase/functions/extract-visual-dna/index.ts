@@ -3,7 +3,8 @@
  * extract-visual-dna — Evidence-driven Character Visual DNA extraction.
  * 
  * Gathers project evidence (canon, character bible, scripts, scene descriptions)
- * and uses AI to extract structured visual traits with confidence and provenance.
+ * and uses AI to extract structured visual traits AND binding marker candidates
+ * with confidence and provenance.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -17,6 +18,20 @@ const corsHeaders = {
 interface ExtractedTrait {
   label: string;
   category: "age" | "gender" | "build" | "face" | "hair" | "skin" | "clothing" | "posture" | "marker" | "other";
+  confidence: "high" | "medium" | "low";
+  evidence_source: string;
+  evidence_excerpt: string;
+}
+
+interface MarkerCandidate {
+  marker_type: string;
+  label: string;
+  body_region: string;
+  laterality: "left" | "right" | "center" | "bilateral" | "unknown";
+  size: "small" | "medium" | "large" | "unknown";
+  visibility: "always_visible" | "contextual" | "covered" | "unknown";
+  attributes: Record<string, string>;
+  unresolved_fields: string[];
   confidence: "high" | "medium" | "low";
   evidence_source: string;
   evidence_excerpt: string;
@@ -36,7 +51,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    const authHeader = req.headers.get("Authorization");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const sb = createClient(supabaseUrl, supabaseKey);
@@ -55,7 +69,6 @@ Deno.serve(async (req) => {
     if (canon?.canon_json) {
       const cj = canon.canon_json as Record<string, any>;
       
-      // Find character in canon
       const characters = cj.characters || [];
       const charEntry = Array.isArray(characters)
         ? characters.find((c: any) =>
@@ -70,7 +83,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      // World rules for period/era context
       if (cj.world_rules) {
         const wr = typeof cj.world_rules === "string" ? cj.world_rules : JSON.stringify(cj.world_rules);
         evidenceBlocks.push({
@@ -79,7 +91,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Timeline
       if (cj.timeline) {
         const tl = typeof cj.timeline === "string" ? cj.timeline : JSON.stringify(cj.timeline);
         evidenceBlocks.push({
@@ -122,7 +133,6 @@ Deno.serve(async (req) => {
             if (!v.plaintext) continue;
             const text = v.plaintext as string;
             
-            // Extract character-relevant sections
             const charRelevant = extractCharacterRelevantText(text, character_name);
             if (charRelevant.length > 50) {
               evidenceBlocks.push({
@@ -164,7 +174,6 @@ Deno.serve(async (req) => {
       for (const sv of sceneVersions) {
         const content = (sv.content || "") as string;
         if (content.toLowerCase().includes(nameLower)) {
-          // Extract paragraphs mentioning the character
           const paragraphs = content.split(/\n\n+/);
           for (const p of paragraphs) {
             if (p.toLowerCase().includes(nameLower) && p.length > 20) {
@@ -184,6 +193,7 @@ Deno.serve(async (req) => {
     if (evidenceBlocks.length === 0) {
       return new Response(JSON.stringify({
         traits: [],
+        marker_candidates: [],
         evidence_sources: [],
         message: "No evidence found for this character in the project.",
       }), {
@@ -201,6 +211,7 @@ Deno.serve(async (req) => {
 
     const systemPrompt = `You are a Visual Character Analyst for film/TV production.
 Your task: Extract ONLY physically renderable visual traits for "${character_name}" from the provided evidence.
+ALSO identify any BINDING VISUAL MARKERS — persistent visible features that must appear in every image.
 
 RULES:
 - Extract ONLY traits visible in a photograph or rendered image
@@ -208,10 +219,17 @@ RULES:
 - Each trait must cite its evidence source and a brief excerpt
 - Assign confidence: "high" (explicitly stated), "medium" (clearly implied), "low" (weakly suggested)
 - Categories: age, gender, build, face, hair, skin, clothing, posture, marker, other
-- "marker" = scars, tattoos, prosthetics, glasses, birthmarks, disabilities
+- "marker" = scars, tattoos, prosthetics, glasses, birthmarks, disabilities, persistent accessories
 - Keep labels concise (2-8 words)
 - Do NOT invent traits not supported by evidence
 - If evidence is ambiguous, use "low" confidence
+
+BINDING MARKERS (special detection):
+Any trait that is a persistent physical feature (tattoo, scar, prosthetic, birthmark, wound, glasses, eyepatch, missing limb, burn, piercing) must ALSO be returned in marker_candidates.
+For each marker, identify:
+- body_region: where on the body (arm, face, chest, leg, etc.) or "unspecified" if unclear
+- laterality: left, right, center, bilateral, or "unknown" if not stated
+- unresolved_fields: list fields that need user clarification (e.g. ["laterality"] if "arm" mentioned but left/right not specified)
 
 Return JSON:
 {
@@ -220,8 +238,23 @@ Return JSON:
       "label": "concise trait description",
       "category": "age|gender|build|face|hair|skin|clothing|posture|marker|other",
       "confidence": "high|medium|low",
-      "evidence_source": "source identifier from evidence block",
-      "evidence_excerpt": "brief quote from evidence (max 80 chars)"
+      "evidence_source": "source identifier",
+      "evidence_excerpt": "brief quote (max 80 chars)"
+    }
+  ],
+  "marker_candidates": [
+    {
+      "marker_type": "tattoo|scar|wound|prosthetic|birthmark|deformity|glasses|eyepatch|missing_limb|burn|piercing|branding|accessory|other",
+      "label": "descriptive label",
+      "body_region": "arm|face|chest|leg|hand|back|neck|unspecified",
+      "laterality": "left|right|center|bilateral|unknown",
+      "size": "small|medium|large|unknown",
+      "visibility": "always_visible|contextual|covered|unknown",
+      "attributes": {},
+      "unresolved_fields": ["laterality"],
+      "confidence": "high|medium|low",
+      "evidence_source": "source identifier",
+      "evidence_excerpt": "brief quote (max 80 chars)"
     }
   ]
 }`;
@@ -230,28 +263,27 @@ Return JSON:
       apiKey,
       model: MODELS.FAST,
       system: systemPrompt,
-      user: `Extract visual traits for "${character_name}" from this evidence:\n\n${evidenceText}`,
+      user: `Extract visual traits and binding markers for "${character_name}" from this evidence:\n\n${evidenceText}`,
       temperature: 0.1,
-      maxTokens: 4000,
+      maxTokens: 5000,
     });
 
-    let parsed: { traits: ExtractedTrait[] };
+    let parsed: { traits: ExtractedTrait[]; marker_candidates: MarkerCandidate[] };
     try {
       parsed = JSON.parse(extractJSON(result.content));
     } catch {
-      parsed = { traits: [] };
+      parsed = { traits: [], marker_candidates: [] };
     }
 
-    // Validate, clean, and apply governance caps
+    // Validate and clean traits
     const validCategories = new Set(["age", "gender", "build", "face", "hair", "skin", "clothing", "posture", "marker", "other"]);
     const validConfidence = new Set(["high", "medium", "low"]);
-    // Sensitive categories: cap confidence at "medium" to prevent false authority
     const SENSITIVE_CATEGORIES = new Set(["skin", "gender", "age"]);
+    
     const cleanTraits = (parsed.traits || [])
       .filter((t: any) => t.label && validCategories.has(t.category))
       .map((t: any) => {
         let confidence = validConfidence.has(t.confidence) ? t.confidence : "low";
-        // Governance: sensitive categories never get "high" from AI extraction
         if (SENSITIVE_CATEGORIES.has(t.category) && confidence === "high") {
           confidence = "medium";
         }
@@ -264,8 +296,29 @@ Return JSON:
         };
       });
 
+    // Validate and clean marker candidates
+    const validMarkerTypes = new Set(["tattoo", "scar", "wound", "prosthetic", "birthmark", "deformity", "glasses", "eyepatch", "missing_limb", "burn", "piercing", "branding", "accessory", "other"]);
+    
+    const cleanMarkers = (parsed.marker_candidates || [])
+      .filter((m: any) => m.marker_type && validMarkerTypes.has(m.marker_type))
+      .map((m: any) => ({
+        id: `marker_${m.marker_type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        marker_type: m.marker_type,
+        label: String(m.label || m.marker_type).slice(0, 100),
+        body_region: String(m.body_region || "unspecified").slice(0, 50),
+        laterality: ["left", "right", "center", "bilateral", "unknown"].includes(m.laterality) ? m.laterality : "unknown",
+        size: ["small", "medium", "large", "unknown"].includes(m.size) ? m.size : "unknown",
+        visibility: ["always_visible", "contextual", "covered", "unknown"].includes(m.visibility) ? m.visibility : "always_visible",
+        attributes: m.attributes || {},
+        unresolved_fields: Array.isArray(m.unresolved_fields) ? m.unresolved_fields : [],
+        confidence: validConfidence.has(m.confidence) ? m.confidence : "high",
+        evidence_source: String(m.evidence_source || "unknown").slice(0, 200),
+        evidence_excerpt: String(m.evidence_excerpt || "").slice(0, 120),
+      }));
+
     return new Response(JSON.stringify({
       traits: cleanTraits,
+      marker_candidates: cleanMarkers,
       evidence_sources: evidenceBlocks.map(b => b.source),
       character_name,
     }), {
@@ -293,7 +346,6 @@ function extractCharacterRelevantText(fullText: string, characterName: string): 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].toLowerCase();
     if (line.includes(nameLower) || line.includes(firstName)) {
-      // Include context: 2 lines before, the line, and 2 lines after
       const start = Math.max(0, i - 2);
       const end = Math.min(lines.length - 1, i + 2);
       const block = lines.slice(start, end + 1).join("\n");
