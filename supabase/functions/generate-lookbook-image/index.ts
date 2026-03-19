@@ -633,7 +633,7 @@ serve(async (req) => {
             style_mode: styleMode,
             generation_config: {
               ...repoMeta,
-              source_feature: identity_mode ? "character_identity_engine" : "lookbook_engine",
+              source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine",
               section,
               variant_index: i,
               shot_type: shotType,
