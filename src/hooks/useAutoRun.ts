@@ -5,6 +5,7 @@ import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
+import { isValidUUID } from '@/lib/validation/uuid';
 
 export interface PendingDecision {
   id: string;
@@ -97,6 +98,11 @@ export interface AutoRunStep {
 }
 
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
+  // Guard: reject calls with invalid projectId to prevent ":projectId" literals reaching the server
+  if (extra.projectId && !isValidUUID(extra.projectId)) {
+    console.warn('[useAutoRun] skipping callAutoRun — invalid projectId:', extra.projectId);
+    return null;
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
   const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-run`, {
@@ -137,11 +143,11 @@ export function useAutoRun(projectId: string | undefined) {
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-status', projectId],
     queryFn: async () => {
-      if (!projectId) return null;
+      if (!projectId || !isValidUUID(projectId)) return null;
       const result = await callAutoRun('status', { projectId });
       return result;
     },
-    enabled: !!projectId,
+    enabled: isValidUUID(projectId),
     refetchOnWindowFocus: false,
   });
 

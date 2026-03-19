@@ -3,6 +3,7 @@ import { BgGenBanner } from '@/components/devengine/BgGenBanner';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { isValidUUID } from '@/lib/validation/uuid';
 import { supabase } from '@/integrations/supabase/client';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
@@ -877,7 +878,7 @@ export default function ProjectDevelopmentEngine() {
   const [isGeneratingDocument, setIsGeneratingDocument] = useState(false);
 
   const handleGenerateDocument = async () => {
-    if (!selectedDoc?.doc_type || !projectId || isGeneratingDocument) return;
+    if (!selectedDoc?.doc_type || !isValidUUID(projectId) || isGeneratingDocument) return;
     setIsGeneratingDocument(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -895,7 +896,7 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handleStaleRegenerate = async () => {
-    if (!selectedDoc?.doc_type || !projectId) return;
+    if (!selectedDoc?.doc_type || !isValidUUID(projectId)) return;
     const { data: { user } } = await supabase.auth.getUser();
     await supabase.functions.invoke('generate-document', {
       body: {

@@ -6,9 +6,15 @@ import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 import { AUTO_RUN_EXECUTION_MODE } from '@/lib/autoRunConfig';
 import { parseEdgeResponse } from '@/lib/edgeResponseGuard';
 import { extractRecoverableAutoRunConflict } from '@/lib/autoRunConflict';
+import { isValidUUID } from '@/lib/validation/uuid';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
+  // Guard: reject calls with invalid projectId
+  if (extra.projectId && !isValidUUID(extra.projectId)) {
+    console.warn('[useAutoRunMC] skipping callAutoRun — invalid projectId:', extra.projectId);
+    return null;
+  }
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   if (!supabaseUrl) throw new Error('Supabase URL not configured');
   const { data: { session } } = await supabase.auth.getSession();
@@ -138,10 +144,10 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-mission-status', projectId],
     queryFn: async () => {
-      if (!projectId) return null;
+      if (!projectId || !isValidUUID(projectId)) return null;
       return await callAutoRun('status', { projectId });
     },
-    enabled: !!projectId && activated,
+    enabled: isValidUUID(projectId) && activated,
     refetchOnWindowFocus: false,
   });
 
