@@ -3,7 +3,7 @@
  * Supports generating and curating state variants for characters and locations.
  * Derives from base references: same entity, different state.
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Layers, Plus, Loader2, Star, Archive, RotateCcw, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
 import type { StatePreset } from '@/lib/images/statePresets';
 import { CHARACTER_STATE_PRESETS, LOCATION_STATE_PRESETS } from '@/lib/images/statePresets';
+import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
 
 interface EntityStateVariantsPanelProps {
   projectId: string;
@@ -231,7 +232,18 @@ function StateGenerationBar({
   existingStates: string[];
 }) {
   const [generating, setGenerating] = useState<string | null>(null);
+  const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
   const qc = useQueryClient();
+
+  // Resolve identity anchors for character state variants
+  useEffect(() => {
+    if (entityType !== 'character') return;
+    resolveCharacterIdentity(projectId, entityName).then(state => {
+      if (state.locked && state.headshot && state.fullBody) {
+        setIdentityAnchors({ headshot: state.headshot.storage_path, fullBody: state.fullBody.storage_path });
+      }
+    });
+  }, [projectId, entityName, entityType]);
 
   const availablePresets = presets.filter(p => !existingStates.includes(p.key));
 
@@ -260,6 +272,8 @@ function StateGenerationBar({
           state_key: preset.key,
           state_label: preset.label,
           state_prompt_modifier: preset.promptModifier,
+          // Inject locked identity anchors for character state variants
+          identity_anchor_paths: isCharacter ? identityAnchors : null,
         },
       });
       if (error) throw error;
@@ -277,7 +291,7 @@ function StateGenerationBar({
     } finally {
       setGenerating(null);
     }
-  }, [projectId, entityType, entityName, entityDescription, generating, qc]);
+  }, [projectId, entityType, entityName, entityDescription, generating, qc, identityAnchors]);
 
   if (availablePresets.length === 0) return null;
 

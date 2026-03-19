@@ -568,6 +568,17 @@ function CharacterReferenceSection({
   referenceImages: ProjectImage[];
   identityLocked: boolean;
 }) {
+  const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
+
+  // Resolve identity anchors for injection into cinematic reference generation
+  useEffect(() => {
+    if (!identityLocked) { setIdentityAnchors(null); return; }
+    resolveCharacterIdentity(projectId, character.name).then(state => {
+      if (state.locked && state.headshot && state.fullBody) {
+        setIdentityAnchors({ headshot: state.headshot.storage_path, fullBody: state.fullBody.storage_path });
+      }
+    });
+  }, [projectId, character.name, identityLocked]);
   const [generating, setGenerating] = useState(false);
   const [filter, setFilter] = useState<CharFilter>('all');
   const qc = useQueryClient();
@@ -602,6 +613,8 @@ function CharacterReferenceSection({
           asset_group: 'character',
           pack_mode: true,
           base_look_mode: true,
+          // Inject locked identity anchors for resemblance continuity
+          identity_anchor_paths: identityAnchors,
         },
       });
       if (error) throw error;
@@ -620,7 +633,7 @@ function CharacterReferenceSection({
     } finally {
       setGenerating(false);
     }
-  }, [projectId, character.name, generating, qc]);
+  }, [projectId, character.name, generating, qc, identityAnchors]);
 
   return (
     <div className="mb-3 border-t border-border/50 pt-3">
@@ -629,9 +642,14 @@ function CharacterReferenceSection({
         <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
           Cinematic References
         </span>
+        {identityLocked && (
+          <Badge className="text-[7px] px-1 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-0.5">
+            <Lock className="h-1.5 w-1.5" /> Identity-derived
+          </Badge>
+        )}
         {!identityLocked && referenceImages.length === 0 && (
           <span className="text-[9px] text-amber-600">
-            (generate identity first for best results)
+            ⚠ No locked identity — continuity will be weaker
           </span>
         )}
       </div>
