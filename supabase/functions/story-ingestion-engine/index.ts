@@ -1,10 +1,17 @@
 // @ts-nocheck
 /**
- * Story Ingestion Engine — Canonical multi-stage pipeline.
+ * Story Ingestion Engine — Canonical multi-stage pipeline (Phase 2 Hardened).
  * Parses script → extracts entities → detects state transitions →
  * reconciles aliases → distributes to downstream subsystems.
+ * 
+ * Phase 2 additions:
+ * - Source resolution reporting (which doc, why selected, fallback used)
+ * - Parse quality metrics (slugline count, dialogue cues, warnings)
+ * - Structured diff reporting against prior runs
+ * - State distribution gating (review_status on entity_visual_states)
+ * - Review action upgrades (approve/reject entities, aliases, transitions, participation)
  *
- * Actions: ingest, status, review
+ * Actions: ingest, status, review, review_action, diff
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -52,6 +59,27 @@ interface ParsedScene {
   characters_mentioned: string[];
 }
 
+interface ParseQuality {
+  scenes_detected: number;
+  slugline_count: number;
+  dialogue_cue_count: number;
+  parse_method: "deterministic_slugline" | "fallback_plaintext" | "hybrid";
+  parse_quality: "high" | "medium" | "low";
+  warnings: string[];
+  text_length: number;
+}
+
+interface SourceResolution {
+  documents_considered: { id: string; doc_type: string }[];
+  selected_document_id: string | null;
+  selected_doc_type: string | null;
+  selection_reason: string;
+  version_id_used: string | null;
+  text_length: number;
+  fallback_used: boolean;
+  inline_text_provided: boolean;
+}
+
 function parseSlugline(line: string): { slugline: string; location: string; int_ext: string; time_of_day: string } {
   const sl = line.trim().replace(/^\d+\s*[\.\)\s]\s*/, "");
   const match = sl.match(/^(INT\.|EXT\.|INT\.\/EXT\.|INT\/EXT\.|I\/E\.?)\s*(.+?)(?:\s*[-–—]\s*(.+))?$/i);
@@ -66,14 +94,12 @@ function parseSlugline(line: string): { slugline: string; location: string; int_
   return { slugline: sl, location: "", int_ext: "", time_of_day: "" };
 }
 
-/** Extract character names from uppercase dialogue cues */
 function extractCharacterCues(text: string): string[] {
   const cuePattern = /^[ \t]{10,}([A-Z][A-Z\s\.\-']{1,30})(?:\s*\(.*?\))?\s*$/gm;
   const names = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = cuePattern.exec(text)) !== null) {
     const name = m[1].trim();
-    // Filter structural terms
     const skip = /^(FADE|CUT|DISSOLVE|SMASH|INTERCUT|CONTINUED|CONT'D|THE END|TITLE|SUPER|V\.O\.|O\.S\.|BACK TO|FLASHBACK|END OF|MONTAGE|SERIES OF|BEGIN|MORE|ANGLE|CLOSE|WIDE|PAN|INSERT|TRANSITION)$/i;
     if (!skip.test(name) && name.length > 1 && name.length < 30) {
       names.add(name);
@@ -82,10 +108,11 @@ function extractCharacterCues(text: string): string[] {
   return [...names].sort();
 }
 
-function parseScriptToScenes(scriptText: string): ParsedScene[] {
+function parseScriptToScenes(scriptText: string): { scenes: ParsedScene[]; quality: ParseQuality } {
   const lines = scriptText.split("\n");
   const sluglinePattern = /^\s*(\d+\s*[\.\)\s]\s*)?(INT\.|EXT\.|INT\.\/EXT\.|INT\/EXT\.|I\/E\.?)\s/i;
   const sceneBreaks: { startLine: number; headingLine: string }[] = [];
+  const warnings: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     if (sluglinePattern.test(lines[i])) {
@@ -93,11 +120,29 @@ function parseScriptToScenes(scriptText: string): ParsedScene[] {
     }
   }
 
+  let parseMethod: ParseQuality["parse_method"] = "deterministic_slugline";
+
   if (sceneBreaks.length === 0) {
     sceneBreaks.push({ startLine: 0, headingLine: "SCENE 1" });
+    parseMethod = "fallback_plaintext";
+    warnings.push("No explicit INT./EXT. sluglines detected — using fallback single-scene parse");
   }
 
-  return sceneBreaks.map((b, i) => {
+  // Count dialogue cues across full text
+  const allDialogueCues = extractCharacterCues(scriptText);
+  const dialogueCueCount = allDialogueCues.length;
+
+  if (dialogueCueCount < 3) {
+    warnings.push("Sparse dialogue cues detected (< 3 unique character names)");
+  }
+  if (scriptText.length < 2000) {
+    warnings.push("Source plaintext is very short (< 2000 chars)");
+  }
+  if (sceneBreaks.length < 3 && sceneBreaks.length > 0 && parseMethod !== "fallback_plaintext") {
+    warnings.push("Very few scenes detected — possible mixed-format script");
+  }
+
+  const scenes = sceneBreaks.map((b, i) => {
     const start = b.startLine;
     const end = i + 1 < sceneBreaks.length ? sceneBreaks[i + 1].startLine : lines.length;
     const content = lines.slice(start, end).join("\n").trim();
@@ -112,6 +157,25 @@ function parseScriptToScenes(scriptText: string): ParsedScene[] {
       characters_mentioned: chars,
     };
   });
+
+  // Determine quality
+  let parseQuality: ParseQuality["parse_quality"] = "high";
+  if (parseMethod === "fallback_plaintext") parseQuality = "low";
+  else if (warnings.length >= 2) parseQuality = "medium";
+  else if (scenes.length < 5 && scriptText.length > 5000) parseQuality = "medium";
+
+  return {
+    scenes,
+    quality: {
+      scenes_detected: scenes.length,
+      slugline_count: sceneBreaks.length,
+      dialogue_cue_count: dialogueCueCount,
+      parse_method: parseMethod,
+      parse_quality: parseQuality,
+      warnings,
+      text_length: scriptText.length,
+    },
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -127,7 +191,6 @@ async function extractEntitiesAndStates(scenes: ParsedScene[]): Promise<{
 }> {
   const { url, apiKey } = resolveGateway();
 
-  // Build a condensed scene manifest for the LLM
   const sceneManifest = scenes.map(s => ({
     scene_key: s.scene_key,
     slugline: s.slugline,
@@ -282,7 +345,6 @@ RULES:
     };
   }
 
-  // Fallback: try to parse content as JSON
   const content = choice?.message?.content || "";
   try {
     const parsed = JSON.parse(content);
@@ -311,7 +373,6 @@ async function writeScenesToDB(
   supabase: any, projectId: string, userId: string, runId: string,
   scenes: ParsedScene[], force: boolean
 ): Promise<Map<string, string>> {
-  // Use existing scene_graph_atomic_write
   const orderKeys = scenes.map((_, i) => {
     const fraction = (i + 1) / (scenes.length + 1);
     return fraction.toFixed(8);
@@ -337,7 +398,6 @@ async function writeScenesToDB(
 
   if (rpcErr) throw new Error(`Scene write failed: ${rpcErr.message}`);
 
-  // Build scene_key → scene_id map
   const sceneMap = new Map<string, string>();
   if (Array.isArray(rpcResult)) {
     for (const r of rpcResult) {
@@ -345,7 +405,6 @@ async function writeScenesToDB(
     }
   }
 
-  // Tag scenes with ingestion run
   if (sceneMap.size > 0) {
     const sceneIds = [...sceneMap.values()];
     for (const sid of sceneIds) {
@@ -362,7 +421,7 @@ async function writeEntitiesToDB(
   supabase: any, projectId: string, runId: string,
   entities: { characters: any[]; locations: any[]; props: any[]; costume_looks: any[] }
 ): Promise<Map<string, string>> {
-  const entityMap = new Map<string, string>(); // canonical_name → entity_id
+  const entityMap = new Map<string, string>();
   const aliasRows: any[] = [];
 
   const allEntities = [
@@ -391,8 +450,8 @@ async function writeEntitiesToDB(
     if (e.character) metaJson.character = e.character;
     if (e.scenes_present) metaJson.scenes_present = e.scenes_present;
     if (e.scenes_used) metaJson.scenes_used = e.scenes_used;
+    if (e.plot_significance) metaJson.plot_significance = e.plot_significance;
 
-    // Upsert into narrative_entities
     const { data: existing } = await supabase
       .from("narrative_entities")
       .select("id")
@@ -438,25 +497,27 @@ async function writeEntitiesToDB(
 
     entityMap.set(e.canonical_name, entityId);
 
-    // Collect aliases
+    // Collect aliases with confidence-aware review status
     const aliases = e.aliases || [];
     for (const alias of aliases) {
       const normAlias = normalizeEntityKey(alias);
       if (normAlias && normAlias !== entityKey) {
+        // High confidence auto-accepted; ambiguous gets review_required
+        const aliasConfidence = e.confidence === "high" ? 0.9 : e.confidence === "medium" ? 0.7 : 0.5;
+        const aliasReview = aliasConfidence >= 0.8 ? "auto_accepted" : "review_required";
         aliasRows.push({
           project_id: projectId,
           canonical_entity_id: entityId,
           alias_name: alias,
           normalized_alias: normAlias,
           source: "story_ingestion",
-          confidence: 0.8,
-          review_status: "auto_accepted",
+          confidence: aliasConfidence,
+          review_status: aliasReview,
         });
       }
     }
   }
 
-  // Write aliases (ignore conflicts)
   if (aliasRows.length > 0) {
     for (const row of aliasRows) {
       await supabase.from("entity_aliases").upsert(row, { onConflict: "project_id,normalized_alias" });
@@ -477,7 +538,6 @@ async function writeParticipation(
     const sceneId = sceneMap.get(scene.scene_key);
     if (!sceneId) continue;
 
-    // Character participation from dialogue cues
     for (const charName of scene.characters_mentioned) {
       const entityId = entityMap.get(charName);
       if (!entityId) continue;
@@ -492,12 +552,11 @@ async function writeParticipation(
         confidence: 0.9,
         source_reason: "dialogue_cue",
         review_tier: "auto_accepted",
+        review_status: "approved",
       });
     }
 
-    // Location participation from slugline
     if (scene.location) {
-      // Find matching location entity
       for (const [name, eid] of entityMap.entries()) {
         const locMatch = extractedEntities.locations.find(l => l.canonical_name === name);
         if (locMatch && scene.location.toUpperCase().includes(name.toUpperCase())) {
@@ -512,20 +571,19 @@ async function writeParticipation(
             confidence: 0.95,
             source_reason: "slugline_match",
             review_tier: "auto_accepted",
+            review_status: "approved",
           });
         }
       }
     }
   }
 
-  // Also wire AI-extracted scene presence
   for (const char of extractedEntities.characters) {
     const entityId = entityMap.get(char.canonical_name);
     if (!entityId || !char.scenes_present) continue;
     for (const sk of char.scenes_present) {
       const sceneId = sceneMap.get(sk);
       if (!sceneId) continue;
-      // Don't duplicate
       if (rows.find(r => r.scene_id === sceneId && r.entity_id === entityId && r.entity_type === "character")) continue;
       rows.push({
         project_id: projectId,
@@ -538,11 +596,11 @@ async function writeParticipation(
         confidence: 0.7,
         source_reason: "ai_extraction",
         review_tier: "review_required",
+        review_status: "pending",
       });
     }
   }
 
-  // Batch insert with conflict handling
   for (const row of rows) {
     await supabase.from("scene_entity_participation")
       .upsert(row, { onConflict: "scene_id,entity_id,entity_type" });
@@ -561,6 +619,9 @@ async function writeStateTransitions(
     if (!entityId) continue;
 
     const sceneId = t.trigger_scene_key ? sceneMap.get(t.trigger_scene_key) : null;
+    const conf = t.confidence === "high" ? 0.9 : t.confidence === "medium" ? 0.7 : 0.5;
+    // Auto-approve high-confidence auto_accepted; everything else starts pending
+    const reviewStatus = (t.review_tier === "auto_accepted" && conf >= 0.85) ? "approved" : "pending";
 
     await supabase.from("state_transition_candidates").insert({
       project_id: projectId,
@@ -572,8 +633,9 @@ async function writeStateTransitions(
       state_category: t.state_category || "transformation",
       scene_id: sceneId,
       evidence_text: t.evidence || null,
-      confidence: t.confidence === "high" ? 0.9 : t.confidence === "medium" ? 0.7 : 0.5,
+      confidence: conf,
       review_tier: t.review_tier || "review_required",
+      review_status: reviewStatus,
     });
     count++;
   }
@@ -590,11 +652,10 @@ async function distributeToSubsystems(
   extractedEntities: { characters: any[]; locations: any[]; props: any[]; costume_looks: any[] },
   stateTransitions: any[]
 ) {
-  const results: any = { canon_locations: 0, entity_visual_states: 0 };
+  const results: any = { canon_locations: 0, entity_visual_states: 0, cast_candidates: 0, props_seeded: 0, costume_looks_seeded: 0 };
 
   // ── Distribute locations to canon_locations ──
   for (const loc of extractedEntities.locations) {
-    const entityId = entityMap.get(loc.canonical_name);
     const normalizedName = normalizeEntityKey(loc.canonical_name);
 
     const { data: existing } = await supabase
@@ -625,12 +686,16 @@ async function distributeToSubsystems(
     }
   }
 
-  // ── Distribute state transitions to entity_visual_states ──
+  // ── Distribute state transitions to entity_visual_states (gated by confidence) ──
   for (const t of stateTransitions) {
     const entityId = entityMap.get(t.entity_name);
     if (!entityId) continue;
 
     const stateKey = normalizeEntityKey(t.to_state);
+    const conf = t.confidence === "high" ? 0.9 : t.confidence === "medium" ? 0.7 : 0.5;
+
+    // Gate: only materialize if at least medium confidence
+    if (conf < 0.5) continue;
 
     const { data: existing } = await supabase
       .from("entity_visual_states")
@@ -642,7 +707,10 @@ async function distributeToSubsystems(
       .maybeSingle();
 
     if (!existing) {
-      await supabase.from("entity_visual_states").insert({
+      // review_status: proposed for everything from ingestion — never auto-approved
+      const reviewStatus = (conf >= 0.85 && t.review_tier === "auto_accepted") ? "approved" : "proposed";
+
+      const { data: newEvs } = await supabase.from("entity_visual_states").insert({
         project_id: projectId,
         entity_type: t.entity_type || "character",
         entity_name: t.entity_name,
@@ -655,12 +723,262 @@ async function distributeToSubsystems(
         story_phase: t.trigger_scene_key || null,
         confidence: t.confidence === "high" ? "high" : t.confidence === "medium" ? "medium" : "low",
         active: true,
-      });
+        review_status: reviewStatus,
+        ingestion_run_id: runId,
+      }).select("id").maybeSingle();
+
+      // Link back to state_transition_candidate
+      if (newEvs?.id) {
+        await supabase.from("state_transition_candidates")
+          .update({ promoted_to_evs_id: newEvs.id })
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .eq("entity_id", entityId)
+          .eq("to_state_key", t.to_state);
+      }
+
       results.entity_visual_states++;
     }
   }
 
+  // ── Track cast candidates (characters ready for visual pipeline) ──
+  for (const char of extractedEntities.characters) {
+    if (char.confidence === "high" || char.review_tier === "auto_accepted") {
+      results.cast_candidates++;
+    }
+  }
+
+  results.props_seeded = extractedEntities.props.length;
+  results.costume_looks_seeded = extractedEntities.costume_looks.length;
+
   return results;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DIFF ENGINE — Compare two ingestion runs
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+async function computeRunDiff(supabase: any, projectId: string, currentRunId: string) {
+  // Find prior completed run
+  const { data: priorRuns } = await supabase
+    .from("story_ingestion_runs")
+    .select("id, manifest_json")
+    .eq("project_id", projectId)
+    .eq("status", "superseded")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!priorRuns || priorRuns.length === 0) {
+    return { has_prior: false, diff: null };
+  }
+
+  const priorRun = priorRuns[0];
+  const priorManifest = priorRun.manifest_json || {};
+
+  // Fetch current run entities
+  const { data: curEntities } = await supabase
+    .from("narrative_entities")
+    .select("canonical_name, entity_type")
+    .eq("project_id", projectId)
+    .eq("ingestion_run_id", currentRunId);
+
+  // Fetch prior run entities
+  const { data: priorEntities } = await supabase
+    .from("narrative_entities")
+    .select("canonical_name, entity_type")
+    .eq("project_id", projectId)
+    .eq("ingestion_run_id", priorRun.id);
+
+  const curSet = new Set((curEntities || []).map((e: any) => `${e.entity_type}::${e.canonical_name}`));
+  const priorSet = new Set((priorEntities || []).map((e: any) => `${e.entity_type}::${e.canonical_name}`));
+
+  const added = [...curSet].filter(x => !priorSet.has(x));
+  const removed = [...priorSet].filter(x => !curSet.has(x));
+
+  // Scenes diff from scene graph
+  const { data: curScenes } = await supabase
+    .from("scene_graph_scenes")
+    .select("scene_key")
+    .eq("project_id", projectId)
+    .eq("ingestion_run_id", currentRunId);
+
+  const { data: priorScenes } = await supabase
+    .from("scene_graph_scenes")
+    .select("scene_key")
+    .eq("project_id", projectId)
+    .eq("ingestion_run_id", priorRun.id);
+
+  const curSceneKeys = new Set((curScenes || []).map((s: any) => s.scene_key));
+  const priorSceneKeys = new Set((priorScenes || []).map((s: any) => s.scene_key));
+
+  const scenesAdded = [...curSceneKeys].filter(k => !priorSceneKeys.has(k));
+  const scenesRemoved = [...priorSceneKeys].filter(k => !curSceneKeys.has(k));
+
+  // Categorize entity changes
+  const categorize = (items: string[], type: string) => items.filter(i => i.startsWith(`${type}::`)).map(i => i.split("::")[1]);
+
+  const diff = {
+    prior_run_id: priorRun.id,
+    scenes_added: scenesAdded,
+    scenes_removed: scenesRemoved,
+    scenes_unchanged: [...curSceneKeys].filter(k => priorSceneKeys.has(k)).length,
+    characters_added: categorize(added, "character"),
+    characters_removed: categorize(removed, "character"),
+    locations_added: categorize(added, "location"),
+    locations_removed: categorize(removed, "location"),
+    props_added: categorize(added, "prop"),
+    props_removed: categorize(removed, "prop"),
+    costume_looks_added: categorize(added, "costume_look"),
+    costume_looks_removed: categorize(removed, "costume_look"),
+    total_entities_added: added.length,
+    total_entities_removed: removed.length,
+  };
+
+  return { has_prior: true, diff };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SOURCE RESOLUTION
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+async function resolveScriptSource(
+  supabase: any, projectId: string, body: any
+): Promise<{ scriptText: string; sourceResolution: SourceResolution }> {
+  const resolution: SourceResolution = {
+    documents_considered: [],
+    selected_document_id: null,
+    selected_doc_type: null,
+    selection_reason: "",
+    version_id_used: null,
+    text_length: 0,
+    fallback_used: false,
+    inline_text_provided: false,
+  };
+
+  if (body.text) {
+    resolution.inline_text_provided = true;
+    resolution.selection_reason = "inline_text_provided";
+    resolution.text_length = body.text.length;
+    return { scriptText: body.text, sourceResolution: resolution };
+  }
+
+  // Priority order for script doc types
+  const scriptDocTypes = [
+    "production_draft", "feature_script", "season_script",
+    "episode_script", "script", "pilot_script", "season_master_script",
+  ];
+
+  const { data: docs } = await supabase
+    .from("project_documents")
+    .select("id, doc_type, created_at")
+    .eq("project_id", projectId)
+    .in("doc_type", scriptDocTypes)
+    .order("created_at", { ascending: false });
+
+  if (!docs || docs.length === 0) {
+    throw new Error("No script documents found for this project");
+  }
+
+  resolution.documents_considered = docs.map((d: any) => ({ id: d.id, doc_type: d.doc_type }));
+
+  // Select by priority
+  let selectedDoc = null;
+  for (const preferredType of scriptDocTypes) {
+    selectedDoc = docs.find((d: any) => d.doc_type === preferredType);
+    if (selectedDoc) break;
+  }
+  if (!selectedDoc) selectedDoc = docs[0];
+
+  resolution.selected_document_id = selectedDoc.id;
+  resolution.selected_doc_type = selectedDoc.doc_type;
+  resolution.selection_reason = `doc_type_priority:${selectedDoc.doc_type}`;
+
+  // Get current version
+  const { data: ver } = await supabase
+    .from("project_document_versions")
+    .select("id, plaintext")
+    .eq("document_id", selectedDoc.id)
+    .eq("is_current", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (ver?.plaintext && ver.plaintext.length >= 100) {
+    resolution.version_id_used = ver.id;
+    resolution.text_length = ver.plaintext.length;
+    return { scriptText: ver.plaintext, sourceResolution: resolution };
+  }
+
+  // Fallback: latest version by version_number
+  resolution.fallback_used = true;
+  resolution.selection_reason += "|fallback_latest_version";
+
+  const { data: fallback } = await supabase
+    .from("project_document_versions")
+    .select("id, plaintext")
+    .eq("document_id", selectedDoc.id)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!fallback?.plaintext || fallback.plaintext.length < 100) {
+    throw new Error("No usable script text found. Ensure script has been extracted.");
+  }
+
+  resolution.version_id_used = fallback.id;
+  resolution.text_length = fallback.plaintext.length;
+  return { scriptText: fallback.plaintext, sourceResolution: resolution };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REVIEW ACTIONS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+async function handleReviewAction(supabase: any, userId: string, body: any) {
+  const { projectId, target, targetId, reviewVerb } = body;
+  const reviewAction = reviewVerb || body.action;
+  if (!projectId || !target || !targetId || !reviewAction) {
+    throw new Error("projectId, target, targetId, reviewVerb required");
+  }
+
+  const validActions = ["approve", "reject", "escalate"];
+  if (!validActions.includes(reviewAction)) {
+    throw new Error(`Invalid review action: ${reviewAction}. Must be: ${validActions.join(", ")}`);
+  }
+
+  const statusMap: Record<string, string> = {
+    approve: "approved",
+    reject: "rejected",
+    escalate: "escalated",
+  };
+  const newStatus = statusMap[reviewAction];
+
+  const tableMap: Record<string, string> = {
+    entity: "narrative_entities",
+    alias: "entity_aliases",
+    transition: "state_transition_candidates",
+    participation: "scene_entity_participation",
+  };
+
+  const table = tableMap[target];
+  if (!table) throw new Error(`Unknown review target: ${target}`);
+
+  const updatePayload: any = {
+    review_status: newStatus,
+    reviewed_by: userId,
+    reviewed_at: new Date().toISOString(),
+  };
+
+  // For narrative_entities, update meta_json instead (no review_status column)
+  if (target === "entity") {
+    const { data: entity } = await supabase.from(table).select("meta_json").eq("id", targetId).single();
+    if (!entity) throw new Error("Entity not found");
+    const updatedMeta = { ...(entity.meta_json || {}), review_status: newStatus, reviewed_by: userId, reviewed_at: new Date().toISOString() };
+    await supabase.from(table).update({ meta_json: updatedMeta }).eq("id", targetId);
+  } else {
+    await supabase.from(table).update(updatePayload).eq("id", targetId);
+  }
+
+  return { ok: true, target, targetId, new_status: newStatus };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -679,8 +997,11 @@ Deno.serve(async (req: Request) => {
 
     const supabase = getServiceClient();
 
+    // ═══════════════════════════════════════════════════════════════
+    // ACTION: ingest
+    // ═══════════════════════════════════════════════════════════════
     if (action === "ingest") {
-      const { projectId, sourceDocumentIds, sourceVersionId, force } = body;
+      const { projectId, force } = body;
       if (!projectId) throw new Error("projectId required");
 
       console.log(`[story-ingestion] Starting ingestion for project ${projectId}`);
@@ -691,8 +1012,8 @@ Deno.serve(async (req: Request) => {
         .insert({
           project_id: projectId,
           source_kind: body.sourceKind || "feature_script",
-          source_document_ids: sourceDocumentIds || [],
-          source_version_ids: sourceVersionId ? [sourceVersionId] : [],
+          source_document_ids: body.sourceDocumentIds || [],
+          source_version_ids: body.sourceVersionId ? [body.sourceVersionId] : [],
           status: "parsing",
           created_by: userId,
         })
@@ -703,68 +1024,31 @@ Deno.serve(async (req: Request) => {
       const runId = run.id;
 
       try {
-        // ── STAGE 1: Fetch script text ──
-        let scriptText = body.text || "";
-        let sourceDocIds = sourceDocumentIds || [];
+        // ── SOURCE RESOLUTION ──
+        const { scriptText, sourceResolution } = await resolveScriptSource(supabase, projectId, body);
 
-        if (!scriptText) {
-          // Find script documents
-          const scriptDocTypes = ["feature_script", "production_draft", "season_script",
-            "episode_script", "script", "pilot_script", "season_master_script"];
-          const { data: docs } = await supabase
-            .from("project_documents")
-            .select("id, doc_type")
-            .eq("project_id", projectId)
-            .in("doc_type", scriptDocTypes)
-            .order("created_at", { ascending: false });
+        // Update run with source resolution
+        await supabase.from("story_ingestion_runs")
+          .update({
+            source_document_ids: sourceResolution.selected_document_id
+              ? [sourceResolution.selected_document_id]
+              : [],
+            source_resolution_json: sourceResolution,
+          })
+          .eq("id", runId);
 
-          if (!docs || docs.length === 0) {
-            throw new Error("No script documents found for this project");
-          }
-
-          sourceDocIds = docs.map((d: any) => d.id);
-
-          // Get latest version plaintext
-          const { data: ver } = await supabase
-            .from("project_document_versions")
-            .select("id, plaintext")
-            .eq("document_id", docs[0].id)
-            .eq("is_current", true)
-            .limit(1)
-            .maybeSingle();
-
-          if (!ver?.plaintext || ver.plaintext.length < 100) {
-            // Try fallback: latest version
-            const { data: fallback } = await supabase
-              .from("project_document_versions")
-              .select("id, plaintext")
-              .eq("document_id", docs[0].id)
-              .order("version_number", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (!fallback?.plaintext || fallback.plaintext.length < 100) {
-              throw new Error("No usable script text found. Ensure script has been extracted.");
-            }
-            scriptText = fallback.plaintext;
-          } else {
-            scriptText = ver.plaintext;
-          }
-
-          // Update run with resolved sources
-          await supabase.from("story_ingestion_runs")
-            .update({ source_document_ids: sourceDocIds })
-            .eq("id", runId);
-        }
-
-        console.log(`[story-ingestion] Script text length: ${scriptText.length}`);
+        console.log(`[story-ingestion] Source resolved: ${sourceResolution.selection_reason}, ${sourceResolution.text_length} chars`);
 
         // ── STAGE 1: Deterministic structural parse ──
-        const scenes = parseScriptToScenes(scriptText);
-        console.log(`[story-ingestion] Parsed ${scenes.length} scenes`);
+        const { scenes, quality: parseQuality } = parseScriptToScenes(scriptText);
+        console.log(`[story-ingestion] Parsed ${scenes.length} scenes (quality: ${parseQuality.parse_quality}, method: ${parseQuality.parse_method})`);
 
         await supabase.from("story_ingestion_runs")
-          .update({ status: "extracting", stage_summary: { scenes_parsed: scenes.length } })
+          .update({
+            status: "extracting",
+            parse_quality_json: parseQuality,
+            stage_summary: { scenes_parsed: scenes.length },
+          })
           .eq("id", runId);
 
         // ── STAGE 1b: Write scenes to scene graph ──
@@ -776,7 +1060,6 @@ Deno.serve(async (req: Request) => {
         console.log(`[story-ingestion] Extracted: ${extracted.characters.length} chars, ${extracted.locations.length} locs, ${extracted.props.length} props, ${extracted.costume_looks.length} looks, ${extracted.state_transitions.length} states`);
 
         // ── STAGE 2b: Merge deterministic character cues ──
-        // Characters from dialogue cues that AI missed
         const allDialogueChars = new Set<string>();
         for (const s of scenes) {
           for (const c of s.characters_mentioned) allDialogueChars.add(c);
@@ -833,6 +1116,33 @@ Deno.serve(async (req: Request) => {
         );
         console.log(`[story-ingestion] Distribution: ${JSON.stringify(distResults)}`);
 
+        // ── Compute diff against prior run ──
+        const { has_prior, diff: runDiff } = await computeRunDiff(supabase, projectId, runId);
+
+        // ── Count review-required items ──
+        const { count: reviewEntities } = await supabase.from("narrative_entities")
+          .select("*", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .filter("meta_json->>review_tier", "neq", "auto_accepted");
+
+        const { count: reviewAliases } = await supabase.from("entity_aliases")
+          .select("*", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("review_status", "review_required");
+
+        const { count: reviewTransitions } = await supabase.from("state_transition_candidates")
+          .select("*", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .eq("review_status", "pending");
+
+        const { count: reviewParticipation } = await supabase.from("scene_entity_participation")
+          .select("*", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .eq("review_status", "pending");
+
         // ── Complete ──
         const manifest = {
           scenes_parsed: scenes.length,
@@ -846,6 +1156,15 @@ Deno.serve(async (req: Request) => {
           canon_locations_created: distResults.canon_locations,
           entity_visual_states_created: distResults.entity_visual_states,
           entities_total: entityMap.size,
+          cast_candidates: distResults.cast_candidates,
+          props_seeded: distResults.props_seeded,
+          costume_looks_seeded: distResults.costume_looks_seeded,
+          review_required: {
+            entities: reviewEntities || 0,
+            aliases: reviewAliases || 0,
+            transitions: reviewTransitions || 0,
+            participation: reviewParticipation || 0,
+          },
         };
 
         await supabase.from("story_ingestion_runs")
@@ -854,6 +1173,7 @@ Deno.serve(async (req: Request) => {
             completed_at: new Date().toISOString(),
             manifest_json: manifest,
             stage_summary: manifest,
+            diff_json: runDiff,
           })
           .eq("id", runId);
 
@@ -868,6 +1188,9 @@ Deno.serve(async (req: Request) => {
           ok: true,
           run_id: runId,
           manifest,
+          source_resolution: sourceResolution,
+          parse_quality: parseQuality,
+          diff: has_prior ? runDiff : null,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } catch (stageErr: any) {
@@ -878,6 +1201,9 @@ Deno.serve(async (req: Request) => {
         throw stageErr;
       }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ACTION: status
+    // ═══════════════════════════════════════════════════════════════
     } else if (action === "status") {
       const { projectId } = body;
       const { data: runs } = await supabase
@@ -885,45 +1211,87 @@ Deno.serve(async (req: Request) => {
         .select("*")
         .eq("project_id", projectId)
         .order("created_at", { ascending: false })
-        .limit(5);
+        .limit(10);
 
       return new Response(JSON.stringify({ ok: true, runs: runs || [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
 
+    // ═══════════════════════════════════════════════════════════════
+    // ACTION: review — fetch review items for a run
+    // ═══════════════════════════════════════════════════════════════
     } else if (action === "review") {
       const { projectId, runId } = body;
 
-      // Fetch entities needing review
-      const { data: entities } = await supabase
-        .from("narrative_entities")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("ingestion_run_id", runId);
+      const [entitiesRes, transitionsRes, aliasesRes, participationRes] = await Promise.all([
+        supabase.from("narrative_entities")
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId),
+        supabase.from("state_transition_candidates")
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId),
+        supabase.from("entity_aliases")
+          .select("*")
+          .eq("project_id", projectId),
+        supabase.from("scene_entity_participation")
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .eq("review_status", "pending"),
+      ]);
 
-      const { data: transitions } = await supabase
-        .from("state_transition_candidates")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("ingestion_run_id", runId);
+      // Compute review summary
+      const entities = entitiesRes.data || [];
+      const transitions = transitionsRes.data || [];
+      const aliases = aliasesRes.data || [];
+      const participation = participationRes.data || [];
 
-      const { data: aliases } = await supabase
-        .from("entity_aliases")
-        .select("*")
-        .eq("project_id", projectId);
-
-      const { data: participation } = await supabase
-        .from("scene_entity_participation")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("ingestion_run_id", runId);
+      const reviewSummary = {
+        entities_needing_review: entities.filter((e: any) => e.meta_json?.review_tier !== "auto_accepted").length,
+        aliases_needing_review: aliases.filter((a: any) => a.review_status === "review_required").length,
+        transitions_pending: transitions.filter((t: any) => t.review_status === "pending").length,
+        participation_pending: participation.length,
+      };
 
       return new Response(JSON.stringify({
         ok: true,
-        entities: entities || [],
-        state_transitions: transitions || [],
-        aliases: aliases || [],
-        participation_count: participation?.length || 0,
+        entities,
+        state_transitions: transitions,
+        aliases,
+        participation_pending: participation,
+        review_summary: reviewSummary,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // ═══════════════════════════════════════════════════════════════
+    // ACTION: review_action — approve/reject/escalate specific items
+    // ═══════════════════════════════════════════════════════════════
+    } else if (action === "review_action") {
+      const result = await handleReviewAction(supabase, userId, body);
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
+    // ═══════════════════════════════════════════════════════════════
+    // ACTION: diff — fetch diff for a specific run
+    // ═══════════════════════════════════════════════════════════════
+    } else if (action === "diff") {
+      const { projectId, runId } = body;
+
+      // Fetch run's stored diff
+      const { data: run } = await supabase
+        .from("story_ingestion_runs")
+        .select("diff_json, manifest_json, source_resolution_json, parse_quality_json")
+        .eq("id", runId)
+        .single();
+
+      return new Response(JSON.stringify({
+        ok: true,
+        diff: run?.diff_json || null,
+        manifest: run?.manifest_json || null,
+        source_resolution: run?.source_resolution_json || null,
+        parse_quality: run?.parse_quality_json || null,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
