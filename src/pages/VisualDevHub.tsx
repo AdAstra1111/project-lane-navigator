@@ -145,8 +145,11 @@ export default function VisualDevHub() {
           <Link to={`/projects/${projectId}`}>
             <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
-          <div>
-            <h1 className="text-lg font-semibold">Visual Production Hub</h1>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-semibold">Visual Production Hub</h1>
+              {projectId && <VisualStyleChip projectId={projectId} />}
+            </div>
             <p className="text-xs text-muted-foreground">
               Cast photos, character identity, world references, visual canon management.
             </p>
