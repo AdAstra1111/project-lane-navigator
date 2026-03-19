@@ -546,10 +546,11 @@ serve(async (req) => {
       // 8. Shot-type specific constraints
 
       const isIdentityShot = shotType?.startsWith("identity_");
+      const isIdentityGeneration = identity_mode || (forced_shot_type && isIdentityShot);
 
       // Step 1: Base prompt
       let prompt: string;
-      if (identity_mode && isIdentityShot && character_name) {
+      if (isIdentityGeneration && isIdentityShot && character_name) {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
       } else {
         prompt = shotType
