@@ -855,7 +855,7 @@ serve(async (req) => {
         prompt_inputs: inputs,
         provider: primaryGenConfig.provider,
         model: primaryGenConfig.model,
-        render_status: "composed_final",
+        render_status: "key_art_only",
       })
       .select()
       .single();
