@@ -272,7 +272,7 @@ const POSTER_STRATEGIES = [
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture} visible in background. ` +
       `${ctx.toneVisual}. ` +
-      `The bottom quarter should fade into moody darkness — no faces or details there, just atmosphere.`,
+      `Full cinematic composition filling the entire frame — use every inch for storytelling.`,
   },
   {
     key: "world",
@@ -285,7 +285,7 @@ const POSTER_STRATEGIES = [
       `${ctx.worldLock.architecture}. ` +
       `Any human figure is small or silhouetted against the landscape. ` +
       `Epic composition, sweeping vista. ${ctx.toneVisual}. ` +
-      `The bottom quarter should fade into atmospheric darkness for typography placement.`,
+      `Full cinematic composition — use the entire canvas for the world.`,
   },
   {
     key: "conflict",
@@ -297,7 +297,7 @@ const POSTER_STRATEGIES = [
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.technology}. ` +
       `Dramatic angles, sense of motion and danger. ${ctx.toneVisual}. ` +
-      `Bottom 20% fades to near-black for title overlay.`,
+      `Full cinematic composition — no reserved blank areas, use every part of the frame.`,
   },
   {
     key: "prestige",
@@ -308,7 +308,7 @@ const POSTER_STRATEGIES = [
       (ctx.themes ? `Themes: ${ctx.themes}. ` : "") +
       `Visual elements drawn from ${ctx.worldLock.era} ${ctx.worldLock.culture !== "unspecified" ? ctx.worldLock.culture : ""} world. ` +
       `Restrained color palette, elegant negative space. ${ctx.toneVisual}. ` +
-      `Lower third should be clean atmospheric gradient fading to black — no subject matter there.`,
+      `Full atmospheric composition filling the entire canvas — no empty zones.`,
   },
   {
     key: "commercial",
@@ -319,7 +319,7 @@ const POSTER_STRATEGIES = [
       (ctx.logline ? `Hook: ${ctx.logline.slice(0, 150)}. ` : "") +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. Strong focal point. ${ctx.toneVisual}. Mainstream appeal. ` +
-      `Bottom quarter fades to solid dark for large title typography.`,
+      `Full cinematic composition — use the entire frame, no blank zones.`,
   },
   {
     key: "genre",
@@ -329,7 +329,7 @@ const POSTER_STRATEGIES = [
       `Every visual cue signals the genre immediately — ${ctx.genreVisual || "dramatic cinematography"}. ` +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture}. ${ctx.toneVisual}. ` +
-      `Bottom 20% fades to moody near-black for text overlay.`,
+      `Full cinematic composition — fill the entire frame with genre-defining imagery.`,
   },
 ] as const;
 
@@ -571,31 +571,30 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- DO NOT add any typography, lettering, or text overlays of any kind`,
     `- DO NOT render title cards, credit blocks, or any written words`,
     `- Generate ONLY the visual key art / background image — pure artwork, zero text`,
-    `- Text and credits will be composited separately by the rendering system`,
-    `- The bottom 20–25% of the image MUST be either:`,
-    `  (a) a clean atmospheric gradient fading to dark/black, or`,
-    `  (b) a moody out-of-focus negative space zone`,
-    `  This zone is where title typography will be placed — keep it clean and dark`,
+    `- Text, title, and billing block will be composited separately by the rendering system`,
   ].join("\n");
 
-  // Composition instructions — enforce cinematic poster composition
+  // Composition instructions — TRUE cinematic poster composition, NO UI-safe reservations
   const composition = [
     `CINEMATIC POSTER COMPOSITION (MANDATORY):`,
     `- This image is the KEY ART for a theatrical movie poster — treat it with that gravity`,
-    `- The composition must follow the classic cinematic poster structure:`,
-    `  TOP 15%: atmospheric sky, vignette, or environmental context`,
-    `  MIDDLE 40–60%: primary visual subject (character, scene, symbolic element)`,
-    `  LOWER 25%: atmospheric gradient fading to near-black — this is the TITLE ZONE`,
-    `- The lower gradient zone MUST be clean, dark, and uncluttered — no detail, no bright elements`,
+    `- The composition must use the ENTIRE canvas from top to bottom — no empty zones`,
+    `- DO NOT leave a black, dark, or empty area at the bottom of the image`,
+    `- DO NOT create a "safe zone" or "text zone" — the compositor handles all text overlays`,
+    `- Fill the entire frame with cinematic visual storytelling:`,
+    `  TOP: atmospheric sky, vignette, or environmental context`,
+    `  MIDDLE: primary visual subject (character, scene, symbolic element)`,
+    `  BOTTOM: continue the composition — environment, ground, atmosphere, details`,
+    `- Think of classic theatrical movie posters: the artwork goes edge to edge`,
     `- Use dramatic cinematic lighting: motivated sources, depth, atmosphere`,
     `- Strong focal point with clear visual hierarchy`,
     `- Portrait 2:3 aspect ratio`,
-    `- The overall feel must be PREMIUM THEATRICAL — as if this will be printed 27"×40" for a cinema lobby`,
+    `- The overall feel must be PREMIUM THEATRICAL — as if printed 27"×40" for a cinema lobby`,
     ctx.stylePolicy.mode === 'photorealistic_cinematic'
       ? `- Photorealistic 4K quality — shot on ARRI Alexa or RED, professional cinematography`
       : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering — studio quality`,
     `- Color grade should feel cohesive and intentional, not flat or over-saturated`,
-    `- DO NOT place any subject matter in the bottom 20% — that space is reserved for typography`,
+    `- CRITICAL: The image must look complete on its own — a full cinematic painting, not a cropped fragment`,
   ].join("\n");
 
   return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
@@ -707,7 +706,7 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { project_id, mode, strategy_key } = body;
+    const { project_id, mode, strategy_key, source_poster_id, edit_prompt, poster_template } = body;
     if (!project_id) {
       return new Response(JSON.stringify({ error: "project_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -723,6 +722,191 @@ serve(async (req) => {
 
     // Resolve image generation config via shared API resolver
     const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
+
+    // ── Mode: edit_poster — prompt-based poster editing / branching ──
+    if (mode === "edit_poster" && source_poster_id && edit_prompt) {
+      // Fetch source poster
+      const { data: sourcePoster, error: srcErr } = await supabase
+        .from("project_posters")
+        .select("*")
+        .eq("id", source_poster_id)
+        .single();
+      if (srcErr || !sourcePoster) {
+        return new Response(JSON.stringify({ error: "Source poster not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Get source image for edit
+      let sourceImageUrl: string | null = null;
+      const storagePath = sourcePoster.key_art_storage_path;
+      if (storagePath) {
+        const { data: signedData } = await supabase.storage
+          .from("project-posters")
+          .createSignedUrl(storagePath, 600);
+        sourceImageUrl = signedData?.signedUrl || null;
+      }
+
+      // Build edit prompt that preserves composition lineage
+      const editFullPrompt = [
+        `Edit this existing movie poster key art with the following changes:`,
+        edit_prompt,
+        ``,
+        `CRITICAL RULES:`,
+        `- Preserve the overall cinematic composition and visual storytelling`,
+        `- DO NOT add any text, titles, names, credits, or billing blocks`,
+        `- Keep the image as pure visual key art — text is composited separately`,
+        `- Maintain the full edge-to-edge composition — no empty zones`,
+        `- The result must still feel like premium theatrical poster art`,
+        strategyCtx.stylePolicy.styleDirectives,
+      ].join("\n");
+
+      // Get next version number
+      const { data: existingPosters } = await supabase
+        .from("project_posters")
+        .select("version_number")
+        .eq("project_id", project_id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      const nextVersion = (existingPosters?.[0]?.version_number || 0) + 1;
+
+      const editGenConfig = resolveImageGenerationConfig({
+        role: 'poster_variant' as ImageRole,
+        styleMode,
+        strategyKey: sourcePoster.layout_variant || 'commercial',
+      });
+
+      // Create poster record
+      const { data: posterRecord, error: insertErr } = await supabase
+        .from("project_posters")
+        .insert({
+          project_id,
+          user_id: user.id,
+          version_number: nextVersion,
+          status: "generating",
+          source_type: "edited",
+          aspect_ratio: sourcePoster.aspect_ratio || "2:3",
+          layout_variant: sourcePoster.layout_variant || "cinematic-dark",
+          prompt_text: editFullPrompt,
+          prompt_inputs: {
+            ...inputs,
+            source_poster_id,
+            edit_prompt,
+            poster_template: poster_template || sourcePoster.layout_variant,
+            poster_mode: "edit",
+          },
+          provider: editGenConfig.provider,
+          model: editGenConfig.model,
+          render_status: "key_art_only",
+          is_active: false,
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw new Error(`Failed to create edit record: ${insertErr.message}`);
+
+      try {
+        let imageResult: ProviderImageResult;
+
+        if (sourceImageUrl) {
+          // Use image editing — send source image + edit prompt
+          const aiResponse = await fetch(editGenConfig.gatewayUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: editGenConfig.model,
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: editFullPrompt },
+                  { type: "image_url", image_url: { url: sourceImageUrl } },
+                ],
+              }],
+              modalities: ["image", "text"],
+            }),
+          });
+
+          if (!aiResponse.ok) {
+            const errText = await aiResponse.text();
+            if (aiResponse.status === 429) throw new Error("Rate limit exceeded");
+            if (aiResponse.status === 402) throw new Error("Payment required");
+            throw new Error(`AI gateway error [${aiResponse.status}]: ${errText}`);
+          }
+
+          const aiData = await aiResponse.json();
+          imageResult = extractImageFromResponse(aiData);
+        } else {
+          // No source image available — generate fresh with edit context
+          imageResult = await generateImage(LOVABLE_API_KEY, editFullPrompt, editGenConfig.model, editGenConfig.gatewayUrl);
+        }
+
+        const keyArtPath = `${project_id}/key-art/v${nextVersion}-edit.${imageResult.format}`;
+        const { error: uploadErr } = await supabase.storage
+          .from("project-posters")
+          .upload(keyArtPath, imageResult.rawBytes, {
+            contentType: `image/${imageResult.format}`,
+            upsert: true,
+          });
+
+        if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
+
+        await supabase.from("project_posters")
+          .update({
+            status: "ready",
+            key_art_storage_path: keyArtPath,
+            rendered_storage_path: keyArtPath,
+            render_status: "key_art_only",
+          })
+          .eq("id", posterRecord.id);
+
+        // Register into canonical project_images
+        const repoMeta = buildImageRepositoryMeta(editGenConfig, {
+          role: 'poster_variant' as ImageRole,
+          styleMode,
+          strategyKey: sourcePoster.layout_variant || 'commercial',
+        });
+
+        await supabase.from("project_images").insert({
+          project_id,
+          role: "poster_variant",
+          entity_id: null,
+          strategy_key: sourcePoster.layout_variant || "commercial",
+          prompt_used: editFullPrompt,
+          negative_prompt: strategyCtx.stylePolicy.negativeStyleConstraints || "",
+          canon_constraints: { world_lock: inputs.worldLock, edit_prompt, source_poster_id },
+          storage_path: keyArtPath,
+          storage_bucket: "project-posters",
+          is_primary: false,
+          is_active: true,
+          source_poster_id: posterRecord.id,
+          user_id: user.id,
+          created_by: user.id,
+          provider: editGenConfig.provider,
+          model: editGenConfig.model,
+          style_mode: styleMode,
+          generation_config: { ...repoMeta, poster_mode: "edit", source_poster_id },
+        });
+
+        return new Response(JSON.stringify({
+          poster_id: posterRecord.id,
+          status: "ready",
+          source_poster_id,
+          edit_prompt,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (genErr: unknown) {
+        const errMsg = genErr instanceof Error ? genErr.message : "Edit failed";
+        await supabase.from("project_posters").update({ status: "failed", error_message: errMsg }).eq("id", posterRecord.id);
+        return new Response(JSON.stringify({ error: errMsg, poster_id: posterRecord.id }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // ── Mode: multi_concept — generate 6 strategy posters ──
     if (mode === "multi_concept") {
