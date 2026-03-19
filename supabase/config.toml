@@ -272,3 +272,6 @@ verify_jwt = false
 
 [functions.auto-populate-visual-set]
 verify_jwt = false
+
+[functions.story-ingestion-engine]
+verify_jwt = false
