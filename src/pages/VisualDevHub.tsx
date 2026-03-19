@@ -13,12 +13,13 @@ import { Badge } from '@/components/ui/badge';
 
 const SECTIONS = [
   {
-    title: 'Visual Units',
-    description: 'Canonical visual unit library extracted from your script — the foundation for storyboards and trailers.',
+    title: 'Cast Photos & Identity',
+    description: 'Generate and lock character headshots, full-body references, and identity anchors — the casting photos that define each character.',
     icon: Layers,
-    cta: 'Review Visual Units',
+    cta: 'Open Character Identity',
     href: (id: string) => `/projects/${id}/visual-units`,
-    badge: 'Canonical',
+    badge: 'Identity',
+    highlight: true,
   },
   {
     title: 'Shot Lists',
@@ -47,7 +48,6 @@ const SECTIONS = [
     icon: Film,
     cta: 'Open Trailer Hub',
     href: (id: string) => `/projects/${id}/visual-dev/trailer`,
-    highlight: true,
     badge: 'New',
   },
 ];
@@ -63,9 +63,9 @@ export default function VisualDevHub() {
             <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
           <div>
-            <h1 className="text-lg font-semibold">Visual Development</h1>
+            <h1 className="text-lg font-semibold">Visual Production Hub</h1>
             <p className="text-xs text-muted-foreground">
-              Visual Units → Storyboards → Animatic → Trailer Intelligence
+              Cast photos, character identity, world references, visual canon, and production visuals.
             </p>
           </div>
         </div>
