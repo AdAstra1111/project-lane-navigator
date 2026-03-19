@@ -1,9 +1,11 @@
 /**
- * Image Evaluation System — Deterministic rule-based evaluation of images
- * against Character Visual DNA, canon constraints, and period/lore plausibility.
+ * Image Evaluation System — Two-layer governance evaluation.
  * 
- * Hybrid approach: rule-based for clear matches/contradictions,
- * AI-assisted for nuanced compatibility and lore/period checks.
+ * Layer A: Prompt/Provenance Audit — deterministic check of prompt against DNA traits.
+ * Layer B: Image-vs-Anchor Audit — comparison of image metadata against locked identity anchors.
+ * 
+ * Both layers produce independent results; final governance verdict merges them.
+ * Every evaluation MUST store dna_version_id for provenance.
  */
 
 import type { CharacterVisualDNA, VisualDNATrait } from './visualDNA';
@@ -13,6 +15,7 @@ import type { ProjectImage, CanonConstraints } from './types';
 
 export type MatchLevel = 'high' | 'medium' | 'low' | 'unknown';
 export type DriftRisk = 'none' | 'low' | 'medium' | 'high' | 'unknown';
+export type GovernanceVerdict = 'approved' | 'review_required' | 'flagged' | 'rejected' | 'pending';
 
 export type PeriodPlausibility =
   | 'historically_valid'
@@ -25,8 +28,42 @@ export type PeriodPlausibility =
   | 'material_mismatch'
   | 'unknown';
 
+/** Layer A: Prompt/provenance audit result */
+export interface PromptAuditResult {
+  traitsCoveredCount: number;
+  traitsTotalCount: number;
+  traitsSatisfied: string[];
+  traitsMissing: string[];
+  invariantsSatisfied: string[];
+  invariantsViolated: string[];
+  promptCanonMatch: MatchLevel;
+  promptDriftRisk: DriftRisk;
+  periodPlausibility: PeriodPlausibility;
+}
+
+/** Layer B: Image-vs-anchor audit result */
+export interface ImageAuditResult {
+  hasIdentityAnchors: boolean;
+  anchorTypes: string[];
+  generationPurposeMatch: boolean;
+  identityLockEnforced: boolean;
+  modelConsistency: MatchLevel;
+  providerConsistency: boolean;
+  imageAnchorMatch: MatchLevel;
+}
+
+/** Combined evaluation with explicit two-layer provenance */
 export interface ImageEvaluation {
   imageId: string;
+  dnaVersionId: string | null;
+  
+  // Layer A
+  promptAudit: PromptAuditResult;
+  
+  // Layer B
+  imageAudit: ImageAuditResult;
+  
+  // Merged governance
   canonMatch: MatchLevel;
   continuityMatch: MatchLevel;
   narrativeFit: MatchLevel;
@@ -34,12 +71,19 @@ export interface ImageEvaluation {
   driftRisk: DriftRisk;
   periodPlausibility: PeriodPlausibility;
   loreCompatibility: string | null;
+  governanceVerdict: GovernanceVerdict;
   
   contradictionFlags: string[];
-  traitsSatisfied: string[];
-  traitsViolated: string[];
   evaluationSummary: string;
   evaluationMethod: 'rule_based' | 'ai_assisted' | 'hybrid';
+  
+  /** Producer-facing explanation */
+  explanation: ExplanationItem[];
+}
+
+export interface ExplanationItem {
+  type: 'safe' | 'conflict' | 'drift' | 'regen_needed' | 'info';
+  message: string;
 }
 
 export interface ApprovalDecision {
@@ -79,44 +123,17 @@ export const REJECT_REASON_LABELS: Record<RejectReason, string> = {
   other: 'Other',
 };
 
-// ── Rule-Based Evaluation ──
+// ── Layer A: Prompt/Provenance Audit ──
 
-/**
- * Evaluate an image against a character's Visual DNA using deterministic rules.
- * Checks prompt provenance, identity anchors, and trait coverage.
- */
-export function evaluateImageAgainstDNA(
+function runPromptAudit(
   image: ProjectImage,
-  dna: CharacterVisualDNA | null,
+  dna: CharacterVisualDNA,
   canonConstraints?: CanonConstraints,
-): ImageEvaluation {
-  const result: ImageEvaluation = {
-    imageId: image.id,
-    canonMatch: 'unknown',
-    continuityMatch: 'unknown',
-    narrativeFit: 'unknown',
-    wardrobeFit: 'unknown',
-    driftRisk: 'unknown',
-    periodPlausibility: 'unknown',
-    loreCompatibility: null,
-    contradictionFlags: [],
-    traitsSatisfied: [],
-    traitsViolated: [],
-    evaluationSummary: '',
-    evaluationMethod: 'rule_based',
-  };
-  
-  if (!dna) {
-    result.evaluationSummary = 'No Visual DNA available — evaluation skipped.';
-    return result;
-  }
-  
+): PromptAuditResult {
   const prompt = (image.prompt_used || '').toLowerCase();
   
-  // Check script truth traits against prompt
   const scriptSatisfied: string[] = [];
   const scriptMissing: string[] = [];
-  
   for (const trait of dna.scriptTruth.traits) {
     if (isTraitInPrompt(trait, prompt)) {
       scriptSatisfied.push(trait.label);
@@ -125,10 +142,8 @@ export function evaluateImageAgainstDNA(
     }
   }
   
-  // Check locked invariants
   const invariantsSatisfied: string[] = [];
   const invariantsViolated: string[] = [];
-  
   for (const inv of dna.lockedInvariants) {
     if (isTraitInPrompt(inv, prompt)) {
       invariantsSatisfied.push(inv.label);
@@ -137,98 +152,271 @@ export function evaluateImageAgainstDNA(
     }
   }
   
-  // Check narrative markers
-  const narrativeSatisfied: string[] = [];
-  for (const marker of dna.narrativeMarkers.traits) {
-    if (isTraitInPrompt(marker, prompt)) {
-      narrativeSatisfied.push(marker.label);
-    }
-  }
-  
-  // Check wardrobe traits
-  const wardrobeTraits = [...dna.scriptTruth.traits, ...dna.inferredGuidance.traits]
-    .filter(t => t.category === 'clothing');
-  const wardrobeSatisfied = wardrobeTraits.filter(t => isTraitInPrompt(t, prompt));
-  
-  // Compute match levels
-  result.traitsSatisfied = [...scriptSatisfied, ...invariantsSatisfied];
-  result.traitsViolated = invariantsViolated;
-  
   const totalScript = dna.scriptTruth.traits.length;
   const scriptRatio = totalScript > 0 ? scriptSatisfied.length / totalScript : 0;
-  result.canonMatch = scriptRatio >= 0.7 ? 'high' : scriptRatio >= 0.4 ? 'medium' : totalScript === 0 ? 'unknown' : 'low';
+  const promptCanonMatch: MatchLevel = scriptRatio >= 0.7 ? 'high' : scriptRatio >= 0.4 ? 'medium' : totalScript === 0 ? 'unknown' : 'low';
   
-  // Continuity: based on identity anchor usage
-  const usesIdentityRef = prompt.includes('identity') || prompt.includes('reference') ||
-    (image.generation_purpose === 'character_identity');
-  result.continuityMatch = usesIdentityRef ? 'high' : invariantsViolated.length === 0 ? 'medium' : 'low';
+  const promptDriftRisk: DriftRisk = invariantsViolated.length >= 3 ? 'high' :
+    invariantsViolated.length > 0 ? 'medium' :
+    scriptMissing.length > totalScript * 0.5 && totalScript > 0 ? 'low' : 'none';
+  
+  let periodPlausibility: PeriodPlausibility = 'unknown';
+  if (canonConstraints?.era) {
+    periodPlausibility = evaluatePeriodPlausibility(prompt, canonConstraints.era);
+  }
+  
+  return {
+    traitsCoveredCount: scriptSatisfied.length,
+    traitsTotalCount: totalScript,
+    traitsSatisfied: scriptSatisfied,
+    traitsMissing: scriptMissing,
+    invariantsSatisfied,
+    invariantsViolated,
+    promptCanonMatch,
+    promptDriftRisk,
+    periodPlausibility,
+  };
+}
+
+// ── Layer B: Image-vs-Anchor Audit ──
+
+function runImageAudit(
+  image: ProjectImage,
+  dna: CharacterVisualDNA,
+  allProjectImages?: ProjectImage[],
+): ImageAuditResult {
+  // Check if identity anchors exist
+  const anchorImages = (allProjectImages || []).filter(img =>
+    img.is_primary &&
+    img.subject === image.subject &&
+    (img.shot_type === 'identity_headshot' || img.shot_type === 'identity_full_body') &&
+    img.curation_state === 'active'
+  );
+  
+  const hasIdentityAnchors = anchorImages.length >= 2;
+  const anchorTypes = anchorImages.map(a => a.shot_type || 'unknown');
+  
+  // Check generation purpose alignment
+  const generationPurposeMatch = image.generation_purpose === 'character_identity' ||
+    image.asset_group === 'character';
+  
+  // Check identity lock enforcement — was this generated with locked identity?
+  const genConfig = image.generation_config || {};
+  const identityLockEnforced = !!(genConfig as any).identity_locked || !!(genConfig as any).identity_anchor_paths;
+  
+  // Model consistency — same model family as anchors
+  const anchorModels = new Set(anchorImages.map(a => a.model));
+  const modelConsistency: MatchLevel = anchorModels.size === 0 ? 'unknown' :
+    anchorModels.has(image.model) ? 'high' : 'medium';
+  
+  // Provider consistency
+  const anchorProviders = new Set(anchorImages.map(a => a.provider));
+  const providerConsistency = anchorProviders.size === 0 || anchorProviders.has(image.provider);
+  
+  // Image-anchor match: high if generated with locked anchors, otherwise based on existence
+  const imageAnchorMatch: MatchLevel = identityLockEnforced && hasIdentityAnchors ? 'high' :
+    hasIdentityAnchors ? 'medium' : 'low';
+  
+  return {
+    hasIdentityAnchors,
+    anchorTypes,
+    generationPurposeMatch,
+    identityLockEnforced,
+    modelConsistency,
+    providerConsistency,
+    imageAnchorMatch,
+  };
+}
+
+// ── Governance Verdict ──
+
+function computeGovernanceVerdict(
+  promptAudit: PromptAuditResult,
+  imageAudit: ImageAuditResult,
+): GovernanceVerdict {
+  // Hard reject conditions
+  if (promptAudit.invariantsViolated.length >= 3) return 'rejected';
+  if (promptAudit.periodPlausibility === 'anachronism') return 'flagged';
+  
+  // Flagged conditions
+  if (promptAudit.invariantsViolated.length > 0) return 'flagged';
+  if (!imageAudit.identityLockEnforced && imageAudit.hasIdentityAnchors) return 'review_required';
+  
+  // Review conditions
+  if (promptAudit.promptCanonMatch === 'low') return 'review_required';
+  if (promptAudit.promptDriftRisk === 'medium') return 'review_required';
+  
+  // Approved
+  if (promptAudit.promptCanonMatch === 'high' && imageAudit.imageAnchorMatch === 'high') return 'approved';
+  
+  return 'review_required';
+}
+
+// ── Explanation Builder ──
+
+function buildExplanation(
+  promptAudit: PromptAuditResult,
+  imageAudit: ImageAuditResult,
+  dna: CharacterVisualDNA,
+): ExplanationItem[] {
+  const items: ExplanationItem[] = [];
+  
+  // Safety
+  if (promptAudit.promptCanonMatch === 'high') {
+    items.push({ type: 'safe', message: `Prompt covers ${promptAudit.traitsCoveredCount}/${promptAudit.traitsTotalCount} canon traits.` });
+  }
+  if (imageAudit.identityLockEnforced) {
+    items.push({ type: 'safe', message: 'Generated with locked identity anchors — face/body consistency enforced.' });
+  }
+  
+  // Conflicts
+  for (const v of promptAudit.invariantsViolated) {
+    items.push({ type: 'conflict', message: `Locked invariant missing from prompt: "${v}".` });
+  }
+  if (promptAudit.periodPlausibility === 'anachronism') {
+    items.push({ type: 'conflict', message: 'Period anachronism detected — elements incompatible with era.' });
+  }
+  if (promptAudit.periodPlausibility === 'material_mismatch') {
+    items.push({ type: 'conflict', message: 'Material mismatch — synthetic/industrial materials in pre-industrial setting.' });
+  }
+  
+  // Drift
+  if (promptAudit.promptDriftRisk !== 'none' && promptAudit.promptDriftRisk !== 'unknown') {
+    items.push({ type: 'drift', message: `Drift risk: ${promptAudit.promptDriftRisk}. ${promptAudit.traitsMissing.length} canon traits not in prompt.` });
+  }
+  if (!imageAudit.identityLockEnforced && imageAudit.hasIdentityAnchors) {
+    items.push({ type: 'drift', message: 'Identity anchors exist but were NOT used for this generation — face may differ.' });
+  }
+  
+  // What must not drift
+  if (dna.lockedInvariants.length > 0 && promptAudit.invariantsViolated.length === 0) {
+    items.push({ type: 'safe', message: `All ${dna.lockedInvariants.length} locked invariants present in prompt.` });
+  }
+  
+  // Regen needed
+  if (!imageAudit.hasIdentityAnchors) {
+    items.push({ type: 'regen_needed', message: 'No identity anchors locked — generate and lock identity headshot + full body first.' });
+  }
+  
+  return items;
+}
+
+// ── Main Evaluator ──
+
+/**
+ * Two-layer evaluation: prompt audit + image-vs-anchor audit.
+ * Produces governance verdict with explainability.
+ * REQUIRES dna for evaluation — returns pending if null.
+ */
+export function evaluateImageAgainstDNA(
+  image: ProjectImage,
+  dna: CharacterVisualDNA | null,
+  canonConstraints?: CanonConstraints,
+  dnaVersionId?: string | null,
+  allProjectImages?: ProjectImage[],
+): ImageEvaluation {
+  // No DNA = no evaluation possible
+  if (!dna) {
+    return {
+      imageId: image.id,
+      dnaVersionId: null,
+      promptAudit: {
+        traitsCoveredCount: 0, traitsTotalCount: 0, traitsSatisfied: [], traitsMissing: [],
+        invariantsSatisfied: [], invariantsViolated: [],
+        promptCanonMatch: 'unknown', promptDriftRisk: 'unknown', periodPlausibility: 'unknown',
+      },
+      imageAudit: {
+        hasIdentityAnchors: false, anchorTypes: [], generationPurposeMatch: false,
+        identityLockEnforced: false, modelConsistency: 'unknown', providerConsistency: true,
+        imageAnchorMatch: 'unknown',
+      },
+      canonMatch: 'unknown', continuityMatch: 'unknown', narrativeFit: 'unknown',
+      wardrobeFit: 'unknown', driftRisk: 'unknown', periodPlausibility: 'unknown',
+      loreCompatibility: null, governanceVerdict: 'pending',
+      contradictionFlags: [], evaluationSummary: 'No Visual DNA available — evaluation deferred.',
+      evaluationMethod: 'rule_based',
+      explanation: [{ type: 'info', message: 'No Visual DNA resolved yet. Resolve DNA to enable evaluation.' }],
+    };
+  }
+  
+  // Layer A: Prompt audit
+  const promptAudit = runPromptAudit(image, dna, canonConstraints);
+  
+  // Layer B: Image-vs-anchor audit
+  const imageAudit = runImageAudit(image, dna, allProjectImages);
+  
+  // Merge into governance
+  const governanceVerdict = computeGovernanceVerdict(promptAudit, imageAudit);
+  const explanation = buildExplanation(promptAudit, imageAudit, dna);
   
   // Narrative fit
-  const totalNarrative = dna.narrativeMarkers.traits.length;
-  result.narrativeFit = totalNarrative === 0 ? 'unknown' :
-    narrativeSatisfied.length >= totalNarrative ? 'high' :
+  const narrativeTraits = dna.narrativeMarkers.traits;
+  const prompt = (image.prompt_used || '').toLowerCase();
+  const narrativeSatisfied = narrativeTraits.filter(t => isTraitInPrompt(t, prompt));
+  const narrativeFit: MatchLevel = narrativeTraits.length === 0 ? 'unknown' :
+    narrativeSatisfied.length >= narrativeTraits.length ? 'high' :
     narrativeSatisfied.length > 0 ? 'medium' : 'low';
   
   // Wardrobe fit
-  result.wardrobeFit = wardrobeTraits.length === 0 ? 'unknown' :
+  const wardrobeTraits = [...dna.scriptTruth.traits, ...dna.inferredGuidance.traits]
+    .filter(t => t.category === 'clothing');
+  const wardrobeSatisfied = wardrobeTraits.filter(t => isTraitInPrompt(t, prompt));
+  const wardrobeFit: MatchLevel = wardrobeTraits.length === 0 ? 'unknown' :
     wardrobeSatisfied.length >= wardrobeTraits.length * 0.6 ? 'high' :
     wardrobeSatisfied.length > 0 ? 'medium' : 'low';
   
-  // Drift risk
-  if (invariantsViolated.length > 0) {
-    result.driftRisk = invariantsViolated.length >= 3 ? 'high' : 'medium';
-    result.contradictionFlags = invariantsViolated.map(v => `Locked invariant missing from prompt: ${v}`);
-  } else if (scriptMissing.length > totalScript * 0.5 && totalScript > 0) {
-    result.driftRisk = 'low';
-  } else {
-    result.driftRisk = 'none';
-  }
-  
-  // Period plausibility (rule-based check)
-  if (canonConstraints?.era) {
-    result.periodPlausibility = evaluatePeriodPlausibility(prompt, canonConstraints.era);
-  }
+  // Continuity: merge both layers
+  const continuityMatch: MatchLevel = imageAudit.identityLockEnforced ? 'high' :
+    imageAudit.hasIdentityAnchors && promptAudit.invariantsViolated.length === 0 ? 'medium' : 'low';
   
   // Build summary
   const summaryParts: string[] = [];
-  const finalCanon: string = result.canonMatch;
-  const finalDrift: string = result.driftRisk;
-  if (finalCanon !== 'unknown') summaryParts.push(`Canon: ${finalCanon}`);
-  if (invariantsViolated.length > 0) summaryParts.push(`${invariantsViolated.length} invariant(s) at risk`);
-  if (finalDrift !== 'none' && finalDrift !== 'unknown') summaryParts.push(`Drift risk: ${finalDrift}`);
-  result.evaluationSummary = summaryParts.join('. ') || 'Evaluation complete.';
+  if (promptAudit.promptCanonMatch !== 'unknown') summaryParts.push(`Canon: ${promptAudit.promptCanonMatch}`);
+  if (promptAudit.invariantsViolated.length > 0) summaryParts.push(`${promptAudit.invariantsViolated.length} invariant(s) at risk`);
+  if (promptAudit.promptDriftRisk !== 'none' && promptAudit.promptDriftRisk !== 'unknown') summaryParts.push(`Drift: ${promptAudit.promptDriftRisk}`);
+  if (!imageAudit.identityLockEnforced && imageAudit.hasIdentityAnchors) summaryParts.push('Identity lock not enforced');
   
-  return result;
+  return {
+    imageId: image.id,
+    dnaVersionId: dnaVersionId || null,
+    promptAudit,
+    imageAudit,
+    canonMatch: promptAudit.promptCanonMatch,
+    continuityMatch,
+    narrativeFit,
+    wardrobeFit,
+    driftRisk: promptAudit.promptDriftRisk,
+    periodPlausibility: promptAudit.periodPlausibility,
+    loreCompatibility: null,
+    governanceVerdict,
+    contradictionFlags: promptAudit.invariantsViolated.map(v => `Locked invariant missing: ${v}`),
+    evaluationSummary: summaryParts.join('. ') || 'Evaluation complete.',
+    evaluationMethod: 'rule_based',
+    explanation,
+  };
 }
 
-/**
- * Check if a trait keyword appears in a prompt.
- */
+// ── Helpers ──
+
 function isTraitInPrompt(trait: VisualDNATrait, prompt: string): boolean {
   const words = trait.label.toLowerCase().split(/\s+/);
-  // At least half the words in the trait label should appear in prompt
   const matchCount = words.filter(w => w.length > 3 && prompt.includes(w)).length;
   return matchCount >= Math.ceil(words.length * 0.5);
 }
 
-/**
- * Simple rule-based period plausibility check.
- */
 function evaluatePeriodPlausibility(prompt: string, era: string): PeriodPlausibility {
   const eraLower = era.toLowerCase();
   const promptLower = prompt.toLowerCase();
   
-  // Check for anachronistic tech references
-  const modernTech = /\b(smartphone|computer|car|television|electric|neon|LED|headphones|laptop)\b/i;
+  const modernTech = /\b(smartphone|computer|car|television|electric|neon|LED|headphones|laptop|game\s?boy|nintendo|playstation|xbox|microwave|refrigerator|air\s?condition|plastic\s?bottle|synthetic\s?fabric)\b/i;
   const ancientSettings = /\b(medieval|ancient|roman|greek|viking|prehistoric|bronze age|iron age)\b/i;
   
   if (ancientSettings.test(eraLower) && modernTech.test(promptLower)) {
     return 'anachronism';
   }
   
-  // Check for material mismatches
-  const syntheticMaterials = /\b(plastic|nylon|polyester|synthetic|lycra|spandex)\b/i;
-  const preindustrialEras = /\b(medieval|renaissance|baroque|ancient|roman|greek|tudor|elizabethan|regency|victorian|colonial)\b/i;
+  const syntheticMaterials = /\b(plastic|nylon|polyester|synthetic|lycra|spandex|acrylic|polycarbonate|styrofoam|vinyl|PVC)\b/i;
+  const preindustrialEras = /\b(medieval|renaissance|baroque|ancient|roman|greek|tudor|elizabethan|regency|victorian|colonial|1[0-7]\d{2}s?)\b/i;
   
   if (preindustrialEras.test(eraLower) && syntheticMaterials.test(promptLower)) {
     return 'material_mismatch';
@@ -237,11 +425,12 @@ function evaluatePeriodPlausibility(prompt: string, era: string): PeriodPlausibi
   return 'unknown';
 }
 
-// ── Serialization for database ──
+// ── Serialization ──
 
 export function serializeEvaluationForStorage(eval_: ImageEvaluation) {
   return {
     image_id: eval_.imageId,
+    dna_version_id: eval_.dnaVersionId,
     canon_match: eval_.canonMatch,
     continuity_match: eval_.continuityMatch,
     narrative_fit: eval_.narrativeFit,
@@ -250,10 +439,14 @@ export function serializeEvaluationForStorage(eval_: ImageEvaluation) {
     period_plausibility: eval_.periodPlausibility,
     lore_compatibility: eval_.loreCompatibility,
     contradiction_flags: eval_.contradictionFlags,
-    traits_satisfied: eval_.traitsSatisfied,
-    traits_violated: eval_.traitsViolated,
+    traits_satisfied: eval_.promptAudit.traitsSatisfied,
+    traits_violated: eval_.promptAudit.invariantsViolated,
     evaluation_summary: eval_.evaluationSummary,
     evaluation_method: eval_.evaluationMethod,
+    prompt_audit_result: eval_.promptAudit,
+    image_audit_result: eval_.imageAudit,
+    governance_verdict: eval_.governanceVerdict,
+    explanation: eval_.explanation,
   };
 }
 

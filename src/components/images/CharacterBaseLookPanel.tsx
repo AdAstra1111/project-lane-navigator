@@ -206,126 +206,9 @@ function IdentityLockStatusPanel({ hasHeadshot, hasFullBody }: { hasHeadshot: bo
   );
 }
 
-// ─── CHARACTER VISUAL TRUTH (PROMOTED) ──────────────────────────────────────
-
-const SOURCE_COLORS: Record<TraitSource, string> = {
-  script: 'bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-400',
-  narrative: 'bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-400',
-  inferred: 'bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-400',
-  user: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-400',
-};
-
-const SOURCE_LABELS: Record<TraitSource, string> = {
-  script: '🔒 SCRIPT',
-  narrative: '🛡 NARRATIVE',
-  inferred: '⚠ INFERRED',
-  user: '✏️ USER',
-};
-
-const SOURCE_SECTION_LABELS: Record<TraitSource, string> = {
-  script: '🔒 SCRIPT (locked)',
-  narrative: '🛡 NARRATIVE (visible markers)',
-  inferred: '⚠ INFERRED (flexible)',
-  user: '✏️ USER (your notes)',
-};
-
-function CharacterVisualTruthPanel({
-  traits,
-  contradictions,
-}: {
-  traits: CharacterTrait[];
-  contradictions: Array<{ userTrait: CharacterTrait; conflictsWith: CharacterTrait; message: string; severity: string }>;
-}) {
-  if (traits.length === 0) return null;
-
-  const contradictionLabels = new Set(contradictions.map(c => c.userTrait.label.toLowerCase()));
-
-  // Group by source
-  const grouped: Record<TraitSource, CharacterTrait[]> = { script: [], narrative: [], inferred: [], user: [] };
-  for (const t of traits) {
-    grouped[t.source].push(t);
-  }
-
-  // "What must not drift" — auto from script + narrative
-  const driftInvariants = traits.filter(t => (t.source === 'script' || t.source === 'narrative') && t.confidence === 'high');
-
-  return (
-    <Card className="mb-3 border-border/60 bg-muted/20">
-      <CardContent className="p-3">
-        <div className="flex items-center gap-1.5 mb-2">
-          <Eye className="h-3.5 w-3.5 text-primary" />
-          <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
-            Character Visual Truth
-          </span>
-          <Badge variant="secondary" className="text-[7px] px-1 py-0">{traits.length} traits</Badge>
-          {contradictions.length > 0 && (
-            <Badge variant="destructive" className="text-[7px] px-1 py-0">
-              {contradictions.length} conflict{contradictions.length !== 1 ? 's' : ''}
-            </Badge>
-          )}
-        </div>
-
-        {/* Grouped by source */}
-        <div className="space-y-2">
-          {(['script', 'narrative', 'inferred', 'user'] as TraitSource[]).map(source => {
-            const sourceTraits = grouped[source];
-            if (sourceTraits.length === 0) return null;
-            return (
-              <div key={source}>
-                <p className="text-[8px] text-muted-foreground font-medium mb-0.5">{SOURCE_SECTION_LABELS[source]}</p>
-                <div className="flex flex-wrap gap-1">
-                  {sourceTraits.map((t, idx) => {
-                    const isConflict = contradictionLabels.has(t.label.toLowerCase());
-                    return (
-                      <span
-                        key={idx}
-                        className={cn(
-                          'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] border',
-                          isConflict ? 'bg-destructive/15 text-destructive border-destructive/30 line-through' : SOURCE_COLORS[t.source],
-                        )}
-                        title={`Category: ${t.category} | Confidence: ${t.confidence} | Constraint: ${t.constraint}`}
-                      >
-                        {t.label}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* What Must Not Drift */}
-        {driftInvariants.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-border/40">
-            <p className="text-[8px] text-muted-foreground font-semibold mb-0.5 uppercase tracking-wider">What Must Not Drift</p>
-            <div className="flex flex-wrap gap-1">
-              {driftInvariants.map((t, idx) => (
-                <span
-                  key={idx}
-                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] border bg-primary/10 text-primary border-primary/30 font-medium"
-                >
-                  🔒 {t.label}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Contradictions */}
-        {contradictions.length > 0 && (
-          <div className="mt-2 space-y-0.5">
-            {contradictions.map((c, idx) => (
-              <p key={idx} className="text-[8px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
-                ⚠ {c.message}
-              </p>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+// ─── CHARACTER VISUAL TRUTH — UNIFIED UNDER CharacterVisualDNAPanel ──────────
+// (Removed duplicate CharacterVisualTruthPanel — all visual truth now flows
+//  through the single canonical CharacterVisualDNAPanel component)
 
 // ─── GENERATION LOCK WARNING ────────────────────────────────────────────────
 
@@ -603,10 +486,7 @@ function CharacterIdentitySection({
         hasFullBody={!!primaryFullBody}
       />
 
-      {/* PART C: Character Visual Truth — promoted, expanded by default, ABOVE grids */}
-      <CharacterVisualTruthPanel traits={resolvedTraits} contradictions={traitContradictions} />
-
-      {/* PART C2: Visual DNA Panel — full structured DNA model */}
+      {/* UNIFIED: Character Visual DNA — single canonical truth source */}
       <CharacterVisualDNAPanel
         projectId={projectId}
         characterName={character.name}

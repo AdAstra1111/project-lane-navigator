@@ -7179,12 +7179,16 @@ export type Database = {
           drift_risk: string
           evaluation_method: string
           evaluation_summary: string | null
+          explanation: Json | null
+          governance_verdict: string | null
           id: string
+          image_audit_result: Json | null
           image_id: string
           lore_compatibility: string | null
           narrative_fit: string
           period_plausibility: string | null
           project_id: string
+          prompt_audit_result: Json | null
           traits_satisfied: Json
           traits_violated: Json
           wardrobe_fit: string
@@ -7205,12 +7209,16 @@ export type Database = {
           drift_risk?: string
           evaluation_method?: string
           evaluation_summary?: string | null
+          explanation?: Json | null
+          governance_verdict?: string | null
           id?: string
+          image_audit_result?: Json | null
           image_id: string
           lore_compatibility?: string | null
           narrative_fit?: string
           period_plausibility?: string | null
           project_id: string
+          prompt_audit_result?: Json | null
           traits_satisfied?: Json
           traits_violated?: Json
           wardrobe_fit?: string
@@ -7231,12 +7239,16 @@ export type Database = {
           drift_risk?: string
           evaluation_method?: string
           evaluation_summary?: string | null
+          explanation?: Json | null
+          governance_verdict?: string | null
           id?: string
+          image_audit_result?: Json | null
           image_id?: string
           lore_compatibility?: string | null
           narrative_fit?: string
           period_plausibility?: string | null
           project_id?: string
+          prompt_audit_result?: Json | null
           traits_satisfied?: Json
           traits_violated?: Json
           wardrobe_fit?: string
@@ -24169,6 +24181,11 @@ export type Database = {
       }
       visual_scenarios: {
         Row: {
+          affected_canon_fields: Json | null
+          affected_downstream: Json | null
+          affected_image_families: Json | null
+          affected_traits: Json | null
+          analysis_method: string | null
           canon_compatibility: string | null
           change_json: Json
           classification: string | null
@@ -24181,14 +24198,21 @@ export type Database = {
           impacted_systems: Json
           lore_compatibility: string | null
           material_compatibility: string | null
+          preview_safe: boolean | null
           project_id: string
           query_text: string
           recommended_path: string | null
+          source_dna_version_id: string | null
           state: string
           target: string
           updated_at: string
         }
         Insert: {
+          affected_canon_fields?: Json | null
+          affected_downstream?: Json | null
+          affected_image_families?: Json | null
+          affected_traits?: Json | null
+          analysis_method?: string | null
           canon_compatibility?: string | null
           change_json?: Json
           classification?: string | null
@@ -24201,14 +24225,21 @@ export type Database = {
           impacted_systems?: Json
           lore_compatibility?: string | null
           material_compatibility?: string | null
+          preview_safe?: boolean | null
           project_id: string
           query_text?: string
           recommended_path?: string | null
+          source_dna_version_id?: string | null
           state?: string
           target?: string
           updated_at?: string
         }
         Update: {
+          affected_canon_fields?: Json | null
+          affected_downstream?: Json | null
+          affected_image_families?: Json | null
+          affected_traits?: Json | null
+          analysis_method?: string | null
           canon_compatibility?: string | null
           change_json?: Json
           classification?: string | null
@@ -24221,9 +24252,11 @@ export type Database = {
           impacted_systems?: Json
           lore_compatibility?: string | null
           material_compatibility?: string | null
+          preview_safe?: boolean | null
           project_id?: string
           query_text?: string
           recommended_path?: string | null
+          source_dna_version_id?: string | null
           state?: string
           target?: string
           updated_at?: string
@@ -24241,6 +24274,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_scenarios_source_dna_version_id_fkey"
+            columns: ["source_dna_version_id"]
+            isOneToOne: false
+            referencedRelation: "character_visual_dna"
             referencedColumns: ["id"]
           },
         ]
