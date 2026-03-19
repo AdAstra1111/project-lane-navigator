@@ -327,6 +327,7 @@ serve(async (req) => {
       identity_anchor_paths = null,
       identity_notes = null,
       identity_canon_facts = null,
+      identity_traits_block = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -346,6 +347,7 @@ serve(async (req) => {
       identity_anchor_paths?: { headshot?: string; fullBody?: string } | null;
       identity_notes?: string | null;
       identity_canon_facts?: string | null;
+      identity_traits_block?: string | null;
     };
 
     if (!project_id || !section) {
@@ -484,7 +486,12 @@ serve(async (req) => {
         prompt += `\n\nCANON CHARACTER FACTS: ${identity_canon_facts}`;
       }
 
-      // Inject identity notes AFTER canon (subordinate)
+      // Inject structured traits block (source-tagged, prioritized)
+      if (identity_traits_block) {
+        prompt += `\n\n${identity_traits_block}`;
+      }
+
+      // Inject identity notes AFTER canon and traits (subordinate)
       if (identity_notes && identity_mode) {
         prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon): ${identity_notes}`;
       }
@@ -549,6 +556,7 @@ serve(async (req) => {
               identity_anchors_used: identityReferenceUrls.length,
               identity_notes_used: !!identity_notes,
               identity_canon_facts_used: !!identity_canon_facts,
+              identity_traits_used: !!identity_traits_block,
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,

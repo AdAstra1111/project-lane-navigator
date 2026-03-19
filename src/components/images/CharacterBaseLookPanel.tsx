@@ -6,7 +6,7 @@
  * Identity images use generation_purpose='character_identity' and identity_* shot types.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save } from 'lucide-react';
+import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { useCharacterIdentityNotes } from '@/hooks/useCharacterIdentityNotes';
 import { resolveCharacterIdentity, checkIdentityNotesAgainstCanon } from '@/lib/images/identityResolver';
+import { resolveCharacterTraits, detectTraitContradictions, formatTraitsForPrompt, type CharacterTrait, type TraitSource } from '@/lib/images/characterTraits';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -291,6 +292,19 @@ function CharacterIdentitySection({
     return parts.join('. ');
   }, [canonCharacter]);
 
+  // Resolve structured traits for display and generation
+  const resolvedTraits = useMemo(() => {
+    return resolveCharacterTraits(canonCharacter as any, canonJson, localNotes);
+  }, [canonCharacter, canonJson, localNotes]);
+
+  const traitContradictions = useMemo(() => {
+    return detectTraitContradictions(resolvedTraits);
+  }, [resolvedTraits]);
+
+  const traitsPromptBlock = useMemo(() => {
+    return formatTraitsForPrompt(resolvedTraits);
+  }, [resolvedTraits]);
+
   const generateIdentity = useCallback(async () => {
     if (generating) return;
 
@@ -323,6 +337,7 @@ function CharacterIdentitySection({
           identity_anchor_paths: identityAnchorPaths,
           identity_notes: localNotes.trim() || null,
           identity_canon_facts: canonFactsString || null,
+          identity_traits_block: traitsPromptBlock || null,
         },
       });
       if (error) throw error;
@@ -439,6 +454,11 @@ function CharacterIdentitySection({
         )}
       </div>
 
+      {/* Trait Display */}
+      {resolvedTraits.length > 0 && (
+        <CharacterTraitDisplay traits={resolvedTraits} contradictions={traitContradictions} />
+      )}
+
       {identityImages.length === 0 ? (
         <Button
           size="sm"
@@ -553,6 +573,90 @@ function CharacterIdentitySection({
             </p>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── TRAIT DISPLAY ───────────────────────────────────────────────────────────
+
+const SOURCE_COLORS: Record<TraitSource, string> = {
+  script: 'bg-blue-500/15 text-blue-700 border-blue-500/30 dark:text-blue-400',
+  narrative: 'bg-purple-500/15 text-purple-700 border-purple-500/30 dark:text-purple-400',
+  inferred: 'bg-amber-500/15 text-amber-700 border-amber-500/30 dark:text-amber-400',
+  user: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30 dark:text-emerald-400',
+};
+
+const SOURCE_LABELS: Record<TraitSource, string> = {
+  script: 'SCRIPT',
+  narrative: 'NARRATIVE',
+  inferred: 'INFERRED',
+  user: 'USER',
+};
+
+function CharacterTraitDisplay({
+  traits,
+  contradictions,
+}: {
+  traits: CharacterTrait[];
+  contradictions: Array<{ userTrait: CharacterTrait; conflictsWith: CharacterTrait; message: string; severity: string }>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (traits.length === 0) return null;
+
+  const contradictionLabels = new Set(contradictions.map(c => c.userTrait.label.toLowerCase()));
+
+  return (
+    <div className="mb-3">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors mb-1"
+      >
+        <Tag className="h-2.5 w-2.5" />
+        Visual Traits ({traits.length})
+        {contradictions.length > 0 && (
+          <Badge variant="destructive" className="text-[7px] px-1 py-0 ml-1">
+            {contradictions.length} conflict{contradictions.length !== 1 ? 's' : ''}
+          </Badge>
+        )}
+      </button>
+      {expanded && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-1">
+            {traits.map((t, idx) => {
+              const isConflict = contradictionLabels.has(t.label.toLowerCase());
+              return (
+                <span
+                  key={idx}
+                  className={cn(
+                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] border',
+                    isConflict ? 'bg-destructive/15 text-destructive border-destructive/30 line-through' : SOURCE_COLORS[t.source],
+                  )}
+                  title={`Category: ${t.category} | Source: ${t.source} | Confidence: ${t.confidence} | Constraint: ${t.constraint}`}
+                >
+                  {t.label}
+                  <span className="text-[6px] opacity-70 ml-0.5">[{SOURCE_LABELS[t.source]}]</span>
+                </span>
+              );
+            })}
+          </div>
+          {contradictions.length > 0 && (
+            <div className="space-y-0.5">
+              {contradictions.map((c, idx) => (
+                <p key={idx} className="text-[8px] px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+                  ⚠ {c.message}
+                </p>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-1.5 text-[7px] text-muted-foreground pt-0.5">
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.script)}>SCRIPT</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.narrative)}>NARRATIVE</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.inferred)}>INFERRED</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.user)}>USER</span>
+          </div>
+        </div>
       )}
     </div>
   );
