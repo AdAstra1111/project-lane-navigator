@@ -76,6 +76,12 @@ export interface ProjectImage {
   subject: string | null;
   shot_type: ShotType | null;
   curation_state: CurationState;
+  /** Provenance — story binding */
+  subject_type: string | null;
+  subject_ref: string | null;
+  generation_purpose: string | null;
+  location_ref: string | null;
+  moment_ref: string | null;
   /** Resolved signed URL — populated client-side */
   signedUrl?: string;
 }
