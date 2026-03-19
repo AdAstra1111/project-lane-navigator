@@ -2,7 +2,7 @@
  * VisualCanonResetPanel — Visual Canon Reset + Rebuild workflow UI.
  *
  * Provides:
- * 1. Reset Active Canon button
+ * 1. Reset Visual Canon button (opens scoped modal)
  * 2. Required Visual Set status (filled vs empty slots)
  * 3. Auto Populate Visual Set — batch generation pipeline
  * 4. Approval queue for recommended candidates
@@ -22,15 +22,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ProjectImage, AssetGroup } from '@/lib/images/types';
