@@ -307,14 +307,15 @@ export async function generateLookBookData(
     type: 'visual_language',
     title: 'Visual Language',
     bullets: [
+      `Rendering: ${stylePolicy.mode === 'photorealistic_cinematic' ? 'Photorealistic cinematic' : stylePolicy.mode.replace(/_/g, ' ')}`,
       `Palette: ${identity.imageStyle.replace(/-/g, ' ')}`,
       identity.typography.titleUppercase ? 'Bold, graphic title treatment' : 'Elegant, refined typography',
-      'Cinematic compositions with intentional framing',
-      'Consistent color grading throughout',
+      stylePolicy.mode === 'photorealistic_cinematic'
+        ? 'Shot on cinema camera — real textures, believable lighting, grounded composition'
+        : 'Intentional stylisation consistent with project vision',
+      'Consistent visual identity across all materials',
     ],
   });
-
-  // STORY ENGINE (series)
   const format = ((project as any).format || '').toLowerCase();
   if (format.includes('series') || format.includes('vertical') || format.includes('limited')) {
     slides.push({
