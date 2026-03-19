@@ -732,6 +732,11 @@ serve(async (req) => {
         const prompt = buildStrategyPrompt(strategy, strategyCtx);
         const versionNum = nextVersion++;
 
+        // Resolve provider/model via shared API resolver
+        const variantInput = { role: 'poster_variant' as ImageRole, styleMode, strategyKey: strategy.key };
+        const genConfig = resolveImageGenerationConfig(variantInput);
+        const repoMeta = buildImageRepositoryMeta(genConfig, variantInput);
+
         const { data: posterRecord, error: insertErr } = await supabase
           .from("project_posters")
           .insert({
@@ -744,8 +749,8 @@ serve(async (req) => {
             layout_variant: strategy.key,
             prompt_text: prompt,
             prompt_inputs: { ...inputs, strategy_key: strategy.key, strategy_label: strategy.label, world_lock: inputs.worldLock },
-            provider: "lovable-ai",
-            model: "google/gemini-3-pro-image-preview",
+            provider: genConfig.provider,
+            model: genConfig.model,
             render_status: "composed_final",
             is_active: false,
           })
@@ -758,7 +763,7 @@ serve(async (req) => {
         }
 
         try {
-          const imageResult = await generateImage(LOVABLE_API_KEY, prompt);
+          const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl);
 
           const keyArtPath = `${project_id}/key-art/v${versionNum}-${strategy.key}.${imageResult.format}`;
           const { error: uploadErr } = await supabase.storage
@@ -779,7 +784,7 @@ serve(async (req) => {
             })
             .eq("id", posterRecord.id);
 
-          // Register into canonical project_images repository
+          // Register into canonical project_images repository with resolver metadata
           await supabase.from("project_images").insert({
             project_id,
             role: "poster_variant",
@@ -795,6 +800,10 @@ serve(async (req) => {
             source_poster_id: posterRecord.id,
             user_id: user.id,
             created_by: user.id,
+            provider: genConfig.provider,
+            model: genConfig.model,
+            style_mode: styleMode,
+            generation_config: repoMeta,
           });
 
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "ready" });
