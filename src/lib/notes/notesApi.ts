@@ -3,6 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 import type { ProjectNote, NoteFilters, TriagePayload, EnsureNoteLegacy, NoteEvent } from '@/lib/types/notes';
 
 async function callNotesEngine(action: string, payload: Record<string, unknown>) {
+  const pid = payload.projectId as string | undefined;
+  if (pid && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pid)) {
+    throw new Error('Invalid projectId format');
+  }
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
