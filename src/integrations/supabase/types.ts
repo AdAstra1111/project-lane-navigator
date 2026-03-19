@@ -12756,9 +12756,11 @@ export type Database = {
       }
       project_images: {
         Row: {
+          asset_group: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints: Json
           created_at: string
           created_by: string | null
+          curation_state: Database["public"]["Enums"]["curation_state"]
           entity_id: string | null
           generation_config: Json
           height: number | null
@@ -12771,18 +12773,22 @@ export type Database = {
           prompt_used: string
           provider: string
           role: Database["public"]["Enums"]["project_image_role"]
+          shot_type: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id: string | null
           storage_bucket: string
           storage_path: string
           strategy_key: string | null
           style_mode: string
+          subject: string | null
           user_id: string
           width: number | null
         }
         Insert: {
+          asset_group?: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints?: Json
           created_at?: string
           created_by?: string | null
+          curation_state?: Database["public"]["Enums"]["curation_state"]
           entity_id?: string | null
           generation_config?: Json
           height?: number | null
@@ -12795,18 +12801,22 @@ export type Database = {
           prompt_used?: string
           provider?: string
           role: Database["public"]["Enums"]["project_image_role"]
+          shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
           storage_bucket?: string
           storage_path: string
           strategy_key?: string | null
           style_mode?: string
+          subject?: string | null
           user_id: string
           width?: number | null
         }
         Update: {
+          asset_group?: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints?: Json
           created_at?: string
           created_by?: string | null
+          curation_state?: Database["public"]["Enums"]["curation_state"]
           entity_id?: string | null
           generation_config?: Json
           height?: number | null
@@ -12819,11 +12829,13 @@ export type Database = {
           prompt_used?: string
           provider?: string
           role?: Database["public"]["Enums"]["project_image_role"]
+          shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
           storage_bucket?: string
           storage_path?: string
           strategy_key?: string | null
           style_mode?: string
+          subject?: string | null
           user_id?: string
           width?: number | null
         }
@@ -24644,6 +24656,12 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      asset_group:
+        | "character"
+        | "world"
+        | "key_moment"
+        | "visual_language"
+        | "poster"
       camera_move:
         | "static"
         | "push_in"
@@ -24655,6 +24673,7 @@ export type Database = {
         | "crane"
         | "tilt"
         | "dolly_zoom"
+      curation_state: "active" | "candidate" | "archived" | "rejected"
       project_image_role:
         | "poster_primary"
         | "poster_variant"
@@ -24810,6 +24829,13 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      asset_group: [
+        "character",
+        "world",
+        "key_moment",
+        "visual_language",
+        "poster",
+      ],
       camera_move: [
         "static",
         "push_in",
@@ -24822,6 +24848,7 @@ export const Constants = {
         "tilt",
         "dolly_zoom",
       ],
+      curation_state: ["active", "candidate", "archived", "rejected"],
       project_image_role: [
         "poster_primary",
         "poster_variant",
