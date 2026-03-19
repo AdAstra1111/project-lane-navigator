@@ -89,6 +89,8 @@ interface ImageSelectorGridProps {
   prestigeStyleFilter?: string;
   /** Lane key for compliance badges */
   laneKey?: string;
+  /** Include untagged legacy images in strict style filter mode */
+  includeLegacyInStyleFilter?: boolean;
 }
 
 const STATE_COLORS: Record<CurationState, string> = {
