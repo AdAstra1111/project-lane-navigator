@@ -153,12 +153,22 @@ export default function VisualDevHub() {
         </div>
       </header>
 
-      <main className="max-w-[1200px] mx-auto px-4 py-6 space-y-4">
+        <main className="max-w-[1200px] mx-auto px-4 py-6 space-y-4">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          {/* ═══ STORY INGESTION ═══ */}
+          <WorkSection
+            icon={<BookOpen className="h-4 w-4" />}
+            title="Story Ingestion Engine"
+            subtitle="Parse script into scenes, characters, locations, props, and state variants"
+            defaultOpen={false}
+          >
+            {projectId && <StoryIngestionPanel projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ PRIMARY: Cast Photos & Identity ═══ */}
           <WorkSection
             icon={<Users className="h-4 w-4" />}
