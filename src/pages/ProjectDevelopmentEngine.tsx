@@ -896,7 +896,7 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handleStaleRegenerate = async () => {
-    if (!selectedDoc?.doc_type || !projectId) return;
+    if (!selectedDoc?.doc_type || !isValidUUID(projectId)) return;
     const { data: { user } } = await supabase.auth.getUser();
     await supabase.functions.invoke('generate-document', {
       body: {
