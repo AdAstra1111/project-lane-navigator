@@ -9824,6 +9824,66 @@ export type Database = {
           },
         ]
       }
+      poster_credits: {
+        Row: {
+          based_on_credit: string | null
+          company_name: string
+          created_at: string
+          created_by_credit: string | null
+          id: string
+          produced_by: string[]
+          project_id: string
+          tagline: string | null
+          title_override: string | null
+          updated_at: string
+          user_id: string
+          written_by: string[]
+        }
+        Insert: {
+          based_on_credit?: string | null
+          company_name?: string
+          created_at?: string
+          created_by_credit?: string | null
+          id?: string
+          produced_by?: string[]
+          project_id: string
+          tagline?: string | null
+          title_override?: string | null
+          updated_at?: string
+          user_id: string
+          written_by?: string[]
+        }
+        Update: {
+          based_on_credit?: string | null
+          company_name?: string
+          created_at?: string
+          created_by_credit?: string | null
+          id?: string
+          produced_by?: string[]
+          project_id?: string
+          tagline?: string | null
+          title_override?: string | null
+          updated_at?: string
+          user_id?: string
+          written_by?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poster_credits_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "poster_credits_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prediction_outcomes: {
         Row: {
           actual_financing_outcome: string
