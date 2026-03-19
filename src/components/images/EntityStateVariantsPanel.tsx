@@ -1,16 +1,17 @@
 /**
- * EntityStateVariantsPanel — Phase 3 stateful visual continuity.
- * Supports generating and curating state variants for characters and locations.
- * Derives from base references: same entity, different state.
+ * EntityStateVariantsPanel — Story-aware stateful visual continuity.
+ * Now persists structured entity_visual_states records alongside image generation.
+ * Supports both preset-based and story-derived state variants.
  */
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Layers, Plus, Loader2, Star, Archive, RotateCcw, ChevronRight } from 'lucide-react';
+import { Layers, Plus, Loader2, Star, Archive, RotateCcw, ChevronRight, CheckCircle, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
+import { useEntityVisualStates, CHARACTER_STATE_CATEGORIES, LOCATION_STATE_CATEGORIES } from '@/hooks/useEntityVisualStates';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -30,7 +31,14 @@ export function EntityStateVariantsPanel({
   projectId, entityType, entityName, entityDescription,
 }: EntityStateVariantsPanelProps) {
   const presets = entityType === 'character' ? CHARACTER_STATE_PRESETS : LOCATION_STATE_PRESETS;
+  const categories = entityType === 'character' ? CHARACTER_STATE_CATEGORIES : LOCATION_STATE_CATEGORIES;
   const assetGroup = entityType === 'character' ? 'character' : 'world';
+  const { states, getStatesForEntity, createState } = useEntityVisualStates(projectId);
+
+  const entityStates = useMemo(
+    () => getStatesForEntity(entityType, entityName),
+    [states, entityType, entityName, getStatesForEntity]
+  );
 
   // Fetch all state-variant images for this entity
   const { data: stateImages = [], isLoading } = useProjectImages(projectId, {
@@ -44,18 +52,25 @@ export function EntityStateVariantsPanel({
   const stateGroups = useMemo(() => {
     const groups = new Map<string, ProjectImage[]>();
     for (const img of stateImages) {
-      if (!img.state_key) continue; // skip base references
+      if (!img.state_key) continue;
       if (!groups.has(img.state_key)) groups.set(img.state_key, []);
       groups.get(img.state_key)!.push(img);
     }
     return groups;
   }, [stateImages]);
 
-  // States that already have images
   const existingStates = Array.from(stateGroups.keys());
   const totalStateImages = Array.from(stateGroups.values()).reduce((s, imgs) => s + imgs.length, 0);
 
-  if (totalStateImages === 0 && !isLoading) {
+  // Merge: show structured states + image-backed states
+  const allStateKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const s of entityStates) keys.add(s.state_key);
+    for (const k of existingStates) keys.add(k);
+    return Array.from(keys);
+  }, [entityStates, existingStates]);
+
+  if (totalStateImages === 0 && entityStates.length === 0 && !isLoading) {
     return (
       <StateGenerationBar
         projectId={projectId}
@@ -64,6 +79,7 @@ export function EntityStateVariantsPanel({
         entityDescription={entityDescription}
         presets={presets}
         existingStates={existingStates}
+        onStateCreated={() => {}}
       />
     );
   }
@@ -75,18 +91,48 @@ export function EntityStateVariantsPanel({
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
           State Variants
         </span>
-        <Badge variant="secondary" className="text-[8px]">{totalStateImages}</Badge>
+        <Badge variant="secondary" className="text-[8px]">
+          {allStateKeys.length} state{allStateKeys.length !== 1 ? 's' : ''}
+        </Badge>
+        {totalStateImages > 0 && (
+          <span className="text-[8px] text-muted-foreground">({totalStateImages} images)</span>
+        )}
       </div>
 
-      {Array.from(stateGroups.entries()).map(([stateKey, images]) => (
-        <StateGroupSection
-          key={stateKey}
-          projectId={projectId}
-          stateKey={stateKey}
-          stateLabel={images[0]?.state_label || stateKey}
-          images={images}
-        />
-      ))}
+      {/* Structured states (from entity_visual_states) without images */}
+      {entityStates
+        .filter(s => !stateGroups.has(s.state_key))
+        .map(state => (
+          <div key={state.id} className="flex items-center gap-2 py-1 px-2 rounded bg-muted/20 border border-border/30">
+            <Badge variant="outline" className="text-[7px] px-1 py-0">{state.state_category}</Badge>
+            <span className="text-[10px] text-foreground flex-1">{state.state_label}</span>
+            <Badge className={cn(
+              'text-[7px] px-1 py-0',
+              state.confidence === 'approved'
+                ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30'
+                : 'bg-amber-500/10 text-amber-600 border-amber-500/20',
+            )}>
+              {state.confidence === 'approved' ? 'Approved' : 'Proposed'}
+            </Badge>
+            <span className="text-[8px] text-muted-foreground">No images yet</span>
+          </div>
+        ))}
+
+      {/* Image-backed state groups */}
+      {Array.from(stateGroups.entries()).map(([stateKey, images]) => {
+        const structuredState = entityStates.find(s => s.state_key === stateKey);
+        return (
+          <StateGroupSection
+            key={stateKey}
+            projectId={projectId}
+            stateKey={stateKey}
+            stateLabel={structuredState?.state_label || images[0]?.state_label || stateKey}
+            stateCategory={structuredState?.state_category}
+            confidence={structuredState?.confidence}
+            images={images}
+          />
+        );
+      })}
 
       <StateGenerationBar
         projectId={projectId}
@@ -94,18 +140,21 @@ export function EntityStateVariantsPanel({
         entityName={entityName}
         entityDescription={entityDescription}
         presets={presets}
-        existingStates={existingStates}
+        existingStates={allStateKeys}
+        onStateCreated={() => {}}
       />
     </div>
   );
 }
 
 function StateGroupSection({
-  projectId, stateKey, stateLabel, images,
+  projectId, stateKey, stateLabel, stateCategory, confidence, images,
 }: {
   projectId: string;
   stateKey: string;
   stateLabel: string;
+  stateCategory?: string;
+  confidence?: string;
   images: ProjectImage[];
 }) {
   const [open, setOpen] = useState(false);
@@ -122,11 +171,17 @@ function StateGroupSection({
             <Layers className="h-2.5 w-2.5 text-muted-foreground" />
           )}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex items-center gap-1.5">
           <span className="text-xs font-medium text-foreground capitalize">{stateLabel}</span>
-          <span className="text-[9px] text-muted-foreground ml-1.5">({images.length})</span>
+          <span className="text-[9px] text-muted-foreground">({images.length})</span>
+          {stateCategory && (
+            <Badge variant="outline" className="text-[7px] px-1 py-0">{stateCategory}</Badge>
+          )}
+          {confidence === 'approved' && (
+            <CheckCircle className="h-2.5 w-2.5 text-emerald-500" />
+          )}
           {primary && (
-            <Badge variant="secondary" className="text-[7px] px-1 py-0 ml-1">Primary ✓</Badge>
+            <Badge variant="secondary" className="text-[7px] px-1 py-0">Primary ✓</Badge>
           )}
         </div>
         <ChevronRight className={cn('h-3 w-3 text-muted-foreground transition-transform', open && 'rotate-90')} />
@@ -222,7 +277,7 @@ function StateImageCard({
 }
 
 function StateGenerationBar({
-  projectId, entityType, entityName, entityDescription, presets, existingStates,
+  projectId, entityType, entityName, entityDescription, presets, existingStates, onStateCreated,
 }: {
   projectId: string;
   entityType: 'character' | 'location';
@@ -230,12 +285,13 @@ function StateGenerationBar({
   entityDescription?: string;
   presets: StatePreset[];
   existingStates: string[];
+  onStateCreated: () => void;
 }) {
   const [generating, setGenerating] = useState<string | null>(null);
   const [identityAnchors, setIdentityAnchors] = useState<{ headshot?: string; fullBody?: string } | null>(null);
   const qc = useQueryClient();
+  const { createState } = useEntityVisualStates(projectId);
 
-  // Resolve identity anchors for character state variants
   useEffect(() => {
     if (entityType !== 'character') return;
     resolveCharacterIdentity(projectId, entityName).then(state => {
@@ -256,6 +312,22 @@ function StateGenerationBar({
       ? ['close_up', 'full_body']
       : ['wide', 'atmospheric'];
 
+    // Persist structured state record
+    try {
+      await createState.mutateAsync({
+        entityType,
+        entityName,
+        stateKey: preset.key,
+        stateLabel: preset.label,
+        stateCategory: isCharacter ? 'costume' : 'time_of_day', // infer from preset
+        canonicalDescription: preset.promptModifier,
+        sourceReason: 'preset_generation',
+        confidence: 'proposed',
+      });
+    } catch {
+      // May already exist, continue with generation
+    }
+
     try {
       const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
         body: {
@@ -272,7 +344,6 @@ function StateGenerationBar({
           state_key: preset.key,
           state_label: preset.label,
           state_prompt_modifier: preset.promptModifier,
-          // Inject locked identity anchors for character state variants
           identity_anchor_paths: isCharacter ? identityAnchors : null,
         },
       });
@@ -282,7 +353,7 @@ function StateGenerationBar({
       if (successCount > 0) {
         toast.success(`Generated ${successCount} "${preset.label}" variants for ${entityName}`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
-        qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
+        onStateCreated();
       } else {
         toast.error('No images generated');
       }
@@ -291,7 +362,7 @@ function StateGenerationBar({
     } finally {
       setGenerating(null);
     }
-  }, [projectId, entityType, entityName, entityDescription, generating, qc, identityAnchors]);
+  }, [projectId, entityType, entityName, entityDescription, generating, qc, identityAnchors, createState, onStateCreated]);
 
   if (availablePresets.length === 0) return null;
 

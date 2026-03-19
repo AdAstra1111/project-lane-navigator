@@ -72,9 +72,12 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
   const [canonJson, setCanonJson] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [visualDnaCharNames, setVisualDnaCharNames] = useState<Set<string>>(new Set());
+  const [identityLockedNames, setIdentityLockedNames] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     async function load() {
+      // Load canon characters
       const { data } = await (supabase as any)
         .from('project_canon')
         .select('canon_json')
@@ -85,6 +88,35 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         setCanonJson(data.canon_json);
         setCharacters(extractCharacters(data.canon_json));
       }
+
+      // Load visual DNA coverage
+      const { data: dnaRows } = await (supabase as any)
+        .from('character_visual_dna')
+        .select('character_name')
+        .eq('project_id', projectId)
+        .eq('is_current', true);
+      if (dnaRows) {
+        setVisualDnaCharNames(new Set(dnaRows.map((d: any) => d.character_name)));
+      }
+
+      // Check identity lock status from project_images
+      const { data: lockedImages } = await (supabase as any)
+        .from('project_images')
+        .select('subject')
+        .eq('project_id', projectId)
+        .eq('asset_group', 'character')
+        .eq('is_primary', true)
+        .in('shot_type', ['identity_headshot', 'identity_full_body']);
+      if (lockedImages) {
+        const lockCounts = new Map<string, number>();
+        for (const img of lockedImages) {
+          if (img.subject) lockCounts.set(img.subject, (lockCounts.get(img.subject) || 0) + 1);
+        }
+        setIdentityLockedNames(new Set(
+          [...lockCounts.entries()].filter(([, count]) => count >= 2).map(([name]) => name)
+        ));
+      }
+
       setLoading(false);
     }
     load();
@@ -109,16 +141,68 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
     );
   }
 
+  // Coverage analysis
+  const canonicalCount = characters.length;
+  const inVisualWorkflow = characters.filter(c => visualDnaCharNames.has(c.name)).length;
+  const lockedCount = characters.filter(c => identityLockedNames.has(c.name)).length;
+  const missingCoverage = characters.filter(c => !visualDnaCharNames.has(c.name));
+
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2 mb-2">
         <User className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-semibold text-foreground">Character Visual Identity</h3>
-        <Badge variant="secondary" className="text-[10px]">{characters.length} characters</Badge>
       </div>
+
+      {/* Coverage Summary */}
+      <div className="grid grid-cols-4 gap-1.5 mb-3">
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Canonical Cast</p>
+          <p className="text-sm font-semibold text-foreground">{canonicalCount}</p>
+        </div>
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Visual DNA</p>
+          <p className="text-sm font-semibold text-foreground">{inVisualWorkflow}</p>
+        </div>
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Identity Locked</p>
+          <p className="text-sm font-semibold text-emerald-600">{lockedCount}</p>
+        </div>
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Missing</p>
+          <p className={cn('text-sm font-semibold', missingCoverage.length > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+            {missingCoverage.length}
+          </p>
+        </div>
+      </div>
+
       <p className="text-[10px] text-muted-foreground mb-3">
         Establish locked visual identity (face + body) before generating scene imagery. Identity anchors ensure continuity across all outputs.
       </p>
+
+      {/* Missing Coverage Block */}
+      {missingCoverage.length > 0 && (
+        <Card className="mb-3 border-amber-500/30 bg-amber-500/5">
+          <CardContent className="p-2.5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <AlertTriangle className="h-3 w-3 text-amber-500" />
+              <span className="text-[10px] font-medium text-amber-600">Missing Visual Coverage</span>
+            </div>
+            <div className="space-y-1">
+              {missingCoverage.map(char => (
+                <div key={char.name} className="flex items-center justify-between text-[10px]">
+                  <span className="text-foreground">
+                    {char.name}
+                    {char.role && <span className="text-muted-foreground ml-1">({char.role})</span>}
+                  </span>
+                  <span className="text-muted-foreground/60">No visual DNA yet</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {characters.map(char => (
         <CharacterSection key={char.name} projectId={projectId} character={char} canonJson={canonJson} />
       ))}

@@ -1,17 +1,20 @@
 /**
  * WorldLocationLookPanel — Phase 2 world + location visual identity system.
- * Phase 3: Now includes state variant generation per location.
+ * Now uses structured canon_locations as authority source.
+ * Falls back to canon_json extraction if no structured locations exist.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw } from 'lucide-react';
+import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
+import { useCanonLocations } from '@/hooks/useCanonLocations';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -25,81 +28,59 @@ interface LocationInfo {
   name: string;
   description?: string;
   importance?: number;
-  type?: 'primary' | 'recurring' | 'secondary';
-}
-
-/**
- * Extract locations from canon_json with importance ordering.
- * Handles: array of strings, array of objects with name/description, or a single setting string.
- */
-function extractLocations(canonJson: any): LocationInfo[] {
-  if (!canonJson) return [];
-
-  const locations: LocationInfo[] = [];
-
-  // Try structured locations array
-  const raw = canonJson.locations || canonJson.settings || canonJson.key_locations;
-  if (Array.isArray(raw) && raw.length > 0) {
-    raw.forEach((loc: any, idx: number) => {
-      if (typeof loc === 'string') {
-        const name = loc.trim();
-        if (name && name !== 'Unknown') {
-          locations.push({ name, importance: idx });
-        }
-      } else if (loc && typeof loc === 'object') {
-        const name = (loc.name || loc.location_name || loc.setting || '').trim();
-        if (!name || name === 'Unknown') return;
-        const desc = (loc.description || loc.visual_description || loc.atmosphere || '').trim();
-        const type = loc.type || loc.importance_level || (idx < 3 ? 'primary' : 'secondary');
-        let importance = idx;
-        if (type === 'primary' || type === 'main') importance = -10 + idx;
-        else if (type === 'recurring') importance = idx;
-        else if (type === 'secondary') importance = 10 + idx;
-        locations.push({ name, description: desc || undefined, importance, type });
-      }
-    });
-  }
-
-  // Fallback: parse world_description or setting for implied locations
-  if (locations.length === 0) {
-    const worldDesc = canonJson.world_description || canonJson.setting || '';
-    if (typeof worldDesc === 'string' && worldDesc.length > 0) {
-      // Create a single "World" entry from the description
-      locations.push({
-        name: 'Primary World',
-        description: worldDesc.slice(0, 300),
-        importance: 0,
-        type: 'primary',
-      });
-    }
-  }
-
-  // Sort by importance (lower = more important)
-  locations.sort((a, b) => (a.importance || 0) - (b.importance || 0));
-
-  // Limit to 8 max
-  return locations.slice(0, 8);
+  type?: string;
+  interior_or_exterior?: string;
+  source: 'structured' | 'canon_json';
 }
 
 export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProps) {
-  const [locations, setLocations] = useState<LocationInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { locations: structuredLocations, isLoading: structuredLoading, seedFromCanon } = useCanonLocations(projectId);
+  const [canonJson, setCanonJson] = useState<any>(null);
+  const [canonLoading, setCanonLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
 
   useEffect(() => {
-    async function load() {
+    (async () => {
       const { data } = await (supabase as any)
         .from('project_canon')
         .select('canon_json')
         .eq('project_id', projectId)
         .maybeSingle();
-
-      if (data?.canon_json) {
-        setLocations(extractLocations(data.canon_json));
-      }
-      setLoading(false);
-    }
-    load();
+      setCanonJson(data?.canon_json || null);
+      setCanonLoading(false);
+    })();
   }, [projectId]);
+
+  const loading = structuredLoading || canonLoading;
+
+  // Merge structured locations as primary source, canon_json as fallback
+  const locations: LocationInfo[] = useMemo(() => {
+    if (structuredLocations.length > 0) {
+      return structuredLocations.map((loc, idx) => ({
+        name: loc.canonical_name,
+        description: loc.description || undefined,
+        importance: loc.story_importance === 'primary' ? -10 + idx : idx,
+        type: loc.location_type,
+        interior_or_exterior: loc.interior_or_exterior || undefined,
+        source: 'structured' as const,
+      }));
+    }
+    // Fallback: extract from canon_json
+    return extractLocationsFromCanon(canonJson);
+  }, [structuredLocations, canonJson]);
+
+  const handleSeedLocations = useCallback(async () => {
+    if (!canonJson) {
+      toast.error('No story data available to extract locations');
+      return;
+    }
+    setSeeding(true);
+    try {
+      await seedFromCanon.mutateAsync({ canonJson });
+    } finally {
+      setSeeding(false);
+    }
+  }, [canonJson, seedFromCanon]);
 
   if (loading) {
     return (
@@ -110,23 +91,86 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     );
   }
 
+  // Empty state with extraction CTA
   if (locations.length === 0) {
     return (
-      <div className="py-4 text-center">
-        <p className="text-xs text-muted-foreground">
-          No locations found in project canon. Add world/location details to enable location reference development.
-        </p>
+      <div className="py-4">
+        <Card className="border-dashed border-amber-500/30 bg-amber-500/5">
+          <CardContent className="py-6 text-center space-y-3">
+            <div className="flex items-center justify-center gap-2 text-amber-600">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-xs font-medium">No structured locations seeded yet</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground max-w-sm mx-auto">
+              Extract locations from your story materials to build governed world/location visual references.
+              No images will be generated without structured location canon.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs"
+              onClick={handleSeedLocations}
+              disabled={seeding || !canonJson}
+            >
+              {seeding ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Extracting...</>
+              ) : (
+                <><Wand2 className="h-3 w-3" /> Extract Locations from Story</>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
+
+  // Coverage summary
+  const structuredCount = structuredLocations.length;
+  const primaryCount = locations.filter(l => l.type === 'primary' || (l.importance !== undefined && l.importance < 0)).length;
 
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2 mb-2">
         <Globe className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-semibold text-foreground">World & Location References</h3>
-        <Badge variant="secondary" className="text-[10px]">{locations.length} locations</Badge>
       </div>
+
+      {/* Coverage Summary */}
+      <div className="grid grid-cols-3 gap-1.5 mb-3">
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Seeded Locations</p>
+          <p className="text-sm font-semibold text-foreground">{locations.length}</p>
+        </div>
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Primary</p>
+          <p className="text-sm font-semibold text-foreground">{primaryCount}</p>
+        </div>
+        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+          <p className="text-[10px] text-muted-foreground">Source</p>
+          <p className="text-[10px] font-medium text-foreground">
+            {structuredCount > 0 ? 'Structured Canon' : 'Canon JSON'}
+          </p>
+        </div>
+      </div>
+
+      {structuredCount === 0 && canonJson && (
+        <div className="mb-3">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-[10px] h-7 w-full"
+            onClick={handleSeedLocations}
+            disabled={seeding}
+          >
+            {seeding ? (
+              <><Loader2 className="h-3 w-3 animate-spin" /> Seeding...</>
+            ) : (
+              <><Wand2 className="h-3 w-3" /> Seed Structured Location Canon</>
+            )}
+          </Button>
+        </div>
+      )}
+
       <p className="text-[10px] text-muted-foreground mb-3">
         Generate establishing + atmospheric + detail references per location. Select primary references to anchor world visual identity.
       </p>
@@ -135,6 +179,39 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
       ))}
     </div>
   );
+}
+
+/** Fallback extraction from canon_json */
+function extractLocationsFromCanon(canonJson: any): LocationInfo[] {
+  if (!canonJson) return [];
+  const locations: LocationInfo[] = [];
+  const raw = canonJson.locations || canonJson.settings || canonJson.key_locations;
+  if (Array.isArray(raw) && raw.length > 0) {
+    raw.forEach((loc: any, idx: number) => {
+      if (typeof loc === 'string') {
+        const name = loc.trim();
+        if (name && name !== 'Unknown') locations.push({ name, importance: idx, source: 'canon_json' });
+      } else if (loc && typeof loc === 'object') {
+        const name = (loc.name || loc.location_name || loc.setting || '').trim();
+        if (!name || name === 'Unknown') return;
+        locations.push({
+          name,
+          description: (loc.description || loc.visual_description || '').trim() || undefined,
+          importance: idx,
+          type: loc.type || 'secondary',
+          source: 'canon_json',
+        });
+      }
+    });
+  }
+  if (locations.length === 0) {
+    const worldDesc = canonJson.world_description || canonJson.setting || '';
+    if (typeof worldDesc === 'string' && worldDesc.length > 0) {
+      locations.push({ name: 'Primary World', description: worldDesc.slice(0, 300), importance: 0, type: 'primary', source: 'canon_json' });
+    }
+  }
+  locations.sort((a, b) => (a.importance || 0) - (b.importance || 0));
+  return locations.slice(0, 8);
 }
 
 type LocFilter = 'all' | 'active' | 'candidate' | 'archived';
@@ -146,7 +223,6 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
 
-  // Fetch ALL images for this location (including archived)
   const { data: locImages = [], isLoading } = useProjectImages(projectId, {
     assetGroup: 'world',
     subject: location.name,
@@ -154,7 +230,6 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
     curationStates: ['active', 'candidate', 'archived'],
   });
 
-  // Apply client filter
   const filteredImages = useMemo(() => {
     if (filter === 'all') return locImages.filter(i => i.curation_state !== 'rejected');
     return locImages.filter(i => i.curation_state === filter);
@@ -164,7 +239,6 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
   const detailShots = filteredImages.filter(i => i.shot_type === 'detail' || i.shot_type === 'time_variant');
   const others = filteredImages.filter(i => !['wide', 'atmospheric', 'detail', 'time_variant'].includes(i.shot_type || ''));
 
-  // Primary = is_primary ONLY (not curation_state fallback)
   const primaryEstablishing = locImages.find(i => i.is_primary && (i.shot_type === 'wide' || i.shot_type === 'atmospheric'));
   const primaryDetail = locImages.find(i => i.is_primary && (i.shot_type === 'detail' || i.shot_type === 'time_variant'));
 
@@ -194,8 +268,6 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
       if (successCount > 0) {
         toast.success(`Generated ${successCount} images for ${location.name}`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
-        qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
-        qc.invalidateQueries({ queryKey: ['section-images', projectId] });
       } else {
         toast.error('No images generated successfully');
       }
@@ -217,28 +289,30 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-foreground">{location.name}</span>
-          {location.type && (
-            <span className="text-[10px] text-muted-foreground ml-1.5">({location.type})</span>
-          )}
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium text-foreground">{location.name}</span>
+            {location.type && (
+              <Badge variant="secondary" className="text-[8px] px-1 py-0">{location.type}</Badge>
+            )}
+            {location.interior_or_exterior && (
+              <Badge variant="outline" className="text-[7px] px-1 py-0">{location.interior_or_exterior}</Badge>
+            )}
+          </div>
           <div className="flex items-center gap-1.5 mt-0.5">
-            {primaryEstablishing && <Badge variant="secondary" className="text-[8px] px-1 py-0">Primary Establishing ✓</Badge>}
-            {primaryDetail && <Badge variant="secondary" className="text-[8px] px-1 py-0">Primary Detail ✓</Badge>}
+            {primaryEstablishing && <Badge variant="secondary" className="text-[8px] px-1 py-0">Primary ✓</Badge>}
             {locImages.length === 0 && <span className="text-[10px] text-muted-foreground/60">no references</span>}
-            {locImages.length > 0 && !primaryEstablishing && !primaryDetail && (
-              <span className="text-[10px] text-accent">{locImages.length} candidates — select primaries</span>
+            {locImages.length > 0 && !primaryEstablishing && (
+              <span className="text-[10px] text-accent">{locImages.length} candidates</span>
             )}
           </div>
         </div>
         <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-90')} />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
-        {/* Description */}
         {location.description && (
           <p className="text-[10px] text-muted-foreground mb-2 italic line-clamp-2">{location.description}</p>
         )}
 
-        {/* Filter bar */}
         {locImages.length > 0 && (
           <div className="flex items-center gap-1 mb-2 flex-wrap">
             {(['all', 'active', 'candidate', 'archived'] as LocFilter[]).map(f => (
@@ -261,19 +335,11 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           </div>
         )}
 
-        {/* Wide / Establishing shots */}
         {wideShots.length > 0 && (
           <div className="mb-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                Establishing / Atmospheric
-              </p>
-              {primaryEstablishing && (
-                <Badge className="text-[8px] bg-primary/90 text-primary-foreground px-1.5 py-0">
-                  Primary: {primaryEstablishing.shot_type}
-                </Badge>
-              )}
-            </div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+              Establishing / Atmospheric
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {wideShots.map(img => (
                 <LocationImageCard
@@ -290,19 +356,11 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           </div>
         )}
 
-        {/* Detail / Time variant shots */}
         {detailShots.length > 0 && (
           <div className="mb-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                Detail / Temporal
-              </p>
-              {primaryDetail && (
-                <Badge className="text-[8px] bg-primary/90 text-primary-foreground px-1.5 py-0">
-                  Primary
-                </Badge>
-              )}
-            </div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
+              Detail / Temporal
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {detailShots.map(img => (
                 <LocationImageCard
@@ -319,23 +377,15 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           </div>
         )}
 
-        {/* Other shots */}
         {others.length > 0 && (
           <div className="mb-3">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
               Other References
             </p>
-            <ImageSelectorGrid
-              projectId={projectId}
-              images={others}
-              showShotTypes
-              showCurationControls
-              showProvenance
-            />
+            <ImageSelectorGrid projectId={projectId} images={others} showShotTypes showCurationControls showProvenance />
           </div>
         )}
 
-        {/* Phase 3: State Variants */}
         {locImages.length > 0 && (
           <EntityStateVariantsPanel
             projectId={projectId}
@@ -345,7 +395,6 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           />
         )}
 
-        {/* Generate button */}
         <Button
           size="sm"
           variant="outline"
@@ -356,7 +405,7 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           {generating ? (
             <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
           ) : (
-            <><Plus className="h-3 w-3" /> Generate Location Pack (wide + atmospheric + detail + time variant)</>
+            <><Plus className="h-3 w-3" /> Generate Location Pack</>
           )}
         </Button>
       </CollapsibleContent>
@@ -364,9 +413,6 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
   );
 }
 
-/**
- * Individual location image card with explicit primary selection controls.
- */
 function LocationImageCard({
   image, isPrimary, onSetPrimary, onArchive, onRestore, updating,
 }: {
@@ -397,7 +443,6 @@ function LocationImageCard({
         </div>
       )}
 
-      {/* Primary badge */}
       {isPrimary && (
         <div className="absolute top-1 left-1">
           <Badge className="text-[9px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5">
@@ -406,7 +451,6 @@ function LocationImageCard({
         </div>
       )}
 
-      {/* Subject + shot type badge */}
       {!isPrimary && (
         <div className="absolute top-1 left-1">
           <Badge variant="secondary" className="text-[8px] px-1 py-0 bg-black/50 text-white/80 border-0">
@@ -415,7 +459,6 @@ function LocationImageCard({
         </div>
       )}
 
-      {/* Hover controls */}
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
         <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isPrimary && !isArchived && (

@@ -32,6 +32,8 @@ export interface VisualSet {
   status: VisualSetStatus;
   required_slot_count: number;
   current_dna_version_id: string | null;
+  entity_state_id: string | null;
+  entity_state_key: string | null;
   locked_at: string | null;
   locked_by: string | null;
   created_at: string;
@@ -216,6 +218,8 @@ export function useVisualSets(projectId: string | undefined) {
       targetName: string;
       sourceRunId?: string;
       dnaVersionId?: string | null;
+      entityStateId?: string | null;
+      entityStateKey?: string | null;
     }) => {
       if (!projectId) throw new Error('No project');
       const slots = getSlotsForDomain(params.domain);
@@ -233,6 +237,8 @@ export function useVisualSets(projectId: string | undefined) {
           status: 'draft',
           required_slot_count: requiredCount,
           current_dna_version_id: params.dnaVersionId || null,
+          entity_state_id: params.entityStateId || null,
+          entity_state_key: params.entityStateKey || null,
         })
         .select()
         .single();

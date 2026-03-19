@@ -1239,6 +1239,81 @@ export type Database = {
           },
         ]
       }
+      canon_locations: {
+        Row: {
+          active: boolean
+          associated_characters: string[]
+          canonical_name: string
+          created_at: string
+          description: string | null
+          era_relevance: string | null
+          geography: string | null
+          id: string
+          interior_or_exterior: string | null
+          location_type: string
+          normalized_name: string
+          project_id: string
+          provenance: string | null
+          recurring: boolean
+          source_document_ids: string[]
+          story_importance: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          associated_characters?: string[]
+          canonical_name: string
+          created_at?: string
+          description?: string | null
+          era_relevance?: string | null
+          geography?: string | null
+          id?: string
+          interior_or_exterior?: string | null
+          location_type?: string
+          normalized_name: string
+          project_id: string
+          provenance?: string | null
+          recurring?: boolean
+          source_document_ids?: string[]
+          story_importance?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          associated_characters?: string[]
+          canonical_name?: string
+          created_at?: string
+          description?: string | null
+          era_relevance?: string | null
+          geography?: string | null
+          id?: string
+          interior_or_exterior?: string | null
+          location_type?: string
+          normalized_name?: string
+          project_id?: string
+          provenance?: string | null
+          recurring?: boolean
+          source_document_ids?: string[]
+          story_importance?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_locations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "canon_locations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canon_overrides: {
         Row: {
           created_at: string
@@ -5842,6 +5917,91 @@ export type Database = {
           weights?: Json
         }
         Relationships: []
+      }
+      entity_visual_states: {
+        Row: {
+          active: boolean
+          approved_at: string | null
+          approved_by: string | null
+          canonical_description: string | null
+          confidence: string
+          created_at: string
+          entity_id: string | null
+          entity_name: string
+          entity_type: string
+          id: string
+          parent_state_id: string | null
+          project_id: string
+          source_reason: string | null
+          state_category: string
+          state_key: string
+          state_label: string
+          story_phase: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          canonical_description?: string | null
+          confidence?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_name: string
+          entity_type: string
+          id?: string
+          parent_state_id?: string | null
+          project_id: string
+          source_reason?: string | null
+          state_category: string
+          state_key: string
+          state_label: string
+          story_phase?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          canonical_description?: string | null
+          confidence?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_name?: string
+          entity_type?: string
+          id?: string
+          parent_state_id?: string | null
+          project_id?: string
+          source_reason?: string | null
+          state_category?: string
+          state_key?: string
+          state_label?: string
+          story_phase?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entity_visual_states_parent_state_id_fkey"
+            columns: ["parent_state_id"]
+            isOneToOne: false
+            referencedRelation: "entity_visual_states"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "entity_visual_states_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "entity_visual_states_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       episode_activity_log: {
         Row: {
@@ -24381,6 +24541,8 @@ export type Database = {
           created_at: string
           current_dna_version_id: string | null
           domain: string
+          entity_state_id: string | null
+          entity_state_key: string | null
           id: string
           locked_at: string | null
           locked_by: string | null
@@ -24397,6 +24559,8 @@ export type Database = {
           created_at?: string
           current_dna_version_id?: string | null
           domain?: string
+          entity_state_id?: string | null
+          entity_state_key?: string | null
           id?: string
           locked_at?: string | null
           locked_by?: string | null
@@ -24413,6 +24577,8 @@ export type Database = {
           created_at?: string
           current_dna_version_id?: string | null
           domain?: string
+          entity_state_id?: string | null
+          entity_state_key?: string | null
           id?: string
           locked_at?: string | null
           locked_by?: string | null
@@ -24431,6 +24597,13 @@ export type Database = {
             columns: ["current_dna_version_id"]
             isOneToOne: false
             referencedRelation: "character_visual_dna"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_sets_entity_state_id_fkey"
+            columns: ["entity_state_id"]
+            isOneToOne: false
+            referencedRelation: "entity_visual_states"
             referencedColumns: ["id"]
           },
           {
