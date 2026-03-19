@@ -25,6 +25,10 @@ export function useImageCuration(projectId: string) {
       const updates: Record<string, unknown> = { curation_state: state };
       // is_active is backward compat: active/candidate = visible, archived/rejected = hidden
       updates.is_active = (state === 'active' || state === 'candidate');
+      // When demoting away from active, also clear is_primary
+      if (state !== 'active') {
+        updates.is_primary = false;
+      }
 
       await (supabase as any)
         .from('project_images')
@@ -32,7 +36,8 @@ export function useImageCuration(projectId: string) {
         .eq('id', imageId);
 
       invalidate();
-      toast.success(`Image ${state === 'active' ? 'activated' : state}`);
+      const label = state === 'active' ? 'activated' : state === 'candidate' ? 'moved to candidates' : state;
+      toast.success(`Image ${label}`);
     } catch (e: any) {
       toast.error(e.message || 'Failed to update image');
     } finally {
