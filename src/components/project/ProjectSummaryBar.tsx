@@ -36,12 +36,7 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
   const behavior = (project.development_behavior as DevelopmentBehavior) || 'market';
   const modality = getProjectModality((project as any).project_features);
   const ModalityIcon = MODALITY_ICONS[modality];
-  const { renameProject } = useProjects();
-
-  const handleRename = async (newTitle: string) => {
-    await renameProject.mutateAsync({ projectId: project.id, title: newTitle });
-    toast.success('Project renamed');
-  };
+  // Rename is now handled by ProjectTitleManager with full history governance
 
   return (
     <div className="sticky top-0 z-30 bg-background/70 backdrop-blur-2xl border-b border-border/20 -mx-4 px-4 py-2.5 mb-4">
