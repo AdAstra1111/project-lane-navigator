@@ -6,15 +6,18 @@
  * Identity images use generation_purpose='character_identity' and identity_* shot types.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
+import { useCharacterIdentityNotes } from '@/hooks/useCharacterIdentityNotes';
+import { resolveCharacterIdentity, checkIdentityNotesAgainstCanon } from '@/lib/images/identityResolver';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -66,6 +69,7 @@ function extractCharacters(canonJson: any): CharacterInfo[] {
 
 export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProps) {
   const [characters, setCharacters] = useState<CharacterInfo[]>([]);
+  const [canonJson, setCanonJson] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -77,6 +81,7 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         .maybeSingle();
 
       if (data?.canon_json) {
+        setCanonJson(data.canon_json);
         setCharacters(extractCharacters(data.canon_json));
       }
       setLoading(false);
@@ -114,7 +119,7 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
         Establish locked visual identity (face + body) before generating scene imagery. Identity anchors ensure continuity across all outputs.
       </p>
       {characters.map(char => (
-        <CharacterSection key={char.name} projectId={projectId} character={char} />
+        <CharacterSection key={char.name} projectId={projectId} character={char} canonJson={canonJson} />
       ))}
     </div>
   );
@@ -122,7 +127,7 @@ export function CharacterBaseLookPanel({ projectId }: CharacterBaseLookPanelProp
 
 type CharFilter = 'all' | 'active' | 'candidate' | 'archived';
 
-function CharacterSection({ projectId, character }: { projectId: string; character: CharacterInfo }) {
+function CharacterSection({ projectId, character, canonJson }: { projectId: string; character: CharacterInfo; canonJson: Record<string, unknown> | null }) {
   const [open, setOpen] = useState(false);
 
   // Fetch ALL images for this character (including archived)
@@ -146,6 +151,14 @@ function CharacterSection({ projectId, character }: { projectId: string; charact
   const primaryIdentityHeadshot = identityImages.find(i => i.is_primary && i.shot_type === 'identity_headshot');
   const primaryIdentityFullBody = identityImages.find(i => i.is_primary && i.shot_type === 'identity_full_body');
   const identityLocked = !!primaryIdentityHeadshot && !!primaryIdentityFullBody;
+
+  // Find canon character data for notes validation
+  const canonCharacter = useMemo(() => {
+    if (!canonJson?.characters || !Array.isArray(canonJson.characters)) return null;
+    return (canonJson.characters as any[]).find(
+      (c: any) => (c.name || c.character_name || '').trim().toLowerCase() === character.name.toLowerCase()
+    ) || null;
+  }, [canonJson, character.name]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -188,6 +201,8 @@ function CharacterSection({ projectId, character }: { projectId: string; charact
           character={character}
           identityImages={identityImages}
           identityLocked={identityLocked}
+          canonJson={canonJson}
+          canonCharacter={canonCharacter}
         />
 
         {/* === SECTION 2: CHARACTER REFERENCES === */}
@@ -214,16 +229,28 @@ function CharacterSection({ projectId, character }: { projectId: string; charact
 // ─── IDENTITY SECTION ────────────────────────────────────────────────────────
 
 function CharacterIdentitySection({
-  projectId, character, identityImages, identityLocked,
+  projectId, character, identityImages, identityLocked, canonJson, canonCharacter,
 }: {
   projectId: string;
   character: CharacterInfo;
   identityImages: ProjectImage[];
   identityLocked: boolean;
+  canonJson: Record<string, unknown> | null;
+  canonCharacter: Record<string, unknown> | null;
 }) {
   const [generating, setGenerating] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [localNotes, setLocalNotes] = useState('');
+  const [localCanonCheck, setLocalCanonCheck] = useState<{ status: string; messages: string[] }>({ status: 'unchecked', messages: [] });
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
+  const { notes: savedNotes, canonCheckStatus, canonCheckMessages, isSaving, save: saveNotes } = useCharacterIdentityNotes(projectId, character.name);
+
+  // Sync local notes from saved
+  useEffect(() => {
+    setLocalNotes(savedNotes);
+    setLocalCanonCheck({ status: canonCheckStatus, messages: canonCheckMessages });
+  }, [savedNotes, canonCheckStatus, canonCheckMessages]);
 
   const headshots = identityImages.filter(i => i.shot_type === 'identity_headshot');
   const profiles = identityImages.filter(i => i.shot_type === 'identity_profile');
@@ -233,10 +260,57 @@ function CharacterIdentitySection({
   const primaryProfile = identityImages.find(i => i.is_primary && i.shot_type === 'identity_profile');
   const primaryFullBody = identityImages.find(i => i.is_primary && i.shot_type === 'identity_full_body');
 
+  // Run canon check on local notes change
+  const runCanonCheck = useCallback(() => {
+    const result = checkIdentityNotesAgainstCanon(localNotes, canonCharacter as any, canonJson);
+    setLocalCanonCheck(result);
+    return result;
+  }, [localNotes, canonCharacter, canonJson]);
+
+  // Save notes with canon check
+  const handleSaveNotes = useCallback(() => {
+    const checkResult = runCanonCheck();
+    saveNotes({
+      notes: localNotes,
+      canonCheckStatus: checkResult.status,
+      canonCheckMessages: checkResult.messages,
+    });
+  }, [localNotes, runCanonCheck, saveNotes]);
+
+  // Build canon facts string for injection
+  const canonFactsString = useMemo(() => {
+    if (!canonCharacter) return '';
+    const parts: string[] = [];
+    if (canonCharacter.name) parts.push(`Name: ${canonCharacter.name}`);
+    if (canonCharacter.role) parts.push(`Role: ${canonCharacter.role}`);
+    if (canonCharacter.traits) parts.push(`Traits: ${canonCharacter.traits}`);
+    if (canonCharacter.description) parts.push(`Description: ${canonCharacter.description}`);
+    if (canonCharacter.appearance) parts.push(`Appearance: ${canonCharacter.appearance}`);
+    if (canonCharacter.age) parts.push(`Age: ${canonCharacter.age}`);
+    if (canonCharacter.physical) parts.push(`Physical: ${canonCharacter.physical}`);
+    return parts.join('. ');
+  }, [canonCharacter]);
+
   const generateIdentity = useCallback(async () => {
     if (generating) return;
+
+    // IEL: If locked and notes have contradiction, block generation
+    if (identityLocked && localCanonCheck.status === 'contradiction') {
+      toast.error('Cannot generate: identity notes contradict canon. Fix notes first.');
+      return;
+    }
+
     setGenerating(true);
     try {
+      // Resolve identity anchors if locked (for "Generate More" flow)
+      let identityAnchorPaths: { headshot?: string; fullBody?: string } | null = null;
+      if (identityLocked && primaryHeadshot && primaryFullBody) {
+        identityAnchorPaths = {
+          headshot: primaryHeadshot.storage_path,
+          fullBody: primaryFullBody.storage_path,
+        };
+      }
+
       const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
         body: {
           project_id: projectId,
@@ -246,24 +320,40 @@ function CharacterIdentitySection({
           asset_group: 'character',
           pack_mode: true,
           identity_mode: true,
+          identity_anchor_paths: identityAnchorPaths,
+          identity_notes: localNotes.trim() || null,
+          identity_canon_facts: canonFactsString || null,
         },
       });
       if (error) throw error;
       const results = data?.results || [];
       const successCount = results.filter((r: any) => r.status === 'ready').length;
+      const lockedUsed = results.some((r: any) => r.identity_locked);
       if (successCount > 0) {
-        toast.success(`Generated ${successCount} identity images for ${character.name}`);
+        const lockLabel = lockedUsed ? ' (from locked identity)' : '';
+        toast.success(`Generated ${successCount} identity images for ${character.name}${lockLabel}`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
         qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
       } else {
-        toast.error('No identity images generated');
+        const errors = results.filter((r: any) => r.error).map((r: any) => r.error).join('; ');
+        toast.error(`No identity images generated${errors ? ': ' + errors : ''}`);
       }
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate identity pack');
     } finally {
       setGenerating(false);
     }
-  }, [projectId, character.name, generating, qc]);
+  }, [projectId, character.name, generating, qc, identityLocked, primaryHeadshot, primaryFullBody, localNotes, canonFactsString, localCanonCheck.status]);
+
+  // Determine button label based on lock state
+  const generateButtonLabel = identityImages.length === 0
+    ? 'Generate Identity Pack (headshot + profile + full body)'
+    : identityLocked
+      ? 'Generate More from Locked Identity'
+      : 'Generate More Identity Candidates';
+
+  const isContradiction = localCanonCheck.status === 'contradiction';
+  const generateDisabled = generating || (identityLocked && isContradiction);
 
   return (
     <div className="mb-4">
@@ -272,15 +362,82 @@ function CharacterIdentitySection({
         <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
           Character Identity
         </span>
-        {identityLocked && (
+        {identityLocked ? (
           <Badge className="text-[7px] px-1 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-0.5">
             <Lock className="h-1.5 w-1.5" /> Locked
           </Badge>
-        )}
+        ) : identityImages.length > 0 ? (
+          <Badge variant="secondary" className="text-[7px] px-1 py-0 gap-0.5 text-amber-600">
+            <AlertTriangle className="h-1.5 w-1.5" /> Incomplete
+          </Badge>
+        ) : null}
       </div>
       <p className="text-[9px] text-muted-foreground mb-2">
-        Neutral studio-style identity anchors. Select primary headshot + full body to lock identity.
+        {identityLocked
+          ? 'Identity locked. New candidates will derive from the selected primary headshot + full body.'
+          : 'Select primary headshot + full body to lock identity.'}
       </p>
+
+      {/* Identity Notes */}
+      <div className="mb-3">
+        <button
+          onClick={() => setNotesOpen(!notesOpen)}
+          className="flex items-center gap-1 text-[9px] text-muted-foreground hover:text-foreground transition-colors mb-1"
+        >
+          <FileText className="h-2.5 w-2.5" />
+          Identity Notes {localNotes.trim() ? '(saved)' : '(optional)'}
+          {localCanonCheck.status === 'pass' && <CheckCircle className="h-2.5 w-2.5 text-emerald-500" />}
+          {localCanonCheck.status === 'uncertain' && <AlertTriangle className="h-2.5 w-2.5 text-amber-500" />}
+          {localCanonCheck.status === 'contradiction' && <AlertTriangle className="h-2.5 w-2.5 text-destructive" />}
+        </button>
+        {notesOpen && (
+          <div className="space-y-1.5">
+            <Textarea
+              value={localNotes}
+              onChange={(e) => setLocalNotes(e.target.value)}
+              placeholder="Optional: face shape, casting-type feel, hair, body type, wardrobe baseline..."
+              className="text-[10px] min-h-[60px] bg-muted/30 border-border/50 resize-none"
+              rows={3}
+            />
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-[9px] gap-1"
+                onClick={handleSaveNotes}
+                disabled={isSaving}
+              >
+                {isSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}
+                Save & Check Canon
+              </Button>
+              {localCanonCheck.status !== 'unchecked' && (
+                <Badge
+                  className={cn(
+                    'text-[7px] px-1 py-0',
+                    localCanonCheck.status === 'pass' && 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30',
+                    localCanonCheck.status === 'uncertain' && 'bg-amber-500/15 text-amber-600 border-amber-500/30',
+                    localCanonCheck.status === 'contradiction' && 'bg-destructive/15 text-destructive border-destructive/30',
+                  )}
+                >
+                  {localCanonCheck.status === 'pass' ? 'Canon OK' : localCanonCheck.status === 'uncertain' ? 'Review' : 'Contradiction'}
+                </Badge>
+              )}
+            </div>
+            {localCanonCheck.messages.length > 0 && (
+              <div className="space-y-0.5">
+                {localCanonCheck.messages.map((msg, idx) => (
+                  <p key={idx} className={cn(
+                    'text-[8px] px-1.5 py-0.5 rounded',
+                    msg.includes('contradiction') ? 'bg-destructive/10 text-destructive' : 'bg-amber-500/10 text-amber-700',
+                  )}>
+                    {msg}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {identityImages.length === 0 ? (
         <Button
@@ -288,12 +445,12 @@ function CharacterIdentitySection({
           variant="outline"
           className="gap-1.5 text-xs h-7 w-full"
           onClick={generateIdentity}
-          disabled={generating}
+          disabled={generateDisabled}
         >
           {generating ? (
             <><Loader2 className="h-3 w-3 animate-spin" /> Generating Identity Pack...</>
           ) : (
-            <><ShieldCheck className="h-3 w-3" /> Generate Identity Pack (headshot + profile + full body)</>
+            <><ShieldCheck className="h-3 w-3" /> {generateButtonLabel}</>
           )}
         </Button>
       ) : (
@@ -379,15 +536,22 @@ function CharacterIdentitySection({
             variant="ghost"
             className="gap-1 text-[10px] h-6 w-full text-muted-foreground"
             onClick={generateIdentity}
-            disabled={generating}
+            disabled={generateDisabled}
           >
             {generating ? (
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : identityLocked ? (
+              <Lock className="h-2.5 w-2.5" />
             ) : (
               <Plus className="h-2.5 w-2.5" />
             )}
-            Generate More Identity Candidates
+            {generateButtonLabel}
           </Button>
+          {identityLocked && isContradiction && (
+            <p className="text-[8px] text-destructive text-center mt-1">
+              Generation blocked: identity notes contradict canon. Fix notes to proceed.
+            </p>
+          )}
         </>
       )}
     </div>
