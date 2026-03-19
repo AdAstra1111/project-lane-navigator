@@ -25,10 +25,12 @@ interface EntityStateVariantsPanelProps {
   entityType: 'character' | 'location';
   entityName: string;
   entityDescription?: string;
+  /** Canonical location ID — required for location entities when available */
+  entityCanonId?: string;
 }
 
 export function EntityStateVariantsPanel({
-  projectId, entityType, entityName, entityDescription,
+  projectId, entityType, entityName, entityDescription, entityCanonId,
 }: EntityStateVariantsPanelProps) {
   const presets = entityType === 'character' ? CHARACTER_STATE_PRESETS : LOCATION_STATE_PRESETS;
   const categories = entityType === 'character' ? CHARACTER_STATE_CATEGORIES : LOCATION_STATE_CATEGORIES;
