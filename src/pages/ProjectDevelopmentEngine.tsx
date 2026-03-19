@@ -878,7 +878,7 @@ export default function ProjectDevelopmentEngine() {
   const [isGeneratingDocument, setIsGeneratingDocument] = useState(false);
 
   const handleGenerateDocument = async () => {
-    if (!selectedDoc?.doc_type || !projectId || isGeneratingDocument) return;
+    if (!selectedDoc?.doc_type || !isValidUUID(projectId) || isGeneratingDocument) return;
     setIsGeneratingDocument(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
