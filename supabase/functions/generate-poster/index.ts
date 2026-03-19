@@ -573,7 +573,7 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- Proper negative space for title placement`,
     `- Portrait 2:3 aspect ratio`,
     ctx.stylePolicy.mode === 'photorealistic_cinematic'
-      ? `- Photorealistic cinematic quality, 4K resolution feel — shot on real cinema camera`
+      ? `- 4K resolution feel — premium theatrical quality`
       : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering`,
     `- The overall design should feel like it belongs on a cinema lobby wall`,
   ].join("\n");
