@@ -663,7 +663,7 @@ serve(async (req) => {
               : null,
             subject_ref: character_name || location_name || null,
             location_ref: location_name || null,
-            generation_purpose: identity_mode ? "character_identity"
+            generation_purpose: isIdentityGeneration ? "character_identity"
               : state_key ? `state_variant_${state_key}`
               : base_look_mode ? "character_reference"
               : location_ref_mode ? "location_reference"
