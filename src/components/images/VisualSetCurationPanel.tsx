@@ -211,20 +211,24 @@ function VisualSetSlotGrid({
   const { data: allImages = [] } = useProjectImages(projectId, { activeOnly: false, curationStates: ['active', 'candidate'] });
 
   // Load slots and candidates
-  useState(() => {
+  useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const [s, c] = await Promise.all([
           vs.fetchSlotsForSet(set.id),
           vs.fetchCandidatesForSet(set.id),
         ]);
-        setSlots(s);
-        setCandidates(c);
+        if (!cancelled) {
+          setSlots(s);
+          setCandidates(c);
+        }
       } finally {
-        setLoadingSlots(false);
+        if (!cancelled) setLoadingSlots(false);
       }
     })();
-  });
+    return () => { cancelled = true; };
+  }, [set.id, vs.fetchSlotsForSet, vs.fetchCandidatesForSet]);
 
   const candidatesBySlot = useMemo(() => {
     const map = new Map<string, VisualSetCandidate[]>();
