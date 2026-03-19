@@ -1349,7 +1349,7 @@ serve(async (req) => {
         const strategy = strategies[si];
         // Stagger requests to avoid rate limiting
         if (si > 0) await sleep(1500);
-        const prompt = buildStrategyPrompt(strategy, strategyCtx);
+        const prompt = buildStrategyPrompt(strategy, strategyCtx, vsalResolution.promptBlock);
         const versionNum = nextVersion++;
 
         // Resolve provider/model via shared API resolver
