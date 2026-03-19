@@ -85,6 +85,10 @@ interface ImageSelectorGridProps {
   showProvenance?: boolean;
   /** Section curation policy */
   sectionPolicy?: SectionPolicy;
+  /** Active prestige style filter — only show images matching this style */
+  prestigeStyleFilter?: string;
+  /** Lane key for compliance badges */
+  laneKey?: string;
 }
 
 const STATE_COLORS: Record<CurationState, string> = {
@@ -103,7 +107,7 @@ const STATE_LABELS: Record<CurationState, string> = {
 
 export function ImageSelectorGrid({
   projectId,
-  images,
+  images: rawImages,
   isLoading,
   onGenerate,
   isGenerating,
@@ -116,11 +120,18 @@ export function ImageSelectorGrid({
   enableCompare = false,
   showProvenance = false,
   sectionPolicy = DEFAULT_POLICY,
+  prestigeStyleFilter,
+  laneKey,
 }: ImageSelectorGridProps) {
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const [lightbox, setLightbox] = useState<ProjectImage | null>(null);
   const [compareImages, setCompareImages] = useState<ProjectImage[]>([]);
   const [compareMode, setCompareMode] = useState(false);
+
+  // Apply prestige style filter if set
+  const images = prestigeStyleFilter
+    ? rawImages.filter(img => !img.prestige_style || img.prestige_style === prestigeStyleFilter)
+    : rawImages;
 
   const handlePromote = async (image: ProjectImage) => {
     if (updating) return;

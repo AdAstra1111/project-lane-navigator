@@ -13317,10 +13317,13 @@ export type Database = {
           id: string
           is_active: boolean
           is_primary: boolean
+          lane_compliance_score: number | null
+          lane_key: string | null
           location_ref: string | null
           model: string
           moment_ref: string | null
           negative_prompt: string
+          prestige_style: string | null
           project_id: string
           prompt_used: string
           provider: string
@@ -13359,10 +13362,13 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_primary?: boolean
+          lane_compliance_score?: number | null
+          lane_key?: string | null
           location_ref?: string | null
           model?: string
           moment_ref?: string | null
           negative_prompt?: string
+          prestige_style?: string | null
           project_id: string
           prompt_used?: string
           provider?: string
@@ -13401,10 +13407,13 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_primary?: boolean
+          lane_compliance_score?: number | null
+          lane_key?: string | null
           location_ref?: string | null
           model?: string
           moment_ref?: string | null
           negative_prompt?: string
+          prestige_style?: string | null
           project_id?: string
           prompt_used?: string
           provider?: string
@@ -15665,6 +15674,7 @@ export type Database = {
           confidence: number | null
           created_at: string
           current_stage: string | null
+          default_prestige_style: string | null
           development_behavior: string | null
           devseed_pitch_idea_id: string | null
           document_urls: string[]
@@ -15735,6 +15745,7 @@ export type Database = {
           confidence?: number | null
           created_at?: string
           current_stage?: string | null
+          default_prestige_style?: string | null
           development_behavior?: string | null
           devseed_pitch_idea_id?: string | null
           document_urls?: string[]
@@ -15805,6 +15816,7 @@ export type Database = {
           confidence?: number | null
           created_at?: string
           current_stage?: string | null
+          default_prestige_style?: string | null
           development_behavior?: string | null
           devseed_pitch_idea_id?: string | null
           document_urls?: string[]

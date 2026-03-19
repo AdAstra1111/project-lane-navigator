@@ -89,6 +89,10 @@ export interface ProjectImage {
   /** Phase 3 — Stateful visual continuity */
   state_key: string | null;
   state_label: string | null;
+  /** Prestige Vertical Style System — lane + style tagging */
+  lane_key: string | null;
+  prestige_style: string | null;
+  lane_compliance_score: number | null;
   /** Resolved signed URL — populated client-side */
   signedUrl?: string;
 }
