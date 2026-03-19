@@ -656,7 +656,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
           size="sm"
           variant="destructive"
           className="gap-1 text-[10px] h-7"
-          disabled={resetting || activeImages.length === 0}
+          disabled={resetting || (activeImages.length === 0 && candidateImages.length === 0)}
           onClick={() => setShowResetModal(true)}
         >
           {resetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
@@ -670,10 +670,33 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
           resetting={resetting}
           onReset={resetScopedCanon}
           onRegenerateAfterReset={(sections) => {
-            // Trigger auto-populate for cleared sections
             handleAutoPopulate(false);
           }}
         />
+
+        {candidateImages.length > 0 && (
+          <Button
+            size="sm" variant="default"
+            className="gap-1 text-[10px] h-7"
+            disabled={batchApproving}
+            onClick={handleBatchApprove}
+          >
+            {batchApproving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCheck className="h-2.5 w-2.5" />}
+            Approve All ({candidateImages.length})
+          </Button>
+        )}
+
+        {activeImages.length > 0 && (
+          <Button
+            size="sm" variant="outline"
+            className="gap-1 text-[10px] h-7"
+            disabled={downloading}
+            onClick={handleDownloadAll}
+          >
+            {downloading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Download className="h-2.5 w-2.5" />}
+            Download All ({activeImages.length})
+          </Button>
+        )}
 
         {pendingSlots.length > 0 && (
           <Button
