@@ -124,15 +124,21 @@ export function ImageSelectorGrid({
   sectionPolicy = DEFAULT_POLICY,
   prestigeStyleFilter,
   laneKey,
+  includeLegacyInStyleFilter = false,
 }: ImageSelectorGridProps) {
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const [lightbox, setLightbox] = useState<ProjectImage | null>(null);
   const [compareImages, setCompareImages] = useState<ProjectImage[]>([]);
   const [compareMode, setCompareMode] = useState(false);
 
-  // Apply prestige style filter if set
+  // STRICT style filtering: when a style filter is active, exclude untagged
+  // legacy images by default. Only include them if explicitly opted in.
   const images = prestigeStyleFilter
-    ? rawImages.filter(img => !img.prestige_style || img.prestige_style === prestigeStyleFilter)
+    ? rawImages.filter(img => {
+        if (img.prestige_style === prestigeStyleFilter) return true;
+        if (!img.prestige_style) return includeLegacyInStyleFilter;
+        return false;
+      })
     : rawImages;
 
   const handlePromote = async (image: ProjectImage) => {
