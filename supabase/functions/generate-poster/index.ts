@@ -557,27 +557,29 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     ? `ABSOLUTE PROHIBITIONS:\n${ctx.worldLock.prohibitions.join("\n")}\n${ctx.stylePolicy.negativeStyleConstraints}`
     : `ABSOLUTE PROHIBITIONS:\n${ctx.stylePolicy.negativeStyleConstraints}`;
 
-  // Poster text treatment instructions
+  // Text treatment — EXPLICITLY prohibit hallucinated names/credits
   const textTreatment = [
-    `POSTER TEXT TREATMENT (render as part of the poster image):`,
-    `- Title "${ctx.title}" displayed prominently in the lower third or center — large, elegant, cinematic typography`,
-    `- Below the title: "${ctx.writerCredit}" in smaller, refined credit text`,
-    `- At the very bottom: "${ctx.companyCredit}" as the production company credit, subtle and elegant`,
-    `- Typography should match the tone: prestigious serif or clean sans-serif for prestige; bold impactful type for commercial`,
-    `- Text must be legible and properly composed as part of the poster layout`,
+    `POSTER TEXT TREATMENT:`,
+    `- DO NOT render any text, titles, names, credits, or billing blocks on the image`,
+    `- DO NOT invent actor names, producer names, studio names, or any credits`,
+    `- DO NOT add any typography, lettering, or text overlays of any kind`,
+    `- Generate ONLY the visual key art / background image`,
+    `- Text and credits will be added separately by the composition system`,
+    `- Leave the bottom 15-20% of the image as clean negative space or atmospheric gradient for text overlay`,
   ].join("\n");
 
   // Composition instructions
   const composition = [
     `COMPOSITION REQUIREMENTS:`,
-    `- This must look like a FINISHED THEATRICAL MOVIE POSTER, not concept art or a raw photograph`,
-    `- Professional poster layout with clear visual hierarchy`,
-    `- Proper negative space for title placement`,
+    `- This must look like professional CINEMATIC KEY ART — the visual foundation of a theatrical poster`,
+    `- NOT a finished poster with text — just the visual artwork`,
+    `- Professional composition with clear visual hierarchy`,
+    `- Reserve the lower portion for title placement (leave clean space or atmospheric gradient)`,
     `- Portrait 2:3 aspect ratio`,
     ctx.stylePolicy.mode === 'photorealistic_cinematic'
       ? `- 4K resolution feel — premium theatrical quality`
       : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering`,
-    `- The overall design should feel like it belongs on a cinema lobby wall`,
+    `- The visual should feel like it belongs as the background art for a cinema lobby poster`,
   ].join("\n");
 
   return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
