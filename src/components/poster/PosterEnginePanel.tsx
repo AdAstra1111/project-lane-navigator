@@ -9,6 +9,8 @@
  * - Download composed poster as PNG
  */
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useVisualDecision } from "@/hooks/useVisualDecision";
+import { DecisionBadge } from "@/components/visual-decisions/DecisionBadge";
 import { useParams } from "react-router-dom";
 import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
