@@ -339,17 +339,10 @@ export function validateLaneCompliance(
 export function classifyImageForStyleFilter(
   image: { prestige_style?: string | null; lane_key?: string | null },
   activeStyleFilter: string | null,
-  includeUntagged: boolean,
+  includeUntagged = false,
 ): boolean {
-  // No filter active — show everything
   if (!activeStyleFilter) return true;
-
-  // Image has matching style tag
   if (image.prestige_style === activeStyleFilter) return true;
-
-  // Image is untagged (legacy) — only include if explicitly opted in
   if (!image.prestige_style) return includeUntagged;
-
-  // Image has a different style — exclude
   return false;
 }
