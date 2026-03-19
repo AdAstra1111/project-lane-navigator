@@ -248,7 +248,7 @@ function VisualSetSlotGrid({
   const unresolvedSlots = slots.filter(s => s.state === 'empty' || s.state === 'needs_replacement');
   const approvedCount = slots.filter(s => s.state === 'approved' || s.state === 'locked').length;
 
-  if (slotsQuery.isLoading) {
+  if (loadingSlots) {
     return <div className="px-3 pb-3"><Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /></div>;
   }
 
