@@ -253,6 +253,10 @@ serve(async (req) => {
       base_look_mode = false,
       location_name, location_description,
       location_ref_mode = false,
+      // Phase 3 — state variant generation
+      state_key = null,
+      state_label = null,
+      state_prompt_modifier = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -265,6 +269,9 @@ serve(async (req) => {
       location_name?: string;
       location_description?: string;
       location_ref_mode?: boolean;
+      state_key?: string | null;
+      state_label?: string | null;
+      state_prompt_modifier?: string | null;
     };
 
     if (!project_id || !section) {
