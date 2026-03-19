@@ -132,7 +132,7 @@ function WorldContent({ canon, locations }: { canon: any; locations: any[] }) {
       {hasTimeline && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Timeline</h4>
-          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{canon.timeline}</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{hasTimeline}</p>
         </div>
       )}
       {locations.length > 0 ? (
