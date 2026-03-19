@@ -13244,6 +13244,7 @@ export type Database = {
           archived_from_active_at: string | null
           asset_group: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints: Json
+          canon_location_id: string | null
           canon_reset_batch_id: string | null
           created_at: string
           created_by: string | null
@@ -13285,6 +13286,7 @@ export type Database = {
           archived_from_active_at?: string | null
           asset_group?: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints?: Json
+          canon_location_id?: string | null
           canon_reset_batch_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -13326,6 +13328,7 @@ export type Database = {
           archived_from_active_at?: string | null
           asset_group?: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints?: Json
+          canon_location_id?: string | null
           canon_reset_batch_id?: string | null
           created_at?: string
           created_by?: string | null
@@ -13364,6 +13367,13 @@ export type Database = {
           width?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "project_images_canon_location_id_fkey"
+            columns: ["canon_location_id"]
+            isOneToOne: false
+            referencedRelation: "canon_locations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_images_project_id_fkey"
             columns: ["project_id"]
@@ -17729,6 +17739,7 @@ export type Database = {
       scene_graph_versions: {
         Row: {
           beats: Json
+          canon_location_id: string | null
           characters_present: Json
           content: string
           continuity_facts_emitted: Json
@@ -17757,6 +17768,7 @@ export type Database = {
         }
         Insert: {
           beats?: Json
+          canon_location_id?: string | null
           characters_present?: Json
           content?: string
           continuity_facts_emitted?: Json
@@ -17785,6 +17797,7 @@ export type Database = {
         }
         Update: {
           beats?: Json
+          canon_location_id?: string | null
           characters_present?: Json
           content?: string
           continuity_facts_emitted?: Json
@@ -17812,6 +17825,13 @@ export type Database = {
           version_number?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "scene_graph_versions_canon_location_id_fkey"
+            columns: ["canon_location_id"]
+            isOneToOne: false
+            referencedRelation: "canon_locations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "scene_graph_versions_project_id_fkey"
             columns: ["project_id"]

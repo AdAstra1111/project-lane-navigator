@@ -4,7 +4,7 @@
  * Manual add is positioned as override, not primary workflow.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon } from 'lucide-react';
+import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon, Link2, Unlink2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
-import { useHydratedLocations, type HydratedLocation, type LocationReadiness } from '@/hooks/useHydratedLocations';
+import { useHydratedLocations, type HydratedLocation, type LocationReadiness, type LocationBindingStatus } from '@/hooks/useHydratedLocations';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -42,6 +42,12 @@ const USAGE_TIER_COLORS: Record<string, string> = {
   primary: 'bg-primary/10 text-primary border-primary/20',
   secondary: 'bg-muted text-foreground border-border/30',
   minor: 'bg-muted/50 text-muted-foreground border-border/20',
+};
+
+const BINDING_STATUS_CONFIG: Record<LocationBindingStatus, { label: string; color: string; icon: typeof Link2 }> = {
+  canon_bound: { label: 'ID-Bound', color: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20', icon: Link2 },
+  partially_bound: { label: 'Partial', color: 'text-amber-600 bg-amber-500/10 border-amber-500/20', icon: Link2 },
+  unresolved: { label: 'Unresolved', color: 'text-destructive bg-destructive/10 border-destructive/20', icon: Unlink2 },
 };
 
 // ── Multi-pass location extraction (for seeding) ──
@@ -267,7 +273,7 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
         </div>
 
         {/* Coverage Summary */}
-        <div className="grid grid-cols-5 gap-1.5 mb-3">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 mb-3">
           <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
             <p className="text-[9px] text-muted-foreground">Locations</p>
             <p className="text-sm font-semibold text-foreground">{stats.total}</p>
@@ -275,6 +281,10 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
           <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
             <p className="text-[9px] text-muted-foreground">Primary</p>
             <p className="text-sm font-semibold text-foreground">{stats.primary}</p>
+          </div>
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">ID-Bound</p>
+            <p className="text-sm font-semibold text-foreground">{stats.canonBound}</p>
           </div>
           <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
             <p className="text-[9px] text-muted-foreground">With Refs</p>
@@ -289,6 +299,21 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
             <p className="text-sm font-semibold text-foreground">{stats.readyToGenerate}</p>
           </div>
         </div>
+
+        {/* Unresolved warnings */}
+        {(stats.unresolvedSceneLocations > 0 || stats.unresolvedWorldRefs > 0) && (
+          <div className="mb-3 px-2 py-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 flex items-center gap-2 flex-wrap">
+            <Unlink2 className="h-3 w-3 text-amber-600 shrink-0" />
+            <span className="text-[10px] text-amber-600 font-medium">Unresolved:</span>
+            {stats.unresolvedSceneLocations > 0 && (
+              <span className="text-[10px] text-amber-600">{stats.unresolvedSceneLocations} scene location{stats.unresolvedSceneLocations !== 1 ? 's' : ''}</span>
+            )}
+            {stats.unresolvedWorldRefs > 0 && (
+              <span className="text-[10px] text-amber-600">{stats.unresolvedWorldRefs} world ref{stats.unresolvedWorldRefs !== 1 ? 's' : ''}</span>
+            )}
+            <span className="text-[9px] text-muted-foreground italic ml-auto">Not matched to any canonical location</span>
+          </div>
+        )}
 
         {/* Controls row */}
         <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -430,6 +455,28 @@ function HydratedLocationRow({
             {location.interior_or_exterior && (
               <Badge variant="outline" className="text-[7px] px-1 py-0">{location.interior_or_exterior}</Badge>
             )}
+
+            {/* Binding status badge */}
+            {(() => {
+              const bcfg = BINDING_STATUS_CONFIG[location.binding_status];
+              const BIcon = bcfg.icon;
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className={cn('text-[7px] px-1 py-0 gap-0.5 cursor-help', bcfg.color)}>
+                      <BIcon className="h-1.5 w-1.5" /> {bcfg.label}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-[10px] max-w-[220px]">
+                    {location.binding_status === 'canon_bound'
+                      ? 'All downstream data linked by canonical ID'
+                      : location.binding_status === 'partially_bound'
+                        ? `${location.unresolved_scene_count} scene(s) and ${location.unresolved_image_count} image(s) matched by text only`
+                        : 'No ID-based links — using text matching fallback'}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })()}
 
             {location.suggested_primary && (
               <Badge variant="secondary" className="text-[7px] px-1 py-0 gap-0.5 text-amber-600 bg-amber-500/10 border-amber-500/20">
