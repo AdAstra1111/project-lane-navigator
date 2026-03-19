@@ -15278,6 +15278,63 @@ export type Database = {
           },
         ]
       }
+      project_title_history: {
+        Row: {
+          change_reason: string | null
+          created_at: string
+          created_by: string | null
+          effective_from: string
+          effective_to: string | null
+          id: string
+          is_current: boolean
+          normalized_title: string
+          project_id: string
+          title: string
+          title_type: string
+        }
+        Insert: {
+          change_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          is_current?: boolean
+          normalized_title: string
+          project_id: string
+          title: string
+          title_type?: string
+        }
+        Update: {
+          change_reason?: string | null
+          created_at?: string
+          created_by?: string | null
+          effective_from?: string
+          effective_to?: string | null
+          id?: string
+          is_current?: boolean
+          normalized_title?: string
+          project_id?: string
+          title?: string
+          title_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_title_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_title_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_updates: {
         Row: {
           created_at: string
