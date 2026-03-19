@@ -177,6 +177,7 @@ function CharacterLookSection({ projectId, character }: { projectId: string; cha
         toast.success(`Generated ${successCount} images for ${character.name}`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
         qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
+        qc.invalidateQueries({ queryKey: ['section-images', projectId] });
       } else {
         toast.error('No images generated successfully');
       }
