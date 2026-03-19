@@ -10,6 +10,7 @@ import {
   serializeDNAForStorage,
   type CharacterVisualDNA,
   type EvidenceTrait,
+  type TransientVisualState,
 } from '@/lib/images/visualDNA';
 import type { BindingMarker } from '@/lib/images/characterTraits';
 import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
