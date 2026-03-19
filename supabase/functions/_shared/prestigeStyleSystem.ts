@@ -78,7 +78,7 @@ export function resolveFormatToLane(format: string): string {
   if (f.includes('vertical') || f.includes('short_form')) return 'vertical_drama';
   if (f.includes('feature') || f.includes('film')) return 'feature_film';
   if (f.includes('series') || f.includes('limited') || f.includes('tv')) return 'series';
-  return 'feature_film'; // safe default
+  return 'feature_film';
 }
 
 // ── Prestige Style Definitions ──────────────────────────────────────────────
