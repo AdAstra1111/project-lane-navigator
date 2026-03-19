@@ -607,10 +607,12 @@ serve(async (req) => {
         prompt += `\n\nSHOT-TYPE CONSTRAINT: ${SHOT_TYPE_IDENTITY_CONSTRAINTS[shotType as ShotType]}`;
       }
 
-      // Step 8: VSAL — Visual Style Authority Lock (mandatory, supersedes generic style)
-      prompt += `\n\n${vsalPromptBlock}`;
-      if (visualStyleLock.forbid.length > 0) {
-        prompt += `\n\nADDITIONAL PROHIBITIONS (VSAL): ${visualStyleLock.forbid.join(", ")}`;
+      // Step 8: VSAL — Visual Style Authority Lock (if available)
+      if (vsalPromptBlock) {
+        prompt += `\n\n${vsalPromptBlock}`;
+        if (visualStyleLock && visualStyleLock.forbid.length > 0) {
+          prompt += `\n\nADDITIONAL PROHIBITIONS (VSAL): ${visualStyleLock.forbid.join(", ")}`;
+        }
       }
 
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
