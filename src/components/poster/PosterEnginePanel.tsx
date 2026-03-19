@@ -509,6 +509,14 @@ export default function PosterEnginePanel() {
                         </div>
                       )}
 
+                      {/* Freshness indicator on card */}
+                      {poster && freshnessMap?.[poster.id]?.status === 'stale' && (
+                        <div className="absolute bottom-2 left-2 bg-destructive/90 backdrop-blur-sm rounded-md px-1.5 py-0.5 flex items-center gap-1">
+                          <ShieldAlert className="w-2.5 h-2.5 text-destructive-foreground" />
+                          <span className="text-[9px] font-medium text-destructive-foreground">Stale</span>
+                        </div>
+                      )}
+
                       {/* Hover overlay */}
                       <div className="absolute inset-0 bg-background/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
                         <p className="text-[10px] text-muted-foreground text-center px-4 mb-1">
