@@ -774,6 +774,24 @@ serve(async (req) => {
             })
             .eq("id", posterRecord.id);
 
+          // Register into canonical project_images repository
+          await supabase.from("project_images").insert({
+            project_id,
+            role: "poster_variant",
+            entity_id: null,
+            strategy_key: strategy.key,
+            prompt_used: prompt,
+            negative_prompt: strategyCtx.stylePolicy.negativeStyleConstraints || "",
+            canon_constraints: { world_lock: inputs.worldLock },
+            storage_path: keyArtPath,
+            storage_bucket: "project-posters",
+            is_primary: false,
+            is_active: true,
+            source_poster_id: posterRecord.id,
+            user_id: user.id,
+            created_by: user.id,
+          });
+
           results.push({ strategy_key: strategy.key, strategy_label: strategy.label, poster_id: posterRecord.id, status: "ready" });
         } catch (genErr: unknown) {
           const errMsg = genErr instanceof Error ? genErr.message : "Generation failed";
