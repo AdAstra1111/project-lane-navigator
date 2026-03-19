@@ -964,6 +964,15 @@ serve(async (req) => {
     const branding = await resolveCompanyBranding(supabase, project_id);
     const strategyCtx = buildStrategyContext(inputs, branding);
 
+    // ── PRESTIGE STYLE SYSTEM: Resolve lane + style for poster metadata ──
+    const posterLaneKey = resolveFormatToLane(inputs.format || 'film');
+    const { styleKey: posterStyleKey, source: posterStyleSource } = resolvePrestigeStyle({
+      projectDefault: (inputs as any).default_prestige_style ?? null,
+      laneKey: posterLaneKey,
+    });
+    const posterPrestigeComposite: StyleComposite = assemblePrestigePrompt(posterLaneKey, posterStyleKey, posterStyleSource);
+    console.log(`[poster:prestige] lane=${posterLaneKey} style=${posterStyleKey} source=${posterStyleSource}`);
+
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
     console.log("VSAL lock:", JSON.stringify(vsalResolution.lock, null, 2));
 
