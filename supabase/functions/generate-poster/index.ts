@@ -559,27 +559,37 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
 
   // Text treatment — EXPLICITLY prohibit hallucinated names/credits
   const textTreatment = [
-    `POSTER TEXT TREATMENT:`,
+    `POSTER TEXT TREATMENT (CRITICAL — READ CAREFULLY):`,
     `- DO NOT render any text, titles, names, credits, or billing blocks on the image`,
     `- DO NOT invent actor names, producer names, studio names, or any credits`,
     `- DO NOT add any typography, lettering, or text overlays of any kind`,
-    `- Generate ONLY the visual key art / background image`,
-    `- Text and credits will be added separately by the composition system`,
-    `- Leave the bottom 15-20% of the image as clean negative space or atmospheric gradient for text overlay`,
+    `- DO NOT render title cards, credit blocks, or any written words`,
+    `- Generate ONLY the visual key art / background image — pure artwork, zero text`,
+    `- Text and credits will be composited separately by the rendering system`,
+    `- The bottom 20–25% of the image MUST be either:`,
+    `  (a) a clean atmospheric gradient fading to dark/black, or`,
+    `  (b) a moody out-of-focus negative space zone`,
+    `  This zone is where title typography will be placed — keep it clean and dark`,
   ].join("\n");
 
-  // Composition instructions
+  // Composition instructions — enforce cinematic poster composition
   const composition = [
-    `COMPOSITION REQUIREMENTS:`,
-    `- This must look like professional CINEMATIC KEY ART — the visual foundation of a theatrical poster`,
-    `- NOT a finished poster with text — just the visual artwork`,
-    `- Professional composition with clear visual hierarchy`,
-    `- Reserve the lower portion for title placement (leave clean space or atmospheric gradient)`,
+    `CINEMATIC POSTER COMPOSITION (MANDATORY):`,
+    `- This image is the KEY ART for a theatrical movie poster — treat it with that gravity`,
+    `- The composition must follow the classic cinematic poster structure:`,
+    `  TOP 15%: atmospheric sky, vignette, or environmental context`,
+    `  MIDDLE 40–60%: primary visual subject (character, scene, symbolic element)`,
+    `  LOWER 25%: atmospheric gradient fading to near-black — this is the TITLE ZONE`,
+    `- The lower gradient zone MUST be clean, dark, and uncluttered — no detail, no bright elements`,
+    `- Use dramatic cinematic lighting: motivated sources, depth, atmosphere`,
+    `- Strong focal point with clear visual hierarchy`,
     `- Portrait 2:3 aspect ratio`,
+    `- The overall feel must be PREMIUM THEATRICAL — as if this will be printed 27"×40" for a cinema lobby`,
     ctx.stylePolicy.mode === 'photorealistic_cinematic'
-      ? `- 4K resolution feel — premium theatrical quality`
-      : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering`,
-    `- The visual should feel like it belongs as the background art for a cinema lobby poster`,
+      ? `- Photorealistic 4K quality — shot on ARRI Alexa or RED, professional cinematography`
+      : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering — studio quality`,
+    `- Color grade should feel cohesive and intentional, not flat or over-saturated`,
+    `- DO NOT place any subject matter in the bottom 20% — that space is reserved for typography`,
   ].join("\n");
 
   return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
