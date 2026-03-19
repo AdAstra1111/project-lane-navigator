@@ -24285,6 +24285,170 @@ export type Database = {
           },
         ]
       }
+      visual_set_candidates: {
+        Row: {
+          created_at: string
+          evaluation_id: string | null
+          id: string
+          image_id: string
+          producer_decision: string
+          rejection_reason: string | null
+          selected_for_slot: boolean
+          visual_set_slot_id: string
+        }
+        Insert: {
+          created_at?: string
+          evaluation_id?: string | null
+          id?: string
+          image_id: string
+          producer_decision?: string
+          rejection_reason?: string | null
+          selected_for_slot?: boolean
+          visual_set_slot_id: string
+        }
+        Update: {
+          created_at?: string
+          evaluation_id?: string | null
+          id?: string
+          image_id?: string
+          producer_decision?: string
+          rejection_reason?: string | null
+          selected_for_slot?: boolean
+          visual_set_slot_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_set_candidates_visual_set_slot_id_fkey"
+            columns: ["visual_set_slot_id"]
+            isOneToOne: false
+            referencedRelation: "visual_set_slots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_set_slots: {
+        Row: {
+          created_at: string
+          evaluation_status: string | null
+          id: string
+          is_required: boolean
+          replacement_count: number
+          selected_image_id: string | null
+          slot_key: string
+          slot_label: string
+          slot_type: string
+          state: string
+          visual_set_id: string
+        }
+        Insert: {
+          created_at?: string
+          evaluation_status?: string | null
+          id?: string
+          is_required?: boolean
+          replacement_count?: number
+          selected_image_id?: string | null
+          slot_key: string
+          slot_label?: string
+          slot_type?: string
+          state?: string
+          visual_set_id: string
+        }
+        Update: {
+          created_at?: string
+          evaluation_status?: string | null
+          id?: string
+          is_required?: boolean
+          replacement_count?: number
+          selected_image_id?: string | null
+          slot_key?: string
+          slot_label?: string
+          slot_type?: string
+          state?: string
+          visual_set_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_set_slots_visual_set_id_fkey"
+            columns: ["visual_set_id"]
+            isOneToOne: false
+            referencedRelation: "visual_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_sets: {
+        Row: {
+          created_at: string
+          current_dna_version_id: string | null
+          domain: string
+          id: string
+          locked_at: string | null
+          locked_by: string | null
+          project_id: string
+          required_slot_count: number
+          source_run_id: string | null
+          status: string
+          target_id: string | null
+          target_name: string
+          target_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_dna_version_id?: string | null
+          domain?: string
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          project_id: string
+          required_slot_count?: number
+          source_run_id?: string | null
+          status?: string
+          target_id?: string | null
+          target_name?: string
+          target_type?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_dna_version_id?: string | null
+          domain?: string
+          id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          project_id?: string
+          required_slot_count?: number
+          source_run_id?: string | null
+          status?: string
+          target_id?: string | null
+          target_name?: string
+          target_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_sets_current_dna_version_id_fkey"
+            columns: ["current_dna_version_id"]
+            isOneToOne: false
+            referencedRelation: "character_visual_dna"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visual_unit_candidates: {
         Row: {
           candidate_payload: Json

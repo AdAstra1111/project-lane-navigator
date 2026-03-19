@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
-  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette,
+  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPan
 import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPanel';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
+import { VisualSetCurationPanel } from '@/components/images/VisualSetCurationPanel';
 import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
@@ -201,6 +202,16 @@ export default function VisualDevHub() {
                 locations={locations}
               />
             )}
+          </WorkSection>
+
+          {/* ═══ Visual Set Curation ═══ */}
+          <WorkSection
+            icon={<Grid3X3 className="h-4 w-4" />}
+            title="Visual Set Curation"
+            subtitle="Slot-based curation loop — approve, replace, lock canonical output sets"
+            defaultOpen={false}
+          >
+            {projectId && <VisualSetCurationPanel projectId={projectId} />}
           </WorkSection>
 
           {/* ═══ Production Tools ═══ */}
