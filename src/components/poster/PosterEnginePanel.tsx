@@ -809,6 +809,7 @@ export default function PosterEnginePanel() {
                     branding={brandingData}
                     credits={creditsData}
                     layoutVariant={selectedTemplate}
+                    titleStyle={titleStyle}
                     width={160}
                   />
                   <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5">
