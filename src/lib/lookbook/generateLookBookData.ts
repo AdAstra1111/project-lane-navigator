@@ -6,7 +6,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
-import { resolveImageStylePolicy } from '@/lib/images/stylePolicy';
 import { resolveAllCanonImages } from './resolveCanonImages';
 import { normalizeCanonText } from './normalizeCanonText';
 
@@ -68,10 +67,33 @@ function resolveColorPalette(tone?: string, genre?: string): LookBookColorSystem
   return COLOR_PALETTES.prestige;
 }
 
-function resolveIdentity(canonState: Record<string, unknown>, genre?: string): LookBookVisualIdentity {
-  const tone = normalizeCanonText(canonState.tone_style, 'tone_style');
-  const colors = resolveColorPalette(tone, genre);
-  const t = tone.toLowerCase();
+interface NormalizedLookBookCanonText {
+  logline: string;
+  premise: string;
+  world_rules: string;
+  locations: string;
+  timeline: string;
+  tone_style: string;
+  format_constraints: string;
+  comparables: string;
+}
+
+function normalizeLookBookCanon(canon: Record<string, unknown>): NormalizedLookBookCanonText {
+  return {
+    logline: normalizeCanonText(canon.logline, 'logline'),
+    premise: normalizeCanonText(canon.premise, 'premise'),
+    world_rules: normalizeCanonText(canon.world_rules, 'world_rules'),
+    locations: normalizeCanonText(canon.locations, 'locations'),
+    timeline: normalizeCanonText(canon.timeline, 'timeline'),
+    tone_style: normalizeCanonText(canon.tone_style, 'tone_style'),
+    format_constraints: normalizeCanonText(canon.format_constraints, 'format_constraints'),
+    comparables: normalizeCanonText(canon.comparables, 'comparables'),
+  };
+}
+
+function resolveIdentity(toneStyle: string, genre?: string): LookBookVisualIdentity {
+  const colors = resolveColorPalette(toneStyle, genre);
+  const t = toneStyle.toLowerCase();
   return {
     colors,
     typography: {
@@ -98,18 +120,19 @@ function parseComparables(text?: string): Array<{ title: string; reason: string 
 /* ── Content-strengthening helpers ── */
 
 function buildVisualLanguageCopy(
-  canon: Record<string, unknown>,
+  canon: NormalizedLookBookCanonText,
   genre: string,
   tone: string,
   imageStyle: string,
 ): { body: string; bullets: string[] } {
-  const period = normalizeCanonText(canon.world_rules, 'world_rules').match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
-  const worldRules = normalizeCanonText(canon.world_rules, 'world_rules');
-  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
+  const period = canon.world_rules.match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
+  const worldRules = canon.world_rules;
+  const toneStyle = canon.tone_style || tone || '';
 
-  // Build a project-specific visual thesis
   const fragments: string[] = [];
-  if (period) fragments.push(`rooted in the texture and light of ${period.toLowerCase().includes('19') || period.toLowerCase().includes('18') ? `the ${period}s` : period.toLowerCase()}`);
+  if (period) {
+    fragments.push(`rooted in the texture and light of ${period.toLowerCase().includes('19') || period.toLowerCase().includes('18') ? `the ${period}s` : period.toLowerCase()}`);
+  }
   if (toneStyle) fragments.push(`carrying the emotional weight of ${toneStyle.toLowerCase()}`);
   if (genre) fragments.push(`filtered through the grammar of ${genre.toLowerCase()}`);
 
@@ -117,7 +140,6 @@ function buildVisualLanguageCopy(
     ? `A deliberate visual system ${fragments.join(', ')}. Every frame is designed to immerse the audience in the world before a single word is spoken — atmosphere, texture, and light do the storytelling.`
     : 'A unified visual philosophy where atmosphere, colour, and composition serve the narrative. The image system is designed to be felt before it is understood — each frame functions as emotional evidence.';
 
-  // Build specific bullets from canon data
   const bullets: string[] = [];
   const styleLabel = imageStyle.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase());
 
@@ -133,9 +155,9 @@ function buildVisualLanguageCopy(
   }
 
   if (period) {
-    bullets.push(`Period authenticity in production design, costume texture, and environmental detail`);
+    bullets.push('Period authenticity in production design, costume texture, and environmental detail');
   } else {
-    bullets.push(`Consistent environmental design language across all locations and scenes`);
+    bullets.push('Consistent environmental design language across all locations and scenes');
   }
 
   bullets.push('Visual continuity between marketing materials, key art, and in-narrative imagery');
@@ -144,22 +166,21 @@ function buildVisualLanguageCopy(
 }
 
 function buildStoryEngineCopy(
-  canon: Record<string, unknown>,
+  canon: NormalizedLookBookCanonText,
   format: string,
   genre: string,
-  logline: string,
 ): { body: string; bodySecondary: string; bullets: string[] } {
-  const formatConstraints = normalizeCanonText(canon.format_constraints, 'format_constraints');
-  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style');
+  const formatConstraints = canon.format_constraints;
+  const toneStyle = canon.tone_style;
   const isSeries = format.includes('series') || format.includes('vertical') || format.includes('limited');
 
   let body: string;
   if (formatConstraints && formatConstraints.length > 30) {
     body = formatConstraints.slice(0, 400);
   } else if (isSeries) {
-    body = `A serialised narrative engineered for sustained emotional investment. The dramatic architecture is designed so that each episode compounds tension, deepens character, and raises the stakes — the audience is always leaning forward.`;
+    body = 'A serialised narrative engineered for sustained emotional investment. The dramatic architecture is designed so that each episode compounds tension, deepens character, and raises the stakes — the audience is always leaning forward.';
   } else {
-    body = `A tightly structured narrative built around escalating dramatic pressure. The story is designed to sustain audience engagement from the opening image to the final frame through careful emotional calibration and narrative momentum.`;
+    body = 'A tightly structured narrative built around escalating dramatic pressure. The story is designed to sustain audience engagement from the opening image to the final frame through careful emotional calibration and narrative momentum.';
   }
 
   let bodySecondary = '';
@@ -187,29 +208,63 @@ function buildStoryEngineCopy(
 }
 
 function buildThemesCopy(
-  canon: Record<string, unknown>,
+  canon: NormalizedLookBookCanonText,
   genre: string,
   tone: string,
 ): { body: string; bodySecondary: string } {
-  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
-  const worldRules = normalizeCanonText(canon.world_rules, 'world_rules');
-  const logline = normalizeCanonText(canon.logline, 'logline');
+  const toneStyle = canon.tone_style || tone || '';
+  const worldRules = canon.world_rules;
+  const logline = canon.logline;
 
   let body = toneStyle;
-  if (typeof toneStyle === 'string' && toneStyle.length < 60) {
-    // Enrich thin tone descriptions
+  if (toneStyle.length < 60) {
     const enrichments: string[] = [];
     if (genre) enrichments.push(`operating within the conventions of ${genre.toLowerCase()}`);
-    if (worldRules && worldRules.length > 20) enrichments.push(`shaped by the pressures and rules of its world`);
+    if (worldRules && worldRules.length > 20) enrichments.push('shaped by the pressures and rules of its world');
     body = toneStyle + (enrichments.length ? ` — ${enrichments.join(', ')}.` : '.');
   }
 
   let bodySecondary = '';
   if (logline) {
-    bodySecondary = `At its core, the project explores the tension between what characters want and what the world allows them to have. The thematic architecture operates beneath the surface of genre, giving the audience something to feel long after the credits.`;
+    bodySecondary = 'At its core, the project explores the tension between what characters want and what the world allows them to have. The thematic architecture operates beneath the surface of genre, giving the audience something to feel long after the credits.';
   }
 
   return { body, bodySecondary };
+}
+
+function normalizeCharacterSlides(
+  rawCharacters: unknown,
+  characterImageMap: Map<string, string>,
+  characterNameImageMap: Map<string, string>,
+): NonNullable<SlideContent['characters']> {
+  if (!Array.isArray(rawCharacters)) return [];
+
+  return rawCharacters.slice(0, 6).map((rawCharacter, index) => {
+    const character = rawCharacter && typeof rawCharacter === 'object'
+      ? rawCharacter as Record<string, unknown>
+      : {};
+
+    const id = normalizeCanonText(character.id, `characters.${index}.id`);
+    const name = normalizeCanonText(character.name, `characters.${index}.name`) || 'Unnamed';
+    const role = normalizeCanonText(character.role, `characters.${index}.role`) || normalizeCanonText(character.archetype, `characters.${index}.archetype`);
+    const descriptionParts = [
+      normalizeCanonText(character.goals, `characters.${index}.goals`),
+      normalizeCanonText(character.traits, `characters.${index}.traits`),
+      normalizeCanonText(character.description, `characters.${index}.description`),
+    ].filter(Boolean);
+
+    const imageUrl =
+      (id && characterImageMap.get(id)) ||
+      characterNameImageMap.get(name.toLowerCase()) ||
+      undefined;
+
+    return {
+      name,
+      role,
+      description: (descriptionParts.join(' — ') || 'Role to be defined.').slice(0, 200),
+      imageUrl,
+    };
+  });
 }
 
 export async function generateLookBookData(
@@ -227,14 +282,27 @@ export async function generateLookBookData(
   if (!project) throw new Error('Project not found — check access permissions');
   console.log('[LookBook] ✓ project loaded:', (project as any).title);
 
-  const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
-  const format = ((project as any).format || '').toLowerCase();
-  const tone = (project as any).tone || '';
+  const genre = Array.isArray((project as any).genres)
+    ? (project as any).genres.map((value: unknown, index: number) => normalizeCanonText(value, `project.genres.${index}`)).filter(Boolean).join(', ')
+    : normalizeCanonText((project as any).genres, 'project.genres');
+  const formatLabel = normalizeCanonText((project as any).format, 'project.format');
+  const format = formatLabel.toLowerCase();
+  const tone = normalizeCanonText((project as any).tone, 'project.tone');
+  const targetAudience = normalizeCanonText((project as any).target_audience, 'project.target_audience');
+  const assignedLane = normalizeCanonText((project as any).assigned_lane, 'project.assigned_lane');
+  const comparableTitles = normalizeCanonText((project as any).comparable_titles, 'project.comparable_titles');
 
   // 2. Load canonical state
   const canonicalState = await getCanonicalProjectState(projectId);
   const canon = canonicalState.state;
+  const normalizedCanon = normalizeLookBookCanon(canon);
   console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source);
+  console.log('[LookBook] canon boundary normalized', {
+    world_rules_type: Array.isArray(canon.world_rules) ? 'array' : typeof canon.world_rules,
+    locations_type: Array.isArray(canon.locations) ? 'array' : typeof canon.locations,
+    timeline_type: Array.isArray(canon.timeline) ? 'array' : typeof canon.timeline,
+    tone_style_type: Array.isArray(canon.tone_style) ? 'array' : typeof canon.tone_style,
+  });
 
   // 3. Load document versions for synopsis/statement
   const { data: docs } = await supabase
@@ -310,14 +378,9 @@ export async function generateLookBookData(
   }
 
   // 5. Build identity
-  const identity = resolveIdentity(canon, genre);
-  const stylePolicy = resolveImageStylePolicy({
-    format: (project as any).format,
-    genres: (project as any).genres || [],
-    tone,
-  });
-  const logline = normalizeCanonText(canon.logline, 'logline');
-  const title = (project as any).title || 'Untitled Project';
+  const identity = resolveIdentity(normalizedCanon.tone_style || tone, genre);
+  const logline = normalizedCanon.logline;
+  const title = normalizeCanonText((project as any).title, 'project.title') || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
 
@@ -328,7 +391,7 @@ export async function generateLookBookData(
   slides.push({
     type: 'cover',
     title,
-    subtitle: logline,
+    subtitle: logline || undefined,
     credit: writerCredit,
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
@@ -337,32 +400,31 @@ export async function generateLookBookData(
   });
 
   // ── OVERVIEW ──
-  const overviewBody = logline || normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 300);
-  const overviewSecondary = logline && (normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 500))
-    ? (normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 500))
-    : undefined;
+  const overviewBody = logline || normalizedCanon.premise || synopsis.slice(0, 300);
+  const overviewFallback = normalizedCanon.premise || synopsis.slice(0, 500);
+  const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
   slides.push({
     type: 'overview',
     title: 'Project Overview',
-    body: overviewBody,
+    body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
     bullets: [
       genre ? `Genre: ${genre}` : '',
-      (project as any).format ? `Format: ${(project as any).format}` : '',
-      normalizeCanonText(canon.tone_style, 'tone_style') ? `Tone: ${normalizeCanonText(canon.tone_style)}` : '',
-      (project as any).target_audience ? `Audience: ${(project as any).target_audience}` : '',
-      (project as any).assigned_lane ? `Lane: ${(project as any).assigned_lane}` : '',
+      formatLabel ? `Format: ${formatLabel}` : '',
+      normalizedCanon.tone_style ? `Tone: ${normalizedCanon.tone_style}` : '',
+      targetAudience ? `Audience: ${targetAudience}` : '',
+      assignedLane ? `Lane: ${assignedLane}` : '',
     ].filter(Boolean),
   });
 
   // ── WORLD ──
-  if (canon.world_rules || canon.locations || canon.timeline || worldImages.length > 0) {
+  if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     slides.push({
       type: 'world',
       title: 'The World',
-      body: normalizeCanonText(canon.world_rules, 'world_rules') || undefined,
-      bodySecondary: normalizeCanonText(canon.locations, 'locations') || undefined,
-      quote: normalizeCanonText(canon.timeline, 'timeline') || undefined,
+      body: normalizedCanon.world_rules || undefined,
+      bodySecondary: normalizedCanon.locations || undefined,
+      quote: normalizedCanon.timeline || undefined,
       imageUrl: worldImageUrl || undefined,
       imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.world_locations.imageIds,
@@ -370,45 +432,31 @@ export async function generateLookBookData(
   }
 
   // ── CHARACTERS ──
-  const chars = canon.characters;
-  if (Array.isArray(chars) && chars.length > 0) {
+  const normalizedCharacters = normalizeCharacterSlides(canon.characters, characterImageMap, characterNameImageMap);
+  if (normalizedCharacters.length > 0) {
     slides.push({
       type: 'characters',
       title: 'Characters',
-      characters: chars.slice(0, 6).map((c: any) => {
-        const charImgUrl =
-          (c.id && characterImageMap.get(c.id)) ||
-          (c.name && characterNameImageMap.get(c.name?.toLowerCase())) ||
-          '';
-        // Strengthen description — combine available fields
-        const descParts = [c.goals, c.traits, c.description].filter(Boolean);
-        const desc = descParts.join(' — ') || 'Role to be defined.';
-        return {
-          name: c.name || 'Unnamed',
-          role: c.role || c.archetype || '',
-          description: desc.slice(0, 200),
-          imageUrl: charImgUrl || undefined,
-        };
-      }),
+      characters: normalizedCharacters,
       _debug_image_ids: canonImages.character_identity.imageIds,
     });
   }
 
   // ── THEMES ──
-  const themesRaw = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
+  const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
-    const themesCopy = buildThemesCopy(canon, genre, tone);
+    const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
     slides.push({
       type: 'themes',
       title: 'Themes & Tone',
-      body: themesCopy.body,
+      body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
     });
   }
 
   // ── VISUAL LANGUAGE ──
   const visualImages = [...atmosphereImages, ...textureImages];
-  const vlCopy = buildVisualLanguageCopy(canon, genre, tone, identity.imageStyle);
+  const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
     title: 'Visual Language',
@@ -421,7 +469,7 @@ export async function generateLookBookData(
 
   // ── STORY ENGINE ──
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
-    const seCopy = buildStoryEngineCopy(canon, format, genre, logline);
+    const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
       type: 'story_engine',
       title: 'Story Engine',
@@ -434,7 +482,7 @@ export async function generateLookBookData(
   }
 
   // ── COMPARABLES ──
-  const comps = parseComparables((canon as any).comparables || (project as any).comparable_titles);
+  const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
     slides.push({
       type: 'comparables',
@@ -457,7 +505,7 @@ export async function generateLookBookData(
   slides.push({
     type: 'closing',
     title,
-    subtitle: logline,
+    subtitle: logline || undefined,
     credit: writerCredit,
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
