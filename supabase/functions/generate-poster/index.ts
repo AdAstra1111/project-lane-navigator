@@ -1438,6 +1438,8 @@ serve(async (req) => {
             model: genConfig.model,
             style_mode: styleMode,
             generation_config: repoMeta,
+            lane_key: posterLaneKey,
+            prestige_style: posterStyleKey,
           });
           if (repoErr) {
             console.error(`[project_images] insert failed for strategy=${strategy.key}:`, repoErr.message);
