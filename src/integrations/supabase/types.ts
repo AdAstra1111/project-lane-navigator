@@ -12763,11 +12763,14 @@ export type Database = {
           curation_state: Database["public"]["Enums"]["curation_state"]
           entity_id: string | null
           generation_config: Json
+          generation_purpose: string | null
           height: number | null
           id: string
           is_active: boolean
           is_primary: boolean
+          location_ref: string | null
           model: string
+          moment_ref: string | null
           negative_prompt: string
           project_id: string
           prompt_used: string
@@ -12780,6 +12783,8 @@ export type Database = {
           strategy_key: string | null
           style_mode: string
           subject: string | null
+          subject_ref: string | null
+          subject_type: string | null
           user_id: string
           width: number | null
         }
@@ -12791,11 +12796,14 @@ export type Database = {
           curation_state?: Database["public"]["Enums"]["curation_state"]
           entity_id?: string | null
           generation_config?: Json
+          generation_purpose?: string | null
           height?: number | null
           id?: string
           is_active?: boolean
           is_primary?: boolean
+          location_ref?: string | null
           model?: string
+          moment_ref?: string | null
           negative_prompt?: string
           project_id: string
           prompt_used?: string
@@ -12808,6 +12816,8 @@ export type Database = {
           strategy_key?: string | null
           style_mode?: string
           subject?: string | null
+          subject_ref?: string | null
+          subject_type?: string | null
           user_id: string
           width?: number | null
         }
@@ -12819,11 +12829,14 @@ export type Database = {
           curation_state?: Database["public"]["Enums"]["curation_state"]
           entity_id?: string | null
           generation_config?: Json
+          generation_purpose?: string | null
           height?: number | null
           id?: string
           is_active?: boolean
           is_primary?: boolean
+          location_ref?: string | null
           model?: string
+          moment_ref?: string | null
           negative_prompt?: string
           project_id?: string
           prompt_used?: string
@@ -12836,6 +12849,8 @@ export type Database = {
           strategy_key?: string | null
           style_mode?: string
           subject?: string | null
+          subject_ref?: string | null
+          subject_type?: string | null
           user_id?: string
           width?: number | null
         }
