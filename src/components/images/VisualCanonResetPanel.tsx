@@ -2,7 +2,7 @@
  * VisualCanonResetPanel — Visual Canon Reset + Rebuild workflow UI.
  *
  * Provides:
- * 1. Reset Active Canon button
+ * 1. Reset Visual Canon button (opens scoped modal)
  * 2. Required Visual Set status (filled vs empty slots)
  * 3. Auto Populate Visual Set — batch generation pipeline
  * 4. Approval queue for recommended candidates
@@ -22,15 +22,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ProjectImage, AssetGroup } from '@/lib/images/types';
@@ -66,6 +62,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const [showApprovalQueue, setShowApprovalQueue] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [showReusePool, setShowReusePool] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
@@ -82,7 +79,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const abortRef = useRef(false);
 
   const {
-    resetActiveCanon, restoreFromArchive, markForReusePool,
+    resetScopedCanon, restoreFromArchive, markForReusePool,
     approveIntoCanon, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
 
@@ -579,33 +576,28 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
 
       {/* ── Action Buttons ── */}
       <div className="flex flex-wrap gap-1.5">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button size="sm" variant="destructive" className="gap-1 text-[10px] h-7" disabled={resetting || activeImages.length === 0}>
-              {resetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
-              Reset Active Canon
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Reset Active Visual Canon?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will archive all {activeImages.length} active images and clear all primary selections.
-                <br /><br />
-                <strong>No images will be deleted.</strong> All images remain accessible in the archive
-                and can be restored or marked for future reuse.
-                <br /><br />
-                After reset, the system will show required slots for you to populate with fresh imagery.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => resetActiveCanon()}>
-                Reset & Archive
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <Button
+          size="sm"
+          variant="destructive"
+          className="gap-1 text-[10px] h-7"
+          disabled={resetting || activeImages.length === 0}
+          onClick={() => setShowResetModal(true)}
+        >
+          {resetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
+          Reset Visual Canon
+        </Button>
+
+        <ResetVisualCanonModal
+          open={showResetModal}
+          onOpenChange={setShowResetModal}
+          images={allImages}
+          resetting={resetting}
+          onReset={resetScopedCanon}
+          onRegenerateAfterReset={(sections) => {
+            // Trigger auto-populate for cleared sections
+            handleAutoPopulate(false);
+          }}
+        />
 
         {pendingSlots.length > 0 && (
           <Button
