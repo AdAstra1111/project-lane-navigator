@@ -300,7 +300,7 @@ export function useVisualSets(projectId: string | undefined) {
       const skippedReasons: string[] = [];
 
       for (const slot of slots) {
-        const eval_ = evalMap.get(slot.selected_image_id);
+        const eval_: any = evalMap.get(slot.selected_image_id);
         
         // Skip checks
         if (!eval_) {
