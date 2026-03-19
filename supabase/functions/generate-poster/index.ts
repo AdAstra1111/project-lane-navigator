@@ -7,9 +7,71 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── World Lock + Context ─────────────────────────────────────────────────────
+// ── World Lock + Context + Style Policy ──────────────────────────────────────
+
+// ── Image Style Policy (inline — mirrors src/lib/images/stylePolicy.ts) ─────
+
+type ImageStyleMode = 'photorealistic_cinematic' | 'stylised_animation' | 'stylised_graphic' | 'stylised_experimental' | 'stylised_period_painterly';
+
+interface ImageStylePolicy {
+  mode: ImageStyleMode;
+  rationale: string;
+  styleDirectives: string;
+  negativeStyleConstraints: string;
+  isDefault: boolean;
+}
+
+const PHOTOREAL_DIRECTIVES = [
+  'Photorealistic cinematic imagery',
+  'Shot on high-end cinema camera (ARRI Alexa / RED Monstro aesthetic)',
+  'Real-world materials, textures, and surfaces',
+  'Believable natural or motivated lighting',
+  'Cinematic depth of field with professional lens characteristics',
+  'Grounded, tactile, physically plausible composition',
+  'Premium theatrical realism — this should look like a still from a major motion picture',
+].join('. ');
+
+const PHOTOREAL_NEGATIVES = [
+  'painterly', 'illustrative', 'cartoon', 'anime', 'graphic-novel style',
+  'concept art rendering', 'abstract', 'surreal', 'watercolor',
+  'oil painting', 'sketch', 'line art', 'cel-shaded', 'pop art',
+  'storybook illustration', 'digital painting', 'CGI render look',
+  'overly stylised', 'artificial looking', 'plastic skin texture',
+  'uncanny valley', 'stock photo aesthetic',
+].join(', ');
+
+const ANIMATION_FORMATS = ['animation', 'anim-feature', 'anim-series', 'animated'];
+const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga', 'anime'];
+
+function resolveImageStylePolicy(format: string, genres: string[]): ImageStylePolicy {
+  const f = format.toLowerCase();
+  const gs = genres.map(g => g.toLowerCase());
+  
+  if (ANIMATION_FORMATS.some(af => f.includes(af))) {
+    return {
+      mode: 'stylised_animation', rationale: `Animation format: ${format}`, isDefault: false,
+      styleDirectives: 'Stylised animated visual language. Bold shapes, expressive character design. Professional animation studio quality.',
+      negativeStyleConstraints: 'photorealistic, live-action, stock photo, uncanny valley, cheap CGI',
+    };
+  }
+  if (gs.some(g => GRAPHIC_GENRES.some(gg => g.includes(gg)))) {
+    return {
+      mode: 'stylised_graphic', rationale: `Graphic genre: ${gs.join(', ')}`, isDefault: false,
+      styleDirectives: 'Graphic novel / comic book visual style. Bold ink work, dramatic panel composition.',
+      negativeStyleConstraints: 'photorealistic, live-action, stock photo',
+    };
+  }
+  return {
+    mode: 'photorealistic_cinematic', rationale: 'Default — photorealistic cinematic', isDefault: true,
+    styleDirectives: PHOTOREAL_DIRECTIVES,
+    negativeStyleConstraints: PHOTOREAL_NEGATIVES,
+  };
+}
+
+// ── World Lock ───────────────────────────────────────────────────────────────
 
 interface WorldLock {
+
   era: string;
   geography: string;
   culture: string;
