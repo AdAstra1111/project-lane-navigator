@@ -172,6 +172,8 @@ export interface PosterTemplateInfo {
 }
 
 export const POSTER_TEMPLATES: Record<PosterLayoutVariant, PosterTemplateInfo> = {
+  "classic-theatrical": { label: "Classic Theatrical", description: "Full composition with prominent billing block — classic 27×40 cinema lobby feel" },
+  "prestige-awards": { label: "Prestige Awards", description: "Elegant dramatic composition with refined billing — Cannes / TIFF aesthetic" },
   prestige: { label: "Prestige", description: "Thin typography, high letter-spacing, condensed billing — festival aesthetic" },
   commercial: { label: "Commercial", description: "Bold typography, labeled billing sections — mainstream appeal" },
   "cinematic-dark": { label: "Cinematic Dark", description: "Balanced hierarchy, amber accents, standard billing — default theatrical" },
@@ -180,6 +182,24 @@ export const POSTER_TEMPLATES: Record<PosterLayoutVariant, PosterTemplateInfo> =
 };
 
 const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
+  "classic-theatrical": {
+    titleZoneY: 0.72,
+    gradientCoverage: 0.45,
+    gradientMaxAlpha: 0.92,
+    titleTracking: 0.10,
+    showAccentLine: false,
+    billingCondensed: false,
+    titleWeight: 700,
+  },
+  "prestige-awards": {
+    titleZoneY: 0.76,
+    gradientCoverage: 0.50,
+    gradientMaxAlpha: 0.95,
+    titleTracking: 0.20,
+    showAccentLine: false,
+    billingCondensed: true,
+    titleWeight: 300,
+  },
   prestige: {
     titleZoneY: 0.80,
     gradientCoverage: 0.55,
