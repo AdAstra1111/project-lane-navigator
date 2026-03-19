@@ -408,6 +408,7 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
   const hasContradictions = dna.contradictions.length > 0;
   const hasMissing = dna.missingClarifications.length > 0;
   const hasEvidence = evidenceTraits.length > 0 || dna.evidenceTraits.length > 0;
+  const hasTransient = dna.transientStates.length > 0;
   const displayEvidence = evidenceTraits.length > 0 ? evidenceTraits : dna.evidenceTraits;
   const activeMarkers = bindingMarkers.filter(m => m.status !== 'rejected' && m.status !== 'archived');
   const approvedMarkers = bindingMarkers.filter(m => m.status === 'approved');
