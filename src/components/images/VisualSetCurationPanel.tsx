@@ -204,13 +204,27 @@ function VisualSetSlotGrid({
   set: VisualSet;
   vs: ReturnType<typeof useVisualSets>;
 }) {
-  const slotsQuery = vs.useSlotsForSet(set.id);
-  const candidatesQuery = vs.useCandidatesForSet(set.id);
-  const { evaluations, getEvaluation } = useImageEvaluation(projectId);
+  const [slots, setSlots] = useState<VisualSetSlot[]>([]);
+  const [candidates, setCandidates] = useState<VisualSetCandidate[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(true);
+  const { getEvaluation } = useImageEvaluation(projectId);
   const { data: allImages = [] } = useProjectImages(projectId, { activeOnly: false, curationStates: ['active', 'candidate'] });
 
-  const slots = slotsQuery.data || [];
-  const candidates = candidatesQuery.data || [];
+  // Load slots and candidates
+  useState(() => {
+    (async () => {
+      try {
+        const [s, c] = await Promise.all([
+          vs.fetchSlotsForSet(set.id),
+          vs.fetchCandidatesForSet(set.id),
+        ]);
+        setSlots(s);
+        setCandidates(c);
+      } finally {
+        setLoadingSlots(false);
+      }
+    })();
+  });
 
   const candidatesBySlot = useMemo(() => {
     const map = new Map<string, VisualSetCandidate[]>();

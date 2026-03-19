@@ -563,8 +563,8 @@ export function useVisualSets(projectId: string | undefined) {
   return {
     sets: setsQuery.data || [],
     isLoading: setsQuery.isLoading,
-    useSlotsForSet,
-    useCandidatesForSet,
+    fetchSlotsForSet,
+    fetchCandidatesForSet,
     createSet: createSetMutation,
     attachCandidate: attachCandidateMutation,
     selectCandidate: selectCandidateMutation,
