@@ -540,6 +540,10 @@ serve(async (req) => {
               shot_type: shotType,
               state_key: state_key || null,
               identity_mode: identity_mode || false,
+              identity_locked: identityLockUsed,
+              identity_anchors_used: identityReferenceUrls.length,
+              identity_notes_used: !!identity_notes,
+              identity_canon_facts_used: !!identity_canon_facts,
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,
