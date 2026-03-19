@@ -1,9 +1,13 @@
 /**
  * Canon Constraint Builder — Extracts visual constraints from project canon
  * to inject into all image generation prompts.
+ * 
+ * Integrates with the Global Image Style Policy for photorealistic defaults.
  */
 
 import type { CanonConstraints } from './types';
+import { resolveImageStylePolicy, formatStylePolicyPromptBlock, getStylePolicyNegatives } from './stylePolicy';
+import type { ImageStylePolicy } from './stylePolicy';
 
 /**
  * Build canon constraints from canonical project state.
@@ -66,8 +70,12 @@ export function buildCanonConstraints(
 
 /**
  * Format canon constraints into prompt blocks for image generation.
+ * Now includes the global style policy block.
  */
-export function formatCanonPromptBlock(constraints: CanonConstraints): string {
+export function formatCanonPromptBlock(
+  constraints: CanonConstraints,
+  stylePolicy?: ImageStylePolicy,
+): string {
   const lines: string[] = ['[CANON CONSTRAINTS — DO NOT VIOLATE]'];
 
   if (constraints.era) lines.push(`ERA/PERIOD: ${constraints.era}`);
@@ -82,21 +90,60 @@ export function formatCanonPromptBlock(constraints: CanonConstraints): string {
     lines.push(`FORBIDDEN: ${constraints.forbidden_elements.join(', ')}`);
   }
 
+  // Append style policy if provided
+  if (stylePolicy) {
+    lines.push('');
+    lines.push(formatStylePolicyPromptBlock(stylePolicy));
+  }
+
   return lines.join('\n');
 }
 
 /**
  * Format a negative prompt from canon constraints.
+ * Now includes style policy negatives for anti-drift protection.
  */
-export function formatCanonNegativePrompt(constraints: CanonConstraints): string {
+export function formatCanonNegativePrompt(
+  constraints: CanonConstraints,
+  stylePolicy?: ImageStylePolicy,
+): string {
   const parts: string[] = [];
 
   if (constraints.forbidden_elements?.length) {
     parts.push(...constraints.forbidden_elements);
   }
 
+  // Add style policy negatives
+  if (stylePolicy) {
+    parts.push(getStylePolicyNegatives(stylePolicy));
+  }
+
   // Always include quality negatives
   parts.push('blurry', 'low quality', 'watermark', 'text overlay', 'UI elements');
 
   return parts.join(', ');
+}
+
+/**
+ * Convenience: resolve style policy + build full prompt context for any image generation.
+ */
+export function buildImageGenerationContext(
+  canonState: Record<string, unknown>,
+  projectMeta: { genre?: string; format?: string; tone?: string; genres?: string[] },
+) {
+  const constraints = buildCanonConstraints(canonState, projectMeta);
+  const stylePolicy = resolveImageStylePolicy(
+    {
+      format: projectMeta.format,
+      genres: projectMeta.genres || (projectMeta.genre ? [projectMeta.genre] : []),
+      tone: projectMeta.tone,
+    },
+  );
+
+  return {
+    constraints,
+    stylePolicy,
+    canonBlock: formatCanonPromptBlock(constraints, stylePolicy),
+    negativePrompt: formatCanonNegativePrompt(constraints, stylePolicy),
+  };
 }

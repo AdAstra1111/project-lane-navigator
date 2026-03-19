@@ -8,6 +8,7 @@ import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
 import type { ProjectImage } from '@/lib/images/types';
 import { DOCUMENT_IMAGE_MAP } from '@/lib/images/types';
+import { resolveImageStylePolicy } from '@/lib/images/stylePolicy';
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -223,8 +224,13 @@ export async function generateLookBookData(
     .filter(i => i.role === 'character_primary' && i.entity_id && i.signedUrl)
     .forEach(i => characterImageMap.set(i.entity_id!, i.signedUrl!));
 
-  // 5. Build identity from canonical state
+  // 5. Build identity + resolve style policy
   const identity = resolveIdentity(canon, genre);
+  const stylePolicy = resolveImageStylePolicy({
+    format: (project as any).format,
+    genres: (project as any).genres || [],
+    tone: (project as any).tone,
+  });
   const logline = (canon.logline as string) || '';
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
@@ -301,10 +307,13 @@ export async function generateLookBookData(
     type: 'visual_language',
     title: 'Visual Language',
     bullets: [
+      `Rendering: ${stylePolicy.mode === 'photorealistic_cinematic' ? 'Photorealistic cinematic' : stylePolicy.mode.replace(/_/g, ' ')}`,
       `Palette: ${identity.imageStyle.replace(/-/g, ' ')}`,
       identity.typography.titleUppercase ? 'Bold, graphic title treatment' : 'Elegant, refined typography',
-      'Cinematic compositions with intentional framing',
-      'Consistent color grading throughout',
+      stylePolicy.mode === 'photorealistic_cinematic'
+        ? 'Shot on cinema camera — real textures, believable lighting, grounded composition'
+        : 'Intentional stylisation consistent with project vision',
+      'Consistent visual identity across all materials',
     ],
   });
 

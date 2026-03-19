@@ -7,9 +7,71 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── World Lock + Context ─────────────────────────────────────────────────────
+// ── World Lock + Context + Style Policy ──────────────────────────────────────
+
+// ── Image Style Policy (inline — mirrors src/lib/images/stylePolicy.ts) ─────
+
+type ImageStyleMode = 'photorealistic_cinematic' | 'stylised_animation' | 'stylised_graphic' | 'stylised_experimental' | 'stylised_period_painterly';
+
+interface ImageStylePolicy {
+  mode: ImageStyleMode;
+  rationale: string;
+  styleDirectives: string;
+  negativeStyleConstraints: string;
+  isDefault: boolean;
+}
+
+const PHOTOREAL_DIRECTIVES = [
+  'Photorealistic cinematic imagery',
+  'Shot on high-end cinema camera (ARRI Alexa / RED Monstro aesthetic)',
+  'Real-world materials, textures, and surfaces',
+  'Believable natural or motivated lighting',
+  'Cinematic depth of field with professional lens characteristics',
+  'Grounded, tactile, physically plausible composition',
+  'Premium theatrical realism — this should look like a still from a major motion picture',
+].join('. ');
+
+const PHOTOREAL_NEGATIVES = [
+  'painterly', 'illustrative', 'cartoon', 'anime', 'graphic-novel style',
+  'concept art rendering', 'abstract', 'surreal', 'watercolor',
+  'oil painting', 'sketch', 'line art', 'cel-shaded', 'pop art',
+  'storybook illustration', 'digital painting', 'CGI render look',
+  'overly stylised', 'artificial looking', 'plastic skin texture',
+  'uncanny valley', 'stock photo aesthetic',
+].join(', ');
+
+const ANIMATION_FORMATS = ['animation', 'anim-feature', 'anim-series', 'animated'];
+const GRAPHIC_GENRES = ['graphic-novel', 'comic', 'manga', 'anime'];
+
+function resolveImageStylePolicy(format: string, genres: string[]): ImageStylePolicy {
+  const f = format.toLowerCase();
+  const gs = genres.map(g => g.toLowerCase());
+  
+  if (ANIMATION_FORMATS.some(af => f.includes(af))) {
+    return {
+      mode: 'stylised_animation', rationale: `Animation format: ${format}`, isDefault: false,
+      styleDirectives: 'Stylised animated visual language. Bold shapes, expressive character design. Professional animation studio quality.',
+      negativeStyleConstraints: 'photorealistic, live-action, stock photo, uncanny valley, cheap CGI',
+    };
+  }
+  if (gs.some(g => GRAPHIC_GENRES.some(gg => g.includes(gg)))) {
+    return {
+      mode: 'stylised_graphic', rationale: `Graphic genre: ${gs.join(', ')}`, isDefault: false,
+      styleDirectives: 'Graphic novel / comic book visual style. Bold ink work, dramatic panel composition.',
+      negativeStyleConstraints: 'photorealistic, live-action, stock photo',
+    };
+  }
+  return {
+    mode: 'photorealistic_cinematic', rationale: 'Default — photorealistic cinematic', isDefault: true,
+    styleDirectives: PHOTOREAL_DIRECTIVES,
+    negativeStyleConstraints: PHOTOREAL_NEGATIVES,
+  };
+}
+
+// ── World Lock ───────────────────────────────────────────────────────────────
 
 interface WorldLock {
+
   era: string;
   geography: string;
   culture: string;
@@ -51,6 +113,7 @@ interface StrategyContext {
   worldLock: WorldLock;
   writerCredit: string;
   companyCredit: string;
+  stylePolicy: ImageStylePolicy;
 }
 
 // ── Derive World Lock from canon data ────────────────────────────────────────
@@ -161,37 +224,37 @@ function deriveWorldLock(inputs: Omit<PosterPromptInputs, "worldLock">): WorldLo
 // ── Visual Maps ──────────────────────────────────────────────────────────────
 
 const toneVisuals: Record<string, string> = {
-  dark: "moody shadows, desaturated palette, noir-inspired lighting",
-  light: "warm golden light, hopeful atmosphere, soft focus backgrounds",
-  gritty: "raw textures, urban decay, handheld documentary feel",
-  comedic: "bright colors, dynamic composition, playful energy",
-  thriller: "high contrast, tension-filled composition, cool blue tones",
-  dramatic: "deep cinematic shadows, rich warm tones, emotional weight",
-  horror: "deep blacks, unsettling atmosphere, eerie fog, cold tones",
-  romantic: "soft bokeh, warm sunset tones, intimate framing",
-  epic: "sweeping vista, grand scale, dramatic sky, golden hour",
-  satirical: "bold graphic style, sharp contrast, pop-art influence",
-  whimsical: "dreamy pastels, fantastical elements, storybook quality",
-  suspenseful: "high contrast, silhouettes, tension, atmospheric haze",
+  dark: "moody shadows, desaturated palette, noir-inspired lighting, photorealistic",
+  light: "warm golden light, hopeful atmosphere, soft focus backgrounds, photorealistic",
+  gritty: "raw textures, urban decay, handheld documentary feel, photorealistic",
+  comedic: "bright natural colors, dynamic composition, playful energy, photorealistic",
+  thriller: "high contrast, tension-filled composition, cool blue tones, photorealistic",
+  dramatic: "deep cinematic shadows, rich warm tones, emotional weight, photorealistic",
+  horror: "deep blacks, unsettling atmosphere, eerie fog, cold tones, photorealistic",
+  romantic: "soft bokeh, warm sunset tones, intimate framing, photorealistic",
+  epic: "sweeping vista, grand scale, dramatic sky, golden hour, photorealistic",
+  satirical: "sharp contrast, bold framing, high-saturation photography, photorealistic",
+  whimsical: "warm soft tones, magical-hour lighting, intimate storybook atmosphere, photorealistic",
+  suspenseful: "high contrast, silhouettes, tension, atmospheric haze, photorealistic",
 };
 
 const genreMotifs: Record<string, string> = {
-  drama: "emotional portraiture, dramatic lighting",
-  thriller: "shadowy figures, tension, urban nightscape",
-  horror: "darkness, isolation, dread",
-  comedy: "vibrant colors, expressive characters",
-  "sci-fi": "futuristic elements, technological atmosphere",
-  romance: "intimate composition, warm tones",
-  action: "dynamic movement, explosive energy",
-  crime: "noir aesthetics, urban grit",
-  mystery: "obscured faces, fog, enigmatic composition",
-  fantasy: "otherworldly landscapes, magical atmosphere",
-  war: "epic scale, visceral intensity, smoke and earth",
-  western: "vast landscapes, dusty atmosphere, golden light",
-  musical: "vibrant stage lighting, performance energy",
-  animation: "stylized artistic rendering, bold shapes",
-  documentary: "authentic textures, photographic realism",
-  "true-crime": "evidence board aesthetic, cold case atmosphere",
+  drama: "emotional portraiture, dramatic lighting, photorealistic",
+  thriller: "shadowy figures, tension, urban nightscape, photorealistic",
+  horror: "darkness, isolation, dread, photorealistic",
+  comedy: "vibrant colors, expressive characters, photorealistic",
+  "sci-fi": "futuristic elements, technological atmosphere, photorealistic",
+  romance: "intimate composition, warm tones, photorealistic",
+  action: "dynamic movement, explosive energy, photorealistic",
+  crime: "noir aesthetics, urban grit, photorealistic",
+  mystery: "obscured faces, fog, enigmatic composition, photorealistic",
+  fantasy: "otherworldly landscapes, atmospheric, photorealistic",
+  war: "epic scale, visceral intensity, smoke and earth, photorealistic",
+  western: "vast landscapes, dusty atmosphere, golden light, photorealistic",
+  musical: "vibrant stage lighting, performance energy, photorealistic",
+  animation: "stylized artistic rendering, bold shapes, professional animation quality",
+  documentary: "authentic textures, photographic realism, photorealistic",
+  "true-crime": "evidence board aesthetic, cold case atmosphere, photorealistic",
 };
 
 // ── Strategy Definitions ─────────────────────────────────────────────────────
@@ -444,6 +507,8 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
     if (comps.length > 0) compReference = `Visual inspiration from posters of films like ${comps.join(", ")}. `;
   }
 
+  const stylePolicy = resolveImageStylePolicy(inputs.format, inputs.genres);
+
   return {
     title: inputs.title,
     logline: inputs.logline,
@@ -458,6 +523,7 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
     worldLock: inputs.worldLock,
     writerCredit: branding.writerCredit,
     companyCredit: branding.companyName,
+    stylePolicy,
   };
 }
 
@@ -465,6 +531,13 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
 
 function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext): string {
   const base = strategy.briefing(ctx);
+
+  // Style policy enforcement (global)
+  const stylePolicyBlock = [
+    `IMAGE STYLE POLICY (MANDATORY):`,
+    `${ctx.stylePolicy.styleDirectives}`,
+    `DO NOT render in these styles: ${ctx.stylePolicy.negativeStyleConstraints}`,
+  ].join("\n");
 
   // World lock enforcement
   const worldLockBlock = [
@@ -479,8 +552,8 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
 
   // Negative prompting
   const prohibitions = ctx.worldLock.prohibitions.length > 0
-    ? `ABSOLUTE PROHIBITIONS:\n${ctx.worldLock.prohibitions.join("\n")}`
-    : "";
+    ? `ABSOLUTE PROHIBITIONS:\n${ctx.worldLock.prohibitions.join("\n")}\n${ctx.stylePolicy.negativeStyleConstraints}`
+    : `ABSOLUTE PROHIBITIONS:\n${ctx.stylePolicy.negativeStyleConstraints}`;
 
   // Poster text treatment instructions
   const textTreatment = [
@@ -499,11 +572,13 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- Professional poster layout with clear visual hierarchy`,
     `- Proper negative space for title placement`,
     `- Portrait 2:3 aspect ratio`,
-    `- Photorealistic cinematic quality, 4K resolution feel`,
+    ctx.stylePolicy.mode === 'photorealistic_cinematic'
+      ? `- Photorealistic cinematic quality, 4K resolution feel — shot on real cinema camera`
+      : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering`,
     `- The overall design should feel like it belongs on a cinema lobby wall`,
   ].join("\n");
 
-  return [base, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
+  return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
 }
 
 // ── Provider Adapter ─────────────────────────────────────────────────────────
