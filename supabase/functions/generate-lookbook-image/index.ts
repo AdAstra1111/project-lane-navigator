@@ -335,10 +335,14 @@ serve(async (req) => {
     // Determine shots to generate
     // base_look_mode guarantees: 2 headshots + 2 full_body + 1 medium
     const BASE_LOOK_PACK: ShotType[] = ["close_up", "profile", "full_body", "full_body", "medium"];
+    // location_ref_mode: wide establishing + atmospheric + detail + time_variant
+    const LOCATION_REF_PACK: ShotType[] = ["wide", "atmospheric", "detail", "time_variant"];
     const shotPack = base_look_mode && assetGroup === "character"
       ? BASE_LOOK_PACK
-      : (SHOT_PACKS[assetGroup] || []);
-    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode
+      : location_ref_mode && assetGroup === "world"
+        ? LOCATION_REF_PACK
+        : (SHOT_PACKS[assetGroup] || []);
+    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode || location_ref_mode
       ? shotPack.slice(0, Math.min(count, shotPack.length))
       : [];
 
