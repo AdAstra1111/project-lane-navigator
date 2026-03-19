@@ -703,6 +703,9 @@ serve(async (req) => {
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
 
+    // Resolve image generation config via shared API resolver
+    const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
+
     // ── Mode: multi_concept — generate 6 strategy posters ──
     if (mode === "multi_concept") {
       const strategies = strategy_key
