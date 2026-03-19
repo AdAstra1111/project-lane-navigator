@@ -316,7 +316,7 @@ export async function generateLookBookData(
     genres: (project as any).genres || [],
     tone,
   });
-  const logline = (canon.logline as string) || '';
+  const logline = normalizeCanonText(canon.logline, 'logline');
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
