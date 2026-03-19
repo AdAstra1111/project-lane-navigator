@@ -71,7 +71,7 @@ export interface ProjectImage {
   model: string;
   style_mode: string;
   generation_config: Record<string, unknown>;
-  /** New Visual Asset System fields */
+  /** Visual Asset System fields */
   asset_group: AssetGroup | null;
   subject: string | null;
   shot_type: ShotType | null;
@@ -82,6 +82,9 @@ export interface ProjectImage {
   generation_purpose: string | null;
   location_ref: string | null;
   moment_ref: string | null;
+  /** Phase 3 — Stateful visual continuity */
+  state_key: string | null;
+  state_label: string | null;
   /** Resolved signed URL — populated client-side */
   signedUrl?: string;
 }

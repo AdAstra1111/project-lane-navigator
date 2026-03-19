@@ -1,8 +1,6 @@
 /**
  * WorldLocationLookPanel — Phase 2 world + location visual identity system.
- * Extracts locations from canon, generates location-specific reference packs,
- * and supports explicit primary selection per location.
- * Mirrors CharacterBaseLookPanel architecture.
+ * Phase 3: Now includes state variant generation per location.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw } from 'lucide-react';
@@ -11,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
+import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { supabase } from '@/integrations/supabase/client';
@@ -336,11 +335,21 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           </div>
         )}
 
+        {/* Phase 3: State Variants */}
+        {locImages.length > 0 && (
+          <EntityStateVariantsPanel
+            projectId={projectId}
+            entityType="location"
+            entityName={location.name}
+            entityDescription={location.description}
+          />
+        )}
+
         {/* Generate button */}
         <Button
           size="sm"
           variant="outline"
-          className="gap-1.5 text-xs h-7 w-full mt-1"
+          className="gap-1.5 text-xs h-7 w-full mt-2"
           onClick={generateLocationRef}
           disabled={generating}
         >

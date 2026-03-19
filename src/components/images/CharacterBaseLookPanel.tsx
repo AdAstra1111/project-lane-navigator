@@ -1,6 +1,6 @@
 /**
  * CharacterBaseLookPanel — Phase 1 character visual identity system.
- * Hardened character resolver, archive filter, explicit primary selection UX.
+ * Phase 3: Now includes state variant generation per character.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw } from 'lucide-react';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
+import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { supabase } from '@/integrations/supabase/client';
@@ -320,11 +321,20 @@ function CharacterLookSection({ projectId, character }: { projectId: string; cha
           </div>
         )}
 
+        {/* Phase 3: State Variants */}
+        {charImages.length > 0 && (
+          <EntityStateVariantsPanel
+            projectId={projectId}
+            entityType="character"
+            entityName={character.name}
+          />
+        )}
+
         {/* Generate button */}
         <Button
           size="sm"
           variant="outline"
-          className="gap-1.5 text-xs h-7 w-full mt-1"
+          className="gap-1.5 text-xs h-7 w-full mt-2"
           onClick={generateBaseLook}
           disabled={generating}
         >
