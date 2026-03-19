@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
 import type { StatePreset } from '@/lib/images/statePresets';
 import { CHARACTER_STATE_PRESETS, LOCATION_STATE_PRESETS } from '@/lib/images/statePresets';
+import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
 
 interface EntityStateVariantsPanelProps {
   projectId: string;
