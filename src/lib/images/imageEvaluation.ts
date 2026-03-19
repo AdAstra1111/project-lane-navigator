@@ -151,6 +151,19 @@ function runPromptAudit(
       invariantsViolated.push(inv.label);
     }
   }
+
+  // Check approved binding markers in prompt
+  const approvedMarkers = (dna.bindingMarkers || []).filter(m => m.status === 'approved');
+  for (const marker of approvedMarkers) {
+    const markerLabel = `${marker.markerType}${marker.bodyRegion !== 'unspecified' ? ` on ${marker.bodyRegion}` : ''}`;
+    const markerInPrompt = prompt.includes(marker.markerType.toLowerCase()) ||
+      prompt.includes(marker.label.toLowerCase());
+    if (markerInPrompt) {
+      invariantsSatisfied.push(`[MARKER] ${markerLabel}`);
+    } else {
+      invariantsViolated.push(`[MARKER] ${markerLabel} — binding marker missing from prompt`);
+    }
+  }
   
   const totalScript = dna.scriptTruth.traits.length;
   const scriptRatio = totalScript > 0 ? scriptSatisfied.length / totalScript : 0;
