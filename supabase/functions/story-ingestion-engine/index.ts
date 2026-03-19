@@ -934,9 +934,10 @@ async function resolveScriptSource(
    ═══════════════════════════════════════════════════════════════════════════ */
 
 async function handleReviewAction(supabase: any, userId: string, body: any) {
-  const { projectId, target, targetId, action: reviewAction } = body;
+  const { projectId, target, targetId, reviewVerb } = body;
+  const reviewAction = reviewVerb || body.action;
   if (!projectId || !target || !targetId || !reviewAction) {
-    throw new Error("projectId, target, targetId, action required");
+    throw new Error("projectId, target, targetId, reviewVerb required");
   }
 
   const validActions = ["approve", "reject", "escalate"];
