@@ -19,6 +19,9 @@ export interface RepairExecutionResult {
   execution_result?: Record<string, unknown>;
   post_dx_diagnostic_present?: boolean;
   outcome_summary?: string;
+  /** Structured blocked/prerequisite info from backend */
+  blocked_reason?: string;
+  prerequisite?: string;
 }
 
 export function useExecuteNarrativeRepair(projectId: string | undefined) {

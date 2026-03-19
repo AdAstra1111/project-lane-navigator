@@ -17595,24 +17595,56 @@ Return ONLY valid JSON:
 
         // ── Tier 2: repair_seed_alignment ──────────────────────────────────
         else if (plan.repair_type === "repair_seed_alignment") {
-          executionResult = await dispatchAction("sync_dev_seed_v2_to_canon", {
-            projectId, force_resync: true,
-          });
-          executedAt = new Date().toISOString();
-          if (executionResult?.ok === false) {
-            finalStatus   = "failed";
-            skippedReason = executionResult?.error ?? "action_returned_error";
+          // Prerequisite check: verify seed table exists before dispatching
+          const { data: seedCheck, error: seedCheckErr } = await (supabase as any)
+            .from("dev_seed_v2_projects")
+            .select("id")
+            .eq("project_id", projectId)
+            .limit(1)
+            .maybeSingle();
+
+          if (seedCheckErr) {
+            // Schema cache error or table doesn't exist — structured prerequisite failure
+            finalStatus = "failed";
+            skippedReason = "blocked:missing_authored_seed";
+            executionResult = {
+              ok: false,
+              error: "prerequisite_not_met",
+              blocked_reason: "No authored narrative seed found for this project. Seed alignment repair requires an existing Dev Seed.",
+              prerequisite: "authored_dev_seed",
+              technical_detail: seedCheckErr.message,
+            };
+            executedAt = new Date().toISOString();
+          } else if (!seedCheck) {
+            finalStatus = "failed";
+            skippedReason = "blocked:no_authored_seed";
+            executionResult = {
+              ok: false,
+              error: "prerequisite_not_met",
+              blocked_reason: "No authored narrative seed exists for this project",
+              prerequisite: "authored_dev_seed",
+            };
+            executedAt = new Date().toISOString();
           } else {
-            // Post-DX re-run: determine resolved vs persists
-            postDxPresent = await checkDiagnosticPresent();
-            if (postDxPresent === null) {
+            executionResult = await dispatchAction("sync_dev_seed_v2_to_canon", {
+              projectId, force_resync: true,
+            });
+            executedAt = new Date().toISOString();
+            if (executionResult?.ok === false) {
               finalStatus   = "failed";
-              skippedReason = "post_execution_dx_check_failed";
-            } else if (!postDxPresent) {
-              finalStatus = "completed";
+              skippedReason = executionResult?.error ?? "action_returned_error";
             } else {
-              finalStatus   = "failed";
-              skippedReason = "diagnostic_persists_post_execution";
+              // Post-DX re-run: determine resolved vs persists
+              postDxPresent = await checkDiagnosticPresent();
+              if (postDxPresent === null) {
+                finalStatus   = "failed";
+                skippedReason = "post_execution_dx_check_failed";
+              } else if (!postDxPresent) {
+                finalStatus = "completed";
+              } else {
+                finalStatus   = "failed";
+                skippedReason = "diagnostic_persists_post_execution";
+              }
             }
           }
         }
@@ -18240,34 +18272,32 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Find authored seed (derived=false, most recent)
-      const { data: seedRoot, error: seedRootErr } = await (supabase as any)
-        .from("dev_seed_v2_projects")
-        .select("id, project_id, created_at")
-        .eq("project_id", projectId)
-        .eq("derived", false)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // ── Resolve canonical project context (no legacy seed dependency) ──
+      // Check for canon data as prerequisite — obligations derive from project truth
+      const [projectRes, canonRes, docsRes] = await Promise.all([
+        supabase.from("projects").select("id, title, format").eq("id", projectId).maybeSingle(),
+        (supabase as any).from("project_canon").select("project_id, canon_json").eq("project_id", projectId).maybeSingle(),
+        (supabase as any).from("project_documents").select("id, doc_type").eq("project_id", projectId).limit(5),
+      ]);
 
-      if (seedRootErr) {
-        return new Response(JSON.stringify({ ok: false, error: "seed lookup failed: " + seedRootErr.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Case 2: No authored seed → fail closed with clear reasoning
-      if (!seedRoot) {
+      if (projectRes.error || !projectRes.data) {
         return new Response(JSON.stringify({
-          ok: true,
-          project_id: projectId,
-          obligations: [],
-          count: 0,
-          reason: "no_authored_seed",
-          note: "No authored Dev Seed v2 found for this project. Obligations cannot be derived without a seed.",
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          ok: false, error: "project_not_found",
+          blocked_reason: "Project does not exist",
+        }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const seedId = seedRoot.id as string;
+      // Determine provenance source — prefer canon, fallback to project identity
+      const hasCanon = !!canonRes.data?.canon_json && Object.keys(canonRes.data.canon_json).length > 0;
+      const hasDocs = (docsRes.data || []).length > 0;
+      const provenanceSource = hasCanon ? "project_canon" : hasDocs ? "project_documents" : "project_identity";
+
+      // If no canon and no documents, obligations can still be built (static specs)
+      // but provenance will reflect that context is minimal
+      if (!hasCanon && !hasDocs) {
+        console.warn("[dev-engine-v2] build_narrative_obligations: no canon or docs, building with project_identity provenance");
+      }
+
       const builtAt = new Date().toISOString();
 
       // Canonical obligation specifications (deterministic, order-stable)
@@ -18372,9 +18402,10 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
         required_by:      spec.required_by,
         severity_default: spec.severity_default,
         provenance: JSON.stringify({
-          seed_id:   seedId,
-          seed_type: "authored",
-          built_at:  builtAt,
+          source:           provenanceSource,
+          has_canon:        hasCanon,
+          has_documents:    hasDocs,
+          built_at:         builtAt,
         }),
       }));
 
@@ -18390,14 +18421,14 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
       }
 
       console.log("[dev-engine-v2] build_narrative_obligations", {
-        project_id: projectId, seed_id: seedId, count: obligationRows.length,
+        project_id: projectId, provenance_source: provenanceSource, count: obligationRows.length,
       });
 
       return new Response(JSON.stringify({
         ok:         true,
         action:     "build_narrative_obligations",
         project_id: projectId,
-        seed_id:    seedId,
+        provenance_source: provenanceSource,
         obligations: upserted ?? obligationRows.map(r => ({
           obligation_id: r.obligation_id,
           obligation_type: r.obligation_type,
