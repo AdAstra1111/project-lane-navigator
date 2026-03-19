@@ -1630,6 +1630,54 @@ export type Database = {
           },
         ]
       }
+      character_identity_notes: {
+        Row: {
+          canon_check_messages: Json
+          canon_check_status: string
+          character_name: string
+          id: string
+          notes: string
+          project_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          canon_check_messages?: Json
+          canon_check_status?: string
+          character_name: string
+          id?: string
+          notes?: string
+          project_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          canon_check_messages?: Json
+          canon_check_status?: string
+          character_name?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "character_identity_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "character_identity_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cinematic_quality_attempts: {
         Row: {
           adapter_metrics_json: Json
