@@ -1,10 +1,10 @@
 /**
- * WorldLocationLookPanel — Phase 2 world + location visual identity system.
- * Uses structured canon_locations as authority source.
- * Multi-pass extraction with manual and assisted fallbacks.
+ * WorldLocationLookPanel — Phase 3 world + location visual identity system.
+ * Auto-populates from canon_locations + scene graph usage + visual reference state.
+ * Manual add is positioned as override, not primary workflow.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles } from 'lucide-react';
+import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,77 +13,68 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { ImageSelectorGrid } from './ImageSelectorGrid';
 import { EntityStateVariantsPanel } from './EntityStateVariantsPanel';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useImageCuration } from '@/hooks/useImageCuration';
-import { useCanonLocations } from '@/hooks/useCanonLocations';
+import { useHydratedLocations, type HydratedLocation, type LocationReadiness } from '@/hooks/useHydratedLocations';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { ProjectImage, CurationState } from '@/lib/images/types';
+import type { ProjectImage } from '@/lib/images/types';
 
 interface WorldLocationLookPanelProps {
   projectId: string;
 }
 
-interface LocationInfo {
-  /** Stable ID from canon_locations table, or a generated stable key for fallback locations */
-  id: string;
-  name: string;
-  description?: string;
-  importance?: number;
-  type?: string;
-  interior_or_exterior?: string;
-  source: 'structured' | 'canon_json';
-}
+// ── Readiness display ──
 
-// ── Multi-pass location extraction ──
+const READINESS_CONFIG: Record<LocationReadiness, { label: string; color: string; icon: typeof CheckCircle2 }> = {
+  ready_to_generate: { label: 'Ready', color: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20', icon: CheckCircle2 },
+  missing_canon_data: { label: 'Missing Data', color: 'text-amber-600 bg-amber-500/10 border-amber-500/20', icon: AlertTriangle },
+  has_existing_refs: { label: 'Needs Primary', color: 'text-blue-600 bg-blue-500/10 border-blue-500/20', icon: ImageIcon },
+  needs_refresh: { label: 'Needs Refresh', color: 'text-orange-600 bg-orange-500/10 border-orange-500/20', icon: Clock },
+  primary_selected: { label: 'Complete', color: 'text-primary bg-primary/10 border-primary/20', icon: Star },
+};
 
-function multiPassExtractLocations(canonJson: any): LocationInfo[] {
+const USAGE_TIER_COLORS: Record<string, string> = {
+  primary: 'bg-primary/10 text-primary border-primary/20',
+  secondary: 'bg-muted text-foreground border-border/30',
+  minor: 'bg-muted/50 text-muted-foreground border-border/20',
+};
+
+// ── Multi-pass location extraction (for seeding) ──
+
+function multiPassExtractLocations(canonJson: any) {
   if (!canonJson) return [];
-  const locations: LocationInfo[] = [];
+  const locations: { name: string; description?: string; type?: string; interior_or_exterior?: string }[] = [];
   const seen = new Set<string>();
 
-  const addLoc = (name: string, desc?: string, type?: string, intExt?: string, importance?: number) => {
+  const addLoc = (name: string, desc?: string, type?: string, intExt?: string) => {
     const norm = name.toLowerCase().trim();
     if (!norm || norm === 'unknown' || seen.has(norm)) return;
     seen.add(norm);
-    // Generate a stable ID from normalized name for non-structured locations
-    const stableId = `canon-json-${norm.replace(/[^a-z0-9]+/g, '_')}`;
-    locations.push({
-      id: stableId,
-      name: name.trim(),
-      description: desc,
-      type,
-      interior_or_exterior: intExt,
-      importance: importance ?? locations.length,
-      source: 'canon_json',
-    });
+    locations.push({ name: name.trim(), description: desc, type, interior_or_exterior: intExt });
   };
 
-  // Pass 1: Structured canon keys
   const locArr = canonJson.locations || canonJson.settings || canonJson.key_locations;
   if (Array.isArray(locArr)) {
     for (const loc of locArr) {
-      if (typeof loc === 'string') {
-        addLoc(loc);
-      } else if (loc && typeof loc === 'object') {
-        const name = (loc.name || loc.location_name || loc.setting || '').trim();
-        addLoc(name, loc.description || loc.visual_description, loc.type || 'location', loc.interior_or_exterior || loc.int_ext);
+      if (typeof loc === 'string') addLoc(loc);
+      else if (loc && typeof loc === 'object') {
+        addLoc(loc.name || loc.location_name || loc.setting || '', loc.description, loc.type, loc.interior_or_exterior || loc.int_ext);
       }
     }
   }
 
-  // Pass 1b: scenes[].location
   if (Array.isArray(canonJson.scenes)) {
     for (const scene of canonJson.scenes) {
       const locName = (scene.location || scene.setting || '').trim();
-      if (locName) addLoc(locName, undefined, 'location', scene.int_ext || scene.interior_or_exterior);
+      if (locName) addLoc(locName, undefined, 'location', scene.int_ext);
     }
   }
 
-  // Pass 1c: world_description / setting
   if (locations.length === 0) {
     const worldDesc = canonJson.world_description || canonJson.setting;
     if (typeof worldDesc === 'string' && worldDesc.length > 5) {
@@ -91,57 +82,6 @@ function multiPassExtractLocations(canonJson: any): LocationInfo[] {
     }
   }
 
-  // Pass 2: Semi-structured story fields
-  const storyFields = [
-    canonJson.synopsis, canonJson.logline, canonJson.treatment,
-    canonJson.world_notes, canonJson.atmosphere, canonJson.setting_description,
-  ].filter(v => typeof v === 'string' && v.length > 10);
-
-  for (const field of storyFields) {
-    const headingPattern = /\b(?:INT\.|EXT\.|INT\/EXT\.?)\s+([A-Z][A-Z\s\-']+?)(?:\s*[-–—]\s*|\s*$)/gm;
-    let match;
-    while ((match = headingPattern.exec(field)) !== null) {
-      const name = match[1].trim().replace(/\s+/g, ' ');
-      if (name.length > 2 && name.length < 60) {
-        const intExt = match[0].includes('INT/EXT') ? 'INT/EXT' : match[0].includes('INT') ? 'INT' : 'EXT';
-        addLoc(name, undefined, 'location', intExt);
-      }
-    }
-  }
-
-  // Pass 3: Episode/beat/outline structures
-  const episodes = canonJson.episodes || canonJson.episode_grid || canonJson.episode_outlines;
-  if (Array.isArray(episodes)) {
-    for (const ep of episodes) {
-      if (!ep || typeof ep !== 'object') continue;
-      const epLocations = ep.locations || ep.settings;
-      if (Array.isArray(epLocations)) {
-        for (const l of epLocations) {
-          if (typeof l === 'string') addLoc(l);
-          else if (l?.name) addLoc(l.name, l.description);
-        }
-      }
-      const beats = ep.beats || ep.scenes;
-      if (Array.isArray(beats)) {
-        for (const b of beats) {
-          if (b?.location) addLoc(typeof b.location === 'string' ? b.location : b.location.name);
-          if (b?.setting) addLoc(typeof b.setting === 'string' ? b.setting : b.setting.name);
-        }
-      }
-    }
-  }
-
-  // Pass 3b: Plain text extraction from any text blob
-  if (locations.length === 0) {
-    const allText = JSON.stringify(canonJson);
-    const intExtPattern = /(?:INT\.|EXT\.|INT\/EXT\.?)\s+([A-Z][A-Z\s\-']{2,40})/g;
-    let m;
-    while ((m = intExtPattern.exec(allText)) !== null) {
-      addLoc(m[1].trim());
-    }
-  }
-
-  locations.sort((a, b) => (a.importance || 0) - (b.importance || 0));
   return locations.slice(0, 20);
 }
 
@@ -190,19 +130,14 @@ function ManualLocationForm({ projectId, onCreated }: { projectId: string; onCre
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <Button size="sm" variant="outline" className="gap-1.5 text-xs h-7">
-          <PenLine className="h-3 w-3" /> Add Location Manually
+        <Button size="sm" variant="ghost" className="gap-1.5 text-[10px] h-6 text-muted-foreground">
+          <PenLine className="h-3 w-3" /> Add Manually
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-2">
         <Card className="border-border/50">
           <CardContent className="p-3 space-y-2">
-            <Input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Location name (e.g. Village Square)"
-              className="text-xs h-8"
-            />
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Location name" className="text-xs h-8" />
             <div className="grid grid-cols-2 gap-2">
               <Select value={locType} onValueChange={setLocType}>
                 <SelectTrigger className="text-xs h-8"><SelectValue /></SelectTrigger>
@@ -231,15 +166,9 @@ function ManualLocationForm({ projectId, onCreated }: { projectId: string; onCre
                 <SelectItem value="tertiary">Tertiary</SelectItem>
               </SelectContent>
             </Select>
-            <Textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="Brief visual description..."
-              className="text-xs min-h-[50px] resize-none"
-            />
+            <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief visual description..." className="text-xs min-h-[50px] resize-none" />
             <Button size="sm" className="w-full h-7 text-xs" onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-              Save Location
+              {saving ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null} Save Location
             </Button>
           </CardContent>
         </Card>
@@ -248,14 +177,14 @@ function ManualLocationForm({ projectId, onCreated }: { projectId: string; onCre
   );
 }
 
+// ── Main Panel ──
+
 export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProps) {
-  const { locations: structuredLocations, isLoading: structuredLoading, seedFromCanon, refetch } = useCanonLocations(projectId);
+  const { locations, isLoading, canonLocations, seedFromCanon, refetch, stats } = useHydratedLocations(projectId);
   const [canonJson, setCanonJson] = useState<any>(null);
   const [canonLoading, setCanonLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
-  // Track expanded rows by location ID — only one expanded at a time
   const [expandedLocationId, setExpandedLocationId] = useState<string | null>(null);
-  // Per-location generation state: { [locationId]: 'idle' | 'generating' | 'error' | 'success' }
   const [generationState, setGenerationState] = useState<Record<string, { status: string; error?: string }>>({});
 
   useEffect(() => {
@@ -270,50 +199,26 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     })();
   }, [projectId]);
 
-  const loading = structuredLoading || canonLoading;
-
-  // Merge structured locations as primary source, multi-pass canon_json as fallback
-  const locations: LocationInfo[] = useMemo(() => {
-    if (structuredLocations.length > 0) {
-      return structuredLocations.map((loc, idx) => ({
-        id: loc.id, // Use canonical DB id
-        name: loc.canonical_name,
-        description: loc.description || undefined,
-        importance: loc.story_importance === 'primary' ? -10 + idx : idx,
-        type: loc.location_type,
-        interior_or_exterior: loc.interior_or_exterior || undefined,
-        source: 'structured' as const,
-      }));
-    }
-    return multiPassExtractLocations(canonJson);
-  }, [structuredLocations, canonJson]);
+  const loading = isLoading || canonLoading;
 
   const handleSeedLocations = useCallback(async () => {
-    if (!canonJson) {
-      toast.error('No story data available to extract locations');
-      return;
-    }
+    if (!canonJson) { toast.error('No story data available'); return; }
     setSeeding(true);
     try {
       const extracted = multiPassExtractLocations(canonJson);
       if (extracted.length === 0) {
-        toast.info('No locations confidently extracted. Try adding manually or using assisted suggestions.');
+        toast.info('No locations confidently extracted. Try adding manually.');
         return;
       }
       const syntheticCanon = { ...canonJson, locations: extracted.map(l => ({
-        name: l.name,
-        description: l.description,
-        type: l.type,
+        name: l.name, description: l.description, type: l.type,
         interior_or_exterior: l.interior_or_exterior,
         importance: l.type === 'primary' ? 'primary' : 'secondary',
       })) };
       await seedFromCanon.mutateAsync({ canonJson: syntheticCanon });
     } catch (e: any) {
-      if (e.message?.includes('No locations found')) {
-        toast.info('No locations confidently extracted. Try adding manually.');
-      } else {
-        toast.error(e.message);
-      }
+      if (!e.message?.includes('No locations found')) toast.error(e.message);
+      else toast.info('No locations confidently extracted. Try adding manually.');
     } finally {
       setSeeding(false);
     }
@@ -323,12 +228,12 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     return (
       <div className="flex items-center gap-2 py-4 text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span className="text-xs">Loading locations...</span>
+        <span className="text-xs">Hydrating location data...</span>
       </div>
     );
   }
 
-  // Empty state with multi-path recovery
+  // Empty state
   if (locations.length === 0) {
     return (
       <div className="py-4">
@@ -339,22 +244,11 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
               <span className="text-xs font-medium">No structured locations seeded yet</span>
             </div>
             <p className="text-[10px] text-muted-foreground max-w-sm mx-auto">
-              Extract locations from your story materials to build governed world/location visual references.
-              No images will be generated without structured location canon.
+              Extract locations from your story materials to auto-populate world references.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-xs"
-                onClick={handleSeedLocations}
-                disabled={seeding || !canonJson}
-              >
-                {seeding ? (
-                  <><Loader2 className="h-3 w-3 animate-spin" /> Extracting...</>
-                ) : (
-                  <><Wand2 className="h-3 w-3" /> Extract Locations from Story</>
-                )}
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={handleSeedLocations} disabled={seeding || !canonJson}>
+                {seeding ? <><Loader2 className="h-3 w-3 animate-spin" /> Extracting...</> : <><Wand2 className="h-3 w-3" /> Extract Locations from Story</>}
               </Button>
               <ManualLocationForm projectId={projectId} onCreated={refetch} />
             </div>
@@ -364,103 +258,91 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
     );
   }
 
-  // Coverage summary
-  const structuredCount = structuredLocations.length;
-  const primaryCount = locations.filter(l => l.type === 'primary' || (l.importance !== undefined && l.importance < 0)).length;
-
   return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2 mb-2">
-        <Globe className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold text-foreground">World & Location References</h3>
-      </div>
-
-      {/* Coverage Summary */}
-      <div className="grid grid-cols-3 gap-1.5 mb-3">
-        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
-          <p className="text-[10px] text-muted-foreground">Seeded Locations</p>
-          <p className="text-sm font-semibold text-foreground">{locations.length}</p>
+    <TooltipProvider>
+      <div className="space-y-1">
+        <div className="flex items-center gap-2 mb-2">
+          <Globe className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">World & Location References</h3>
         </div>
-        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
-          <p className="text-[10px] text-muted-foreground">Primary</p>
-          <p className="text-sm font-semibold text-foreground">{primaryCount}</p>
-        </div>
-        <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
-          <p className="text-[10px] text-muted-foreground">Source</p>
-          <p className="text-[10px] font-medium text-foreground">
-            {structuredCount > 0 ? 'Structured Canon' : 'Canon JSON'}
-          </p>
-        </div>
-      </div>
 
-      {/* Seed / manual add controls */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        {structuredCount === 0 && canonJson && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 text-[10px] h-7"
-            onClick={handleSeedLocations}
-            disabled={seeding}
-          >
-            {seeding ? (
-              <><Loader2 className="h-3 w-3 animate-spin" /> Seeding...</>
-            ) : (
-              <><Wand2 className="h-3 w-3" /> Seed Structured Location Canon</>
-            )}
-          </Button>
-        )}
-        <ManualLocationForm projectId={projectId} onCreated={refetch} />
-      </div>
+        {/* Coverage Summary */}
+        <div className="grid grid-cols-5 gap-1.5 mb-3">
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">Locations</p>
+            <p className="text-sm font-semibold text-foreground">{stats.total}</p>
+          </div>
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">Primary</p>
+            <p className="text-sm font-semibold text-foreground">{stats.primary}</p>
+          </div>
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">With Refs</p>
+            <p className="text-sm font-semibold text-foreground">{stats.withRefs}</p>
+          </div>
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">Locked</p>
+            <p className="text-sm font-semibold text-foreground">{stats.withPrimary}</p>
+          </div>
+          <div className="bg-muted/30 rounded-md px-2 py-1.5 text-center">
+            <p className="text-[9px] text-muted-foreground">Ready</p>
+            <p className="text-sm font-semibold text-foreground">{stats.readyToGenerate}</p>
+          </div>
+        </div>
 
-      <p className="text-[10px] text-muted-foreground mb-3">
-        Generate establishing + atmospheric + detail references per location. Select primary references to anchor world visual identity.
-      </p>
-      {locations.map(loc => (
-        <LocationLookSection
-          key={loc.id}
-          projectId={projectId}
-          location={loc}
-          isExpanded={expandedLocationId === loc.id}
-          onToggleExpand={() => setExpandedLocationId(prev => prev === loc.id ? null : loc.id)}
-          generationStatus={generationState[loc.id]}
-          onGenerationStateChange={(status, error) =>
-            setGenerationState(prev => ({ ...prev, [loc.id]: { status, error } }))
-          }
-        />
-      ))}
-    </div>
+        {/* Controls row */}
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          {canonLocations.length === 0 && canonJson && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-[10px] h-7" onClick={handleSeedLocations} disabled={seeding}>
+              {seeding ? <><Loader2 className="h-3 w-3 animate-spin" /> Seeding...</> : <><Wand2 className="h-3 w-3" /> Seed from Story</>}
+            </Button>
+          )}
+          <ManualLocationForm projectId={projectId} onCreated={refetch} />
+        </div>
+
+        {/* Location rows */}
+        {locations.map(loc => (
+          <HydratedLocationRow
+            key={loc.id}
+            projectId={projectId}
+            location={loc}
+            isExpanded={expandedLocationId === loc.id}
+            onToggleExpand={() => setExpandedLocationId(prev => prev === loc.id ? null : loc.id)}
+            generationStatus={generationState[loc.id]}
+            onGenerationStateChange={(status, error) =>
+              setGenerationState(prev => ({ ...prev, [loc.id]: { status, error } }))
+            }
+          />
+        ))}
+      </div>
+    </TooltipProvider>
   );
 }
 
-type LocFilter = 'all' | 'active' | 'candidate' | 'archived';
+// ── Hydrated Location Row ──
 
-interface LocationLookSectionProps {
+interface HydratedLocationRowProps {
   projectId: string;
-  location: LocationInfo;
+  location: HydratedLocation;
   isExpanded: boolean;
   onToggleExpand: () => void;
   generationStatus?: { status: string; error?: string };
   onGenerationStateChange: (status: string, error?: string) => void;
 }
 
-function LocationLookSection({
-  projectId,
-  location,
-  isExpanded,
-  onToggleExpand,
-  generationStatus,
-  onGenerationStateChange,
-}: LocationLookSectionProps) {
+type LocFilter = 'all' | 'active' | 'candidate' | 'archived';
+
+function HydratedLocationRow({
+  projectId, location, isExpanded, onToggleExpand, generationStatus, onGenerationStateChange,
+}: HydratedLocationRowProps) {
   const [filter, setFilter] = useState<LocFilter>('all');
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
-
   const generating = generationStatus?.status === 'generating';
 
   const { data: locImages = [], isLoading } = useProjectImages(projectId, {
     assetGroup: 'world',
-    subject: location.name,
+    subject: location.canonical_name,
     activeOnly: false,
     curationStates: ['active', 'candidate', 'archived'],
   });
@@ -481,26 +363,12 @@ function LocationLookSection({
   const candidateCount = locImages.filter(i => i.curation_state === 'candidate').length;
   const archivedCount = locImages.filter(i => i.curation_state === 'archived').length;
 
-  // Canon governance check: structured locations have required fields
-  const missingCanonFields = useMemo(() => {
-    if (location.source !== 'structured') return ['Not a structured canon location — seed first'];
-    const missing: string[] = [];
-    if (!location.name) missing.push('canonical_name');
-    if (!location.type) missing.push('location_type');
-    return missing;
-  }, [location]);
-
-  const canGenerate = missingCanonFields.length === 0;
+  const canGenerate = location.readiness !== 'missing_canon_data';
+  const readinessCfg = READINESS_CONFIG[location.readiness];
+  const ReadinessIcon = readinessCfg.icon;
 
   const generateLocationRef = useCallback(async () => {
-    if (generating) return;
-
-    // Canon governance: block generation if required fields missing
-    if (!canGenerate) {
-      toast.error(`Cannot generate: ${missingCanonFields.join(', ')}`);
-      return;
-    }
-
+    if (generating || !canGenerate) return;
     onGenerationStateChange('generating');
     try {
       const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
@@ -508,100 +376,150 @@ function LocationLookSection({
           project_id: projectId,
           section: 'world',
           count: 4,
-          // Location-bound fields
           location_id: location.id,
-          location_name: location.name,
+          location_name: location.canonical_name,
           location_description: location.description,
-          location_type: location.type,
+          location_type: location.location_type,
           interior_or_exterior: location.interior_or_exterior,
           asset_group: 'world',
           pack_mode: true,
           location_ref_mode: true,
         },
       });
-
-      if (error) {
-        const msg = error.message || 'Generation request failed';
-        onGenerationStateChange('error', msg);
-        toast.error(`${location.name}: ${msg}`);
-        return;
-      }
-
+      if (error) { onGenerationStateChange('error', error.message); toast.error(`${location.canonical_name}: ${error.message}`); return; }
       const results = data?.results || [];
       const successCount = results.filter((r: any) => r.status === 'ready').length;
-      const failedResults = results.filter((r: any) => r.status !== 'ready');
-
       if (successCount > 0) {
         onGenerationStateChange('success');
-        toast.success(`${location.name}: ${successCount} image${successCount > 1 ? 's' : ''} generated`);
+        toast.success(`${location.canonical_name}: ${successCount} image(s) generated`);
         qc.invalidateQueries({ queryKey: ['project-images', projectId] });
-      } else if (failedResults.length > 0) {
-        // Surface the first specific failure reason
-        const firstError = failedResults[0]?.error || failedResults[0]?.reason || 'Unknown generation failure';
-        onGenerationStateChange('error', firstError);
-        toast.error(`${location.name}: ${firstError}`);
-      } else if (results.length === 0) {
-        const msg = data?.error || 'No images returned — check location details';
-        onGenerationStateChange('error', msg);
-        toast.error(`${location.name}: ${msg}`);
+        qc.invalidateQueries({ queryKey: ['location-image-stats', projectId] });
       } else {
-        onGenerationStateChange('error', 'Zero successful variants');
-        toast.error(`${location.name}: No images generated successfully`);
+        const msg = data?.error || results[0]?.error || 'No images generated';
+        onGenerationStateChange('error', msg);
+        toast.error(`${location.canonical_name}: ${msg}`);
       }
     } catch (e: any) {
-      const msg = e.message || 'Failed to generate location images';
-      onGenerationStateChange('error', msg);
-      toast.error(`${location.name}: ${msg}`);
+      onGenerationStateChange('error', e.message);
+      toast.error(`${location.canonical_name}: ${e.message}`);
     }
-  }, [projectId, location, generating, canGenerate, missingCanonFields, qc, onGenerationStateChange]);
+  }, [projectId, location, generating, canGenerate, qc, onGenerationStateChange]);
 
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
-      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
-        <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2.5 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
+        {/* Thumbnail */}
+        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
           {primaryEstablishing?.signedUrl ? (
             <img src={primaryEstablishing.signedUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
           )}
         </div>
+
+        {/* Main info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-medium text-foreground">{location.name}</span>
-            {location.type && (
-              <Badge variant="secondary" className="text-[8px] px-1 py-0">{location.type}</Badge>
-            )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-medium text-foreground">{location.canonical_name}</span>
+
+            {/* Usage tier badge */}
+            <Badge variant="outline" className={cn('text-[7px] px-1 py-0', USAGE_TIER_COLORS[location.usage_tier])}>
+              {location.usage_tier}
+            </Badge>
+
             {location.interior_or_exterior && (
               <Badge variant="outline" className="text-[7px] px-1 py-0">{location.interior_or_exterior}</Badge>
             )}
-            {/* Per-row generation status indicator */}
+
+            {location.suggested_primary && (
+              <Badge variant="secondary" className="text-[7px] px-1 py-0 gap-0.5 text-amber-600 bg-amber-500/10 border-amber-500/20">
+                <Sparkles className="h-1.5 w-1.5" /> Suggested Primary
+              </Badge>
+            )}
+
             {generating && (
               <Badge variant="secondary" className="text-[7px] px-1 py-0 gap-0.5 animate-pulse">
                 <Loader2 className="h-2 w-2 animate-spin" /> Generating
               </Badge>
             )}
-            {generationStatus?.status === 'error' && (
-              <Badge variant="destructive" className="text-[7px] px-1 py-0 gap-0.5">
-                <AlertTriangle className="h-2 w-2" /> Error
-              </Badge>
-            )}
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            {primaryEstablishing && <Badge variant="secondary" className="text-[8px] px-1 py-0">Primary ✓</Badge>}
-            {locImages.length === 0 && <span className="text-[10px] text-muted-foreground/60">no references</span>}
-            {locImages.length > 0 && !primaryEstablishing && (
-              <span className="text-[10px] text-accent">{locImages.length} candidates</span>
+
+          {/* Hydrated metadata row */}
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            {/* Scene count */}
+            {location.scene_count > 0 && (
+              <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                <Film className="h-2.5 w-2.5" /> {location.scene_count} scene{location.scene_count !== 1 ? 's' : ''}
+              </span>
+            )}
+
+            {/* Character count */}
+            {location.characters_at_location.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground cursor-help">
+                    <Users className="h-2.5 w-2.5" /> {location.characters_at_location.length}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-[10px] max-w-[200px]">
+                  {location.characters_at_location.slice(0, 8).join(', ')}
+                  {location.characters_at_location.length > 8 && ` +${location.characters_at_location.length - 8}`}
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Image count */}
+            {location.total_images > 0 && (
+              <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                <ImageIcon className="h-2.5 w-2.5" /> {location.total_images} ref{location.total_images !== 1 ? 's' : ''}
+              </span>
+            )}
+
+            {/* Readiness */}
+            <Badge variant="outline" className={cn('text-[7px] px-1 py-0 gap-0.5', readinessCfg.color)}>
+              <ReadinessIcon className="h-2 w-2" /> {readinessCfg.label}
+            </Badge>
+
+            {/* Provenance */}
+            {location.provenance && (
+              <span className="text-[8px] text-muted-foreground/60 italic">{location.provenance.replace(/_/g, ' ')}</span>
             )}
           </div>
         </div>
-        <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', isExpanded && 'rotate-90')} />
+
+        <ChevronRight className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0', isExpanded && 'rotate-90')} />
       </CollapsibleTrigger>
+
       <CollapsibleContent className="px-3 pb-3">
+        {/* Description */}
         {location.description && (
           <p className="text-[10px] text-muted-foreground mb-2 italic line-clamp-2">{location.description}</p>
         )}
 
-        {/* Show per-row error detail */}
+        {/* Pack Blueprint */}
+        {location.pack_blueprint.length > 0 && (
+          <div className="mb-2">
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium mb-1 flex items-center gap-1">
+              <Package className="h-2.5 w-2.5" /> Pack Blueprint
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {location.pack_blueprint.map(slot => (
+                <Badge
+                  key={slot.slot}
+                  variant={slot.recommended ? 'secondary' : 'outline'}
+                  className={cn(
+                    'text-[8px] px-1.5 py-0',
+                    slot.recommended ? 'bg-primary/5 text-primary border-primary/20' : 'text-muted-foreground'
+                  )}
+                >
+                  {slot.label}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Error display */}
         {generationStatus?.status === 'error' && generationStatus.error && (
           <div className="mb-2 px-2 py-1.5 rounded bg-destructive/10 border border-destructive/20">
             <p className="text-[10px] text-destructive font-medium">Generation failed</p>
@@ -609,6 +527,7 @@ function LocationLookSection({
           </div>
         )}
 
+        {/* Filter bar */}
         {locImages.length > 0 && (
           <div className="flex items-center gap-1 mb-2 flex-wrap">
             {(['all', 'active', 'candidate', 'archived'] as LocFilter[]).map(f => (
@@ -631,22 +550,15 @@ function LocationLookSection({
           </div>
         )}
 
+        {/* Image grids */}
         {wideShots.length > 0 && (
           <div className="mb-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-              Establishing / Atmospheric
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Establishing / Atmospheric</p>
             <div className="grid grid-cols-2 gap-2">
               {wideShots.map(img => (
-                <LocationImageCard
-                  key={img.id}
-                  image={img}
-                  isPrimary={img.id === primaryEstablishing?.id}
-                  onSetPrimary={() => setPrimary(img)}
-                  onArchive={() => setCurationState(img.id, 'archived')}
-                  onRestore={() => setCurationState(img.id, 'candidate')}
-                  updating={updating}
-                />
+                <LocationImageCard key={img.id} image={img} isPrimary={img.id === primaryEstablishing?.id}
+                  onSetPrimary={() => setPrimary(img)} onArchive={() => setCurationState(img.id, 'archived')}
+                  onRestore={() => setCurationState(img.id, 'candidate')} updating={updating} />
               ))}
             </div>
           </div>
@@ -654,20 +566,12 @@ function LocationLookSection({
 
         {detailShots.length > 0 && (
           <div className="mb-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-              Detail / Temporal
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Detail / Temporal</p>
             <div className="grid grid-cols-2 gap-2">
               {detailShots.map(img => (
-                <LocationImageCard
-                  key={img.id}
-                  image={img}
-                  isPrimary={img.id === primaryDetail?.id}
-                  onSetPrimary={() => setPrimary(img)}
-                  onArchive={() => setCurationState(img.id, 'archived')}
-                  onRestore={() => setCurationState(img.id, 'candidate')}
-                  updating={updating}
-                />
+                <LocationImageCard key={img.id} image={img} isPrimary={img.id === primaryDetail?.id}
+                  onSetPrimary={() => setPrimary(img)} onArchive={() => setCurationState(img.id, 'archived')}
+                  onRestore={() => setCurationState(img.id, 'candidate')} updating={updating} />
               ))}
             </div>
           </div>
@@ -675,40 +579,24 @@ function LocationLookSection({
 
         {others.length > 0 && (
           <div className="mb-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-              Other References
-            </p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">Other References</p>
             <ImageSelectorGrid projectId={projectId} images={others} showShotTypes showCurationControls showProvenance />
           </div>
         )}
 
         {locImages.length > 0 && (
-          <EntityStateVariantsPanel
-            projectId={projectId}
-            entityType="location"
-            entityName={location.name}
-            entityDescription={location.description}
-          />
+          <EntityStateVariantsPanel projectId={projectId} entityType="location" entityName={location.canonical_name} entityDescription={location.description || undefined} />
         )}
 
+        {/* Generate button */}
         {!canGenerate ? (
           <div className="mt-2 px-2 py-1.5 rounded bg-amber-500/10 border border-amber-500/20">
-            <p className="text-[10px] text-amber-600 font-medium">Cannot generate location pack</p>
-            <p className="text-[10px] text-amber-600/80">{missingCanonFields.join(', ')}</p>
+            <p className="text-[10px] text-amber-600 font-medium">Cannot generate</p>
+            <p className="text-[10px] text-amber-600/80">{location.readiness_reason}</p>
           </div>
         ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 text-xs h-7 w-full mt-2"
-            onClick={generateLocationRef}
-            disabled={generating}
-          >
-            {generating ? (
-              <><Loader2 className="h-3 w-3 animate-spin" /> Generating {location.name}...</>
-            ) : (
-              <><Plus className="h-3 w-3" /> Generate Location Pack</>
-            )}
+          <Button size="sm" variant="outline" className="gap-1.5 text-xs h-7 w-full mt-2" onClick={generateLocationRef} disabled={generating}>
+            {generating ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</> : <><Plus className="h-3 w-3" /> Generate Location Pack</>}
           </Button>
         )}
       </CollapsibleContent>
@@ -716,14 +604,13 @@ function LocationLookSection({
   );
 }
 
+// ── Location Image Card ──
+
 function LocationImageCard({
   image, isPrimary, onSetPrimary, onArchive, onRestore, updating,
 }: {
-  image: ProjectImage;
-  isPrimary: boolean;
-  onSetPrimary: () => void;
-  onArchive: () => void;
-  onRestore: () => void;
+  image: ProjectImage; isPrimary: boolean;
+  onSetPrimary: () => void; onArchive: () => void; onRestore: () => void;
   updating: string | null;
 }) {
   const isArchived = image.curation_state === 'archived';
@@ -732,47 +619,34 @@ function LocationImageCard({
   return (
     <div className={cn(
       'group relative rounded-md overflow-hidden border-2 transition-all aspect-video bg-muted',
-      isPrimary
-        ? 'border-primary ring-1 ring-primary/30'
-        : isArchived
-          ? 'border-border/30 opacity-50'
-          : 'border-border/50 hover:border-primary/40',
+      isPrimary ? 'border-primary ring-1 ring-primary/30' : isArchived ? 'border-border/30 opacity-50' : 'border-border/50 hover:border-primary/40',
     )}>
       {image.signedUrl ? (
         <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
       ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <MapPin className="h-6 w-6 text-muted-foreground/30" />
-        </div>
+        <div className="w-full h-full flex items-center justify-center"><MapPin className="h-6 w-6 text-muted-foreground/30" /></div>
       )}
       {isPrimary && (
         <div className="absolute top-1 left-1">
-          <Badge className="text-[7px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5">
-            <Star className="h-1.5 w-1.5" /> Primary
-          </Badge>
+          <Badge className="text-[7px] bg-primary/90 text-primary-foreground px-1 py-0 gap-0.5"><Star className="h-1.5 w-1.5" /> Primary</Badge>
         </div>
       )}
       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors">
         <div className="absolute bottom-1 left-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isPrimary && !isArchived && (
-            <button
-              className="flex-1 flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-primary/80 text-primary-foreground text-[8px] font-medium hover:bg-primary/90"
-              onClick={(e) => { e.stopPropagation(); onSetPrimary(); }}
-              disabled={isUpdating}
-            >
-              {isUpdating ? <Loader2 className="h-2 w-2 animate-spin" /> : <Star className="h-2 w-2" />}
-              Primary
+            <button className="flex-1 flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-primary/80 text-primary-foreground text-[8px] font-medium hover:bg-primary/90"
+              onClick={e => { e.stopPropagation(); onSetPrimary(); }} disabled={isUpdating}>
+              {isUpdating ? <Loader2 className="h-2 w-2 animate-spin" /> : <Star className="h-2 w-2" />} Primary
             </button>
           )}
           {!isArchived && (
-            <button className="p-0.5 rounded bg-black/50 text-white hover:bg-black/70"
-              onClick={(e) => { e.stopPropagation(); onArchive(); }} title="Archive">
+            <button className="p-0.5 rounded bg-black/50 text-white hover:bg-black/70" onClick={e => { e.stopPropagation(); onArchive(); }} title="Archive">
               <Archive className="h-2.5 w-2.5" />
             </button>
           )}
           {isArchived && (
             <button className="flex-1 flex items-center justify-center gap-0.5 px-1 py-0.5 rounded bg-muted/80 text-foreground text-[8px] font-medium"
-              onClick={(e) => { e.stopPropagation(); onRestore(); }}>
+              onClick={e => { e.stopPropagation(); onRestore(); }}>
               <RotateCcw className="h-2 w-2" /> Restore
             </button>
           )}
