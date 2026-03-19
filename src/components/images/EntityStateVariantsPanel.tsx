@@ -279,12 +279,13 @@ function StateImageCard({
 }
 
 function StateGenerationBar({
-  projectId, entityType, entityName, entityDescription, presets, existingStates, onStateCreated,
+  projectId, entityType, entityName, entityDescription, entityCanonId, presets, existingStates, onStateCreated,
 }: {
   projectId: string;
   entityType: 'character' | 'location';
   entityName: string;
   entityDescription?: string;
+  entityCanonId?: string;
   presets: StatePreset[];
   existingStates: string[];
   onStateCreated: () => void;
