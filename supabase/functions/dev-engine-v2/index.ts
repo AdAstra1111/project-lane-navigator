@@ -18370,9 +18370,10 @@ ${patchLayer === "layer_7_beats" ? "IMPORTANT: Include ALL existing beats plus a
         required_by:      spec.required_by,
         severity_default: spec.severity_default,
         provenance: JSON.stringify({
-          seed_id:   seedId,
-          seed_type: "authored",
-          built_at:  builtAt,
+          source:           provenanceSource,
+          has_canon:        hasCanon,
+          has_documents:    hasDocs,
+          built_at:         builtAt,
         }),
       }));
 
