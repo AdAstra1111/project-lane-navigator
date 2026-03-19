@@ -254,12 +254,15 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
       try {
         const identity = await resolveCharacterIdentity(projectId, characterName);
         
-        // Load persisted markers and evidence from stored DNA
-        const persistedMarkers = currentDNA?.recipe_json
-          ? deserializeBindingMarkers(currentDNA.recipe_json as Record<string, any>)
+        // Load persisted markers and evidence from composite identity_signature
+        const persistedMarkers = currentDNA?.identity_signature
+          ? deserializeBindingMarkers(currentDNA.identity_signature as Record<string, any>)
           : [];
-        const persistedEvidence = currentDNA?.recipe_json
-          ? deserializeEvidenceTraits(currentDNA.recipe_json as Record<string, any>)
+        const persistedEvidence = currentDNA?.identity_signature
+          ? deserializeEvidenceTraits(currentDNA.identity_signature as Record<string, any>)
+          : [];
+        const persistedTransient = currentDNA?.identity_signature
+          ? deserializeTransientStates(currentDNA.identity_signature as Record<string, any>)
           : [];
         
         if (persistedMarkers.length > 0 && bindingMarkers.length === 0) {
