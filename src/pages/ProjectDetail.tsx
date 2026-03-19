@@ -438,9 +438,9 @@ export default function ProjectDetail() {
                     <ImagePlus className="h-3.5 w-3.5" /> Poster
                   </Button>
                 </Link>
-                <Link to={`/projects/${id}/pitch-deck`}>
+                <Link to={`/projects/${id}/visual-dev`}>
                   <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
-                    <Sparkles className="h-3.5 w-3.5" /> Look Book
+                    <Film className="h-3.5 w-3.5" /> Cast &amp; Visuals
                   </Button>
                 </Link>
               </div>
