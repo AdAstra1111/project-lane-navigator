@@ -1561,6 +1561,8 @@ serve(async (req) => {
         model: primaryGenConfig.model,
         style_mode: styleMode,
         generation_config: primaryRepoMeta,
+        lane_key: posterLaneKey,
+        prestige_style: posterStyleKey,
       });
       if (repoErr) {
         console.error(`[project_images] legacy insert failed:`, repoErr.message);
