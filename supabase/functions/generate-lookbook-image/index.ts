@@ -466,35 +466,40 @@ serve(async (req) => {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
         // If locked identity exists, inject continuity mandate for additional candidates
         if (identityLockUsed) {
-          prompt += `\n\nIDENTITY LOCK ACTIVE: Reference images are provided. Generate a new candidate that is THE SAME PERSON as shown in the reference images. Preserve exact facial structure, skin tone, hair color/style, body proportions, and overall appearance. This must be unmistakably the same individual.`;
+          prompt += `\n\nIDENTITY LOCK ACTIVE — STRICT RESEMBLANCE MANDATE:\nReference images of this exact person are provided. You MUST generate THE SAME PERSON.\n- Preserve EXACT facial structure: eye shape, eye spacing, nose shape, jawline, cheekbone structure, brow ridge\n- Preserve EXACT skin tone, complexion, and facial proportions\n- Preserve hair color, hair texture, hairline position\n- Preserve body proportions, height-to-width ratio, silhouette\n- This must be UNMISTAKABLY the same individual — not a similar-looking person\n- Do NOT reinterpret, idealize, or drift from the reference\n- Treat reference images as the absolute ground truth for this person's appearance`;
         }
       } else {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx)
           : buildSectionPrompt(section, ctx, i);
+
+        // For ALL character shots (cinematic refs, state variants), inject identity continuity when locked
+        if (identityLockUsed && assetGroup === "character" && character_name) {
+          prompt += `\n\nCHARACTER IDENTITY CONTINUITY — MANDATORY:\nReference images of the character "${character_name}" are provided. This character MUST look like THE SAME PERSON as in the reference images.\n- Preserve EXACT facial structure: eye shape, eye spacing, nose shape, jawline, cheekbone structure\n- Preserve skin tone, hair color/style, hairline\n- Preserve body proportions and silhouette\n- The character may be in different clothing, lighting, or emotional state, but the PERSON must be identical\n- Do NOT generate a different-looking person in the same costume\n- Treat the reference images as the canonical casting of this character`;
+        }
       }
 
-      // Inject identity notes if provided
-      if (identity_notes && identity_mode) {
-        prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon): ${identity_notes}`;
-      }
-
-      // Inject canon-derived character facts if provided
+      // Inject canon-derived character facts FIRST (highest priority after identity)
       if (identity_canon_facts) {
         prompt += `\n\nCANON CHARACTER FACTS: ${identity_canon_facts}`;
       }
 
+      // Inject identity notes AFTER canon (subordinate)
+      if (identity_notes && identity_mode) {
+        prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon): ${identity_notes}`;
+      }
+
       // Phase 3: Inject state variant modifier into prompt
       if (state_prompt_modifier) {
-        prompt = prompt + `\n\nSTATE VARIANT: ${state_prompt_modifier}\nThis is a state-specific reference showing the subject in this particular condition/state. Maintain visual continuity with the base reference while clearly showing the state change.`;
+        prompt = prompt + `\n\nSTATE VARIANT: ${state_prompt_modifier}\nThis is a state-specific reference showing the subject in this particular condition/state. Maintain visual continuity with the base reference while clearly showing the state change. The PERSON remains the same — only the state changes.`;
       }
 
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
 
-      // Determine which image references to pass to the model
-      const refsForThisShot = (identity_mode && identityLockUsed) ? identityReferenceUrls : [];
+      // Use identity references for ALL character generation when locked, not just identity_mode
+      const refsForThisShot = (identityLockUsed && assetGroup === "character") ? identityReferenceUrls : [];
 
       try {
         const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl, refsForThisShot.length > 0 ? refsForThisShot : undefined);

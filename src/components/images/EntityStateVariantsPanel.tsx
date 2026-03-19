@@ -291,7 +291,7 @@ function StateGenerationBar({
     } finally {
       setGenerating(null);
     }
-  }, [projectId, entityType, entityName, entityDescription, generating, qc]);
+  }, [projectId, entityType, entityName, entityDescription, generating, qc, identityAnchors]);
 
   if (availablePresets.length === 0) return null;
 
