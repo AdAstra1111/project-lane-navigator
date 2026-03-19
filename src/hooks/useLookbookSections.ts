@@ -113,7 +113,7 @@ export function useLookbookSections(projectId: string | undefined) {
   const bootstrapMutation = useMutation({
     mutationFn: async () => {
       if (!projectId) throw new Error('No project ID');
-      const { data, error } = await supabase.rpc('bootstrap_lookbook_sections', {
+      const { data, error } = await (supabase as any).rpc('bootstrap_lookbook_sections', {
         p_project_id: projectId,
       });
       if (error) throw error;
