@@ -304,34 +304,62 @@ export function WorldLocationLookPanel({ projectId }: WorldLocationLookPanelProp
 
         {/* Unresolved warnings */}
         {(stats.unresolvedSceneLocations > 0 || stats.unresolvedWorldRefs > 0) && (
-          <div className="mb-3 px-2 py-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 flex items-center gap-2 flex-wrap">
-            <Unlink2 className="h-3 w-3 text-amber-600 shrink-0" />
-            <span className="text-[10px] text-amber-600 font-medium">Unresolved:</span>
-            {stats.unresolvedSceneLocations > 0 && (
-              <span className="text-[10px] text-amber-600">{stats.unresolvedSceneLocations} scene location{stats.unresolvedSceneLocations !== 1 ? 's' : ''}</span>
-            )}
-            {stats.unresolvedWorldRefs > 0 && (
-              <span className="text-[10px] text-amber-600">{stats.unresolvedWorldRefs} world ref{stats.unresolvedWorldRefs !== 1 ? 's' : ''}</span>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1 text-[9px] h-5 ml-auto border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
-              onClick={() => runBackfill(false)}
-              disabled={backfilling}
-            >
-              {backfilling ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Link2 className="h-2.5 w-2.5" />}
-              Backfill Bindings
-            </Button>
+          <div className="mb-3 rounded-md bg-amber-500/5 border border-amber-500/20 overflow-hidden">
+            <div className="px-2 py-1.5 flex items-center gap-2 flex-wrap">
+              <Unlink2 className="h-3 w-3 text-amber-600 shrink-0" />
+              <span className="text-[10px] text-amber-600 font-medium">Unresolved Bindings</span>
+              <div className="flex items-center gap-2 text-[10px] text-amber-600">
+                {stats.unresolvedSceneLocations > 0 && (
+                  <span className="flex items-center gap-0.5"><Film className="h-2.5 w-2.5" />{stats.unresolvedSceneLocations} scene{stats.unresolvedSceneLocations !== 1 ? 's' : ''}</span>
+                )}
+                {stats.unresolvedWorldRefs > 0 && (
+                  <span className="flex items-center gap-0.5"><ImageIcon className="h-2.5 w-2.5" />{stats.unresolvedWorldRefs} image{stats.unresolvedWorldRefs !== 1 ? 's' : ''}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 ml-auto">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1 text-[9px] h-5 text-amber-700 hover:bg-amber-500/10"
+                  onClick={() => runBackfill(true)}
+                  disabled={backfilling}
+                >
+                  {backfilling ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Eye className="h-2.5 w-2.5" />}
+                  Preview
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-[9px] h-5 border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
+                  onClick={() => runBackfill(false)}
+                  disabled={backfilling}
+                >
+                  {backfilling ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Link2 className="h-2.5 w-2.5" />}
+                  Backfill
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
         {/* Backfill result summary */}
         {backfillResult && (
-          <div className="mb-3 px-2 py-1.5 rounded-md bg-muted/30 border border-border/30 text-[9px] text-muted-foreground space-y-0.5">
-            <div className="font-medium text-foreground text-[10px]">Last backfill: {backfillResult.dry_run ? 'Dry run' : 'Applied'}</div>
-            <div>Scenes — bound: {backfillResult.report.scenes.bound}, unresolved: {backfillResult.report.scenes.unresolved}, ambiguous: {backfillResult.report.scenes.ambiguous}</div>
-            <div>Images — bound: {backfillResult.report.images.bound}, unresolved: {backfillResult.report.images.unresolved}, ambiguous: {backfillResult.report.images.ambiguous}</div>
+          <div className="mb-3 px-2 py-1.5 rounded-md bg-muted/30 border border-border/30 text-[9px] text-muted-foreground">
+            <div className="font-medium text-foreground text-[10px] mb-1">
+              {backfillResult.dry_run ? '🔍 Preview (dry run)' : '✅ Backfill applied'}
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+              <div className="flex items-center gap-1"><Film className="h-2.5 w-2.5" /> Scenes bound: <span className="text-foreground font-medium">{backfillResult.report.scenes.bound}</span></div>
+              <div className="flex items-center gap-1"><ImageIcon className="h-2.5 w-2.5" /> Images bound: <span className="text-foreground font-medium">{backfillResult.report.images.bound}</span></div>
+              <div>Unresolved: {backfillResult.report.scenes.unresolved}</div>
+              <div>Unresolved: {backfillResult.report.images.unresolved}</div>
+              {(backfillResult.report.scenes.ambiguous > 0 || backfillResult.report.images.ambiguous > 0) && (
+                <>
+                  <div className="text-amber-600">Ambiguous: {backfillResult.report.scenes.ambiguous}</div>
+                  <div className="text-amber-600">Ambiguous: {backfillResult.report.images.ambiguous}</div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
