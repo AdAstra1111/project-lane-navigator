@@ -44,6 +44,14 @@ export interface ProjectImage {
   created_at: string;
   created_by: string | null;
   user_id: string;
+  /** Provider used for generation (e.g. lovable-ai) */
+  provider: string;
+  /** Model used for generation */
+  model: string;
+  /** Resolved style mode at generation time */
+  style_mode: string;
+  /** Full resolver config including rationale */
+  generation_config: Record<string, unknown>;
   /** Resolved signed URL — populated client-side */
   signedUrl?: string;
 }
