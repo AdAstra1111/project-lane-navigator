@@ -235,11 +235,32 @@ function parseDataUrl(dataUrl: string): ProviderImageResult {
   return { imageDataUrl: dataUrl, format, rawBytes };
 }
 
-async function generateImage(apiKey: string, prompt: string, model: string, gatewayUrl: string): Promise<ProviderImageResult> {
+async function generateImage(
+  apiKey: string,
+  prompt: string,
+  model: string,
+  gatewayUrl: string,
+  referenceImageUrls?: string[],
+): Promise<ProviderImageResult> {
+  // Build content: text + optional reference images
+  const content: Array<Record<string, unknown>> = [];
+
+  // Inject reference images first so the model "sees" them before the prompt
+  if (referenceImageUrls?.length) {
+    for (const url of referenceImageUrls) {
+      content.push({ type: "image_url", image_url: { url } });
+    }
+  }
+  content.push({ type: "text", text: prompt });
+
   const resp = await fetch(gatewayUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], modalities: ["image", "text"] }),
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content }],
+      modalities: ["image", "text"],
+    }),
   });
   if (!resp.ok) {
     const errText = await resp.text();
