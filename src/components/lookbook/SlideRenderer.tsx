@@ -11,7 +11,89 @@ interface SlideRendererProps {
   totalSlides: number;
 }
 
+const seenRenderDiagnostics = new Set<string>();
+
+function safeOptionalString(value: unknown, field: string, warnings: string[]): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  if (typeof value === 'string') return value;
+  warnings.push(field);
+  return undefined;
+}
+
+function safeStringArray(value: unknown, field: string, warnings: string[]): string[] | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    warnings.push(field);
+    return undefined;
+  }
+
+  const normalized = value
+    .map((item, index) => {
+      if (typeof item === 'string') return item;
+      warnings.push(`${field}[${index}]`);
+      return '';
+    })
+    .filter(Boolean);
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeSlideForRender(slide: SlideContent, slideIndex: number): SlideContent {
+  const warnings: string[] = [];
+  const normalizedSlide: SlideContent = {
+    ...slide,
+    title: safeOptionalString(slide.title, 'title', warnings),
+    subtitle: safeOptionalString(slide.subtitle, 'subtitle', warnings),
+    body: safeOptionalString(slide.body, 'body', warnings),
+    bodySecondary: safeOptionalString(slide.bodySecondary, 'bodySecondary', warnings),
+    quote: safeOptionalString(slide.quote, 'quote', warnings),
+    imageUrl: safeOptionalString(slide.imageUrl, 'imageUrl', warnings),
+    imageUrls: safeStringArray(slide.imageUrls, 'imageUrls', warnings),
+    imageCaption: safeOptionalString(slide.imageCaption, 'imageCaption', warnings),
+    bullets: safeStringArray(slide.bullets, 'bullets', warnings),
+    credit: safeOptionalString(slide.credit, 'credit', warnings),
+    companyName: safeOptionalString(slide.companyName, 'companyName', warnings),
+    companyLogoUrl: safeOptionalString(slide.companyLogoUrl, 'companyLogoUrl', warnings),
+    _debug_image_ids: safeStringArray(slide._debug_image_ids, '_debug_image_ids', warnings),
+    characters: Array.isArray(slide.characters)
+      ? slide.characters.map((character, index) => ({
+          name: safeOptionalString(character?.name, `characters[${index}].name`, warnings) || 'Unnamed',
+          role: safeOptionalString(character?.role, `characters[${index}].role`, warnings) || '',
+          description: safeOptionalString(character?.description, `characters[${index}].description`, warnings) || 'Role to be defined.',
+          imageUrl: safeOptionalString(character?.imageUrl, `characters[${index}].imageUrl`, warnings),
+        }))
+      : slide.characters,
+    comparables: Array.isArray(slide.comparables)
+      ? slide.comparables.map((comparable, index) => ({
+          title: safeOptionalString(comparable?.title, `comparables[${index}].title`, warnings) || 'Untitled Comparable',
+          reason: safeOptionalString(comparable?.reason, `comparables[${index}].reason`, warnings) || '',
+        }))
+      : slide.comparables,
+  };
+
+  const slideKey = `${slideIndex}:${slide.type}:${normalizedSlide.title || 'untitled'}`;
+  if (!seenRenderDiagnostics.has(slideKey)) {
+    console.info('[LookBook] Rendering slide with normalized data', {
+      slideIndex,
+      slideType: slide.type,
+      title: normalizedSlide.title || null,
+      debugImageIds: normalizedSlide._debug_image_ids || [],
+    });
+    if (warnings.length > 0) {
+      console.warn('[LookBook] WARNING: non-string reached renderer (should not happen)', {
+        slideIndex,
+        slideType: slide.type,
+        fields: warnings,
+      });
+    }
+    seenRenderDiagnostics.add(slideKey);
+  }
+
+  return normalizedSlide;
+}
+
 export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: SlideRendererProps) {
+  const normalizedSlide = normalizeSlideForRender(slide, slideIndex);
   const { colors, typography } = identity;
   const fontTitle = typography.titleFont;
   const fontBody = typography.bodyFont;
@@ -32,9 +114,9 @@ export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: Slid
     letterSpacing: typography.titleUppercase ? '0.12em' : '0.02em',
   };
 
-  const shared: SlideProps = { slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides };
+  const shared: SlideProps = { slide: normalizedSlide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides };
 
-  switch (slide.type) {
+  switch (normalizedSlide.type) {
     case 'cover': return <CoverSlide {...shared} />;
     case 'overview': return <OverviewSlide {...shared} />;
     case 'world': return <WorldSlide {...shared} />;
