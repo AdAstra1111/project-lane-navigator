@@ -380,16 +380,16 @@ export default function ProjectDetail() {
           ═══════════════════════════════════════════════════════════════════════ */}
       <div className="relative w-full overflow-hidden">
         {heroImageUrl ? (
-          <div className="relative min-h-[240px] sm:min-h-[320px]">
+          <div className="relative min-h-[320px] sm:min-h-[420px]">
             <img
               src={heroImageUrl}
               alt={`${project.title} poster`}
-              className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
+              className="absolute inset-0 w-full h-full object-cover object-top"
               loading="lazy"
             />
-            {/* Balanced scrim — poster visible, text readable */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/10 pointer-events-none" />
-            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+            {/* Bottom-weighted scrim — poster dominates upper area, text zone at bottom */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-transparent pointer-events-none" />
+            <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
           </div>
         ) : (
           <div className="relative min-h-[180px] sm:min-h-[240px] bg-gradient-to-b from-card/80 to-background">

@@ -99,18 +99,18 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
       >
         {posterUrl ? (
           /* ── Poster-backed card: image fills entire card ── */
-          <div className="relative min-h-[220px]">
+          <div className="relative min-h-[280px]">
             <img
               src={posterUrl}
               alt=""
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover object-top"
               loading="lazy"
             />
-            {/* Scrim: light at top, stronger at bottom for text */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/10 pointer-events-none" />
+            {/* Bottom-only scrim — poster artwork stays visible in upper 2/3 */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none" />
 
             {/* Content overlay */}
-            <div className="relative z-[1] flex flex-col justify-end h-full min-h-[220px] p-5">
+            <div className="relative z-[1] flex flex-col justify-end h-full min-h-[280px] p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5">
