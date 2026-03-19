@@ -887,7 +887,7 @@ serve(async (req) => {
           is_active: true,
           key_art_storage_path: keyArtPath,
           rendered_storage_path: keyArtPath,
-          render_status: "composed_final",
+          render_status: "key_art_only",
         })
         .eq("id", posterRecord.id)
         .select()
