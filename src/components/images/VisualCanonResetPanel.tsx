@@ -677,15 +677,17 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
               Reset Canon
             </Button>
 
-            {/* 2. Auto Populate — primary accent */}
-            {emptySlots.length > 0 && !populating && (
+            {/* 2. Auto Populate — visible until canon-complete */}
+            {requiredSet.filledCount < requiredSet.totalCount && !populating && (
               <Button
                 size="sm"
                 className="gap-1 text-[10px] h-7 bg-primary text-primary-foreground hover:bg-primary/90"
                 onClick={() => handleAutoPopulate(false)}
               >
                 <Wand2 className="h-2.5 w-2.5" />
-                Auto Populate ({emptySlots.length})
+                {emptySlots.length > 0
+                  ? `Auto Populate (${emptySlots.length} empty)`
+                  : `Generate More Options`}
               </Button>
             )}
 
