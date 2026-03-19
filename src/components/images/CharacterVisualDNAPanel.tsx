@@ -649,16 +649,32 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
               <HelpCircle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
               <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Clarification Status</span>
             </div>
-            <div className="space-y-1">
+             <div className="space-y-1.5">
               {dna.missingClarifications.map((m, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[10px]">
-                  <span className={cn('text-[8px]', CLARIFICATION_STATUS_COLORS[m.status])}>
+                <div key={i} className="flex items-start gap-1.5 text-[10px]">
+                  <span className={cn('text-[8px] mt-0.5 flex-shrink-0', CLARIFICATION_STATUS_COLORS[m.status])}>
                     {m.status === 'resolved' ? '●' : m.status === 'partial' ? '◐' : '○'}
                   </span>
-                  <span className="font-medium text-foreground">[{CATEGORY_LABELS[m.category]}]</span>
-                  <span className={m.status === 'missing' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground'}>
-                    {m.status === 'partial' ? `Partially resolved via ${m.resolvedBy || 'evidence'}` : m.question}
-                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium text-foreground">[{CATEGORY_LABELS[m.category]}]</span>
+                      <span className={cn(
+                        m.status === 'missing' ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+                      )}>
+                        {m.status === 'missing' ? m.question : `${m.status === 'partial' ? 'Partial' : 'Resolved'} — via ${m.resolvedBy || 'evidence'}`}
+                      </span>
+                    </div>
+                    {m.answerCandidate && (
+                      <div className="mt-0.5 pl-0.5">
+                        <span className="text-[9px] italic text-foreground/70">
+                          → {m.answerCandidate.text}
+                        </span>
+                        <span className={cn('text-[8px] ml-1', CONFIDENCE_COLORS[m.answerCandidate.confidence])}>
+                          ({m.answerCandidate.confidence}, {m.answerCandidate.basis.replace('_', ' ')})
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
