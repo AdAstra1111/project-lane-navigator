@@ -22,9 +22,11 @@ import {
   resolveCharacterVisualDNA,
   deserializeBindingMarkers,
   deserializeEvidenceTraits,
+  deserializeTransientStates,
   type CharacterVisualDNA,
   type VisualDNATrait,
   type EvidenceTrait,
+  type TransientVisualState,
   type ProducerGuidanceItem,
   type ClarificationStatus,
 } from '@/lib/images/visualDNA';
