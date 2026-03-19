@@ -11146,6 +11146,42 @@ Return ONLY valid JSON:
       return { slugline: sl, location: '', time_of_day: '' };
     }
 
+    // --- Resolve canon_location_id from location text ---
+    // Cache per-project to avoid repeated queries within the same request
+    const _canonLocCache = new Map<string, Map<string, string | null>>();
+    async function sgResolveCanonLocationId(
+      _supabase: any, projectId: string, locationText: string
+    ): Promise<string | null> {
+      const loc = (locationText || '').trim();
+      if (!loc) return null;
+      const norm = loc.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      if (!norm) return null;
+
+      // Load/cache all canon locations for this project
+      if (!_canonLocCache.has(projectId)) {
+        const { data } = await _supabase
+          .from("canon_locations")
+          .select("id, normalized_name")
+          .eq("project_id", projectId)
+          .eq("active", true);
+        const m = new Map<string, string | null>();
+        if (data) {
+          const counts = new Map<string, string[]>();
+          for (const r of data) {
+            if (!counts.has(r.normalized_name)) counts.set(r.normalized_name, []);
+            counts.get(r.normalized_name)!.push(r.id);
+          }
+          for (const [n, ids] of counts) {
+            m.set(n, ids.length === 1 ? ids[0] : null); // null = ambiguous
+          }
+        }
+        _canonLocCache.set(projectId, m);
+      }
+
+      const cache = _canonLocCache.get(projectId)!;
+      return cache.get(norm) ?? null; // undefined (no match) → null
+    }
+
     if (action === "scene_graph_extract") {
       const { projectId, sourceDocumentId, sourceVersionId, mode, text: rawText, force } = body;
       if (!projectId) throw new Error("projectId required");
