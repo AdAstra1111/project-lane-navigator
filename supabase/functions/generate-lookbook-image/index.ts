@@ -86,6 +86,10 @@ const SHOT_FRAMING: Record<ShotType, string> = {
   texture_ref: "Material and surface reference — real-world production design. Close-up on key physical materials: weathered wood, concrete, fabric weave, skin texture, metal patina, natural stone. Shot with macro lens, shallow DOF. Tactile, grounded, zero abstraction.",
   composition_ref: "Cinematography composition reference — real camera framing. Demonstrate specific framing grammar: rule of thirds, leading lines, negative space, symmetry. Show an actual physical environment framed through a cinema lens. No abstract or symbolic composition.",
   color_ref: "Color grading reference — real-world color palette in context. Show actual environments and surfaces demonstrating the project's chromatic identity: dominant hues, accent temperature, saturation level. Grounded in physical space, not abstract color fields.",
+  // Identity-specific framings — neutral, non-cinematic, studio-style
+  identity_headshot: "IDENTITY REFERENCE — Front-facing headshot. Head and shoulders centered in frame. Plain neutral grey or off-white backdrop. Soft, even studio lighting (key + fill, no dramatic shadows). Neutral expression. No environmental context. No narrative elements. Clean casting-photo style. Face clearly visible, eyes to camera.",
+  identity_profile: "IDENTITY REFERENCE — Three-quarter or side profile view. Head and upper body. Plain neutral backdrop. Soft studio lighting revealing facial structure from the side. Neutral expression. No environmental context. Clean reference photography style.",
+  identity_full_body: "IDENTITY REFERENCE — Full body, head to toe, centered in frame. Neutral standing pose showing full proportions. Plain neutral grey or off-white backdrop. Even studio lighting. Baseline neutral wardrobe (simple, non-costume clothing). No environmental context, no props, no narrative. Casting reference style.",
 };
 
 function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext): string {
