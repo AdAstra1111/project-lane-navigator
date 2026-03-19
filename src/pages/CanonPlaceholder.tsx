@@ -220,7 +220,7 @@ function FormatContent({ canon, project }: { canon: any; project: any }) {
       {hasForbidden && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Forbidden Changes</h4>
-          <p className="text-sm text-destructive/80 leading-relaxed whitespace-pre-wrap">{canon.forbidden_changes}</p>
+          <p className="text-sm text-destructive/80 leading-relaxed whitespace-pre-wrap">{hasForbidden}</p>
         </div>
       )}
     </div>
