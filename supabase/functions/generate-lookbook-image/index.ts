@@ -572,9 +572,9 @@ serve(async (req) => {
 
         if (insertErr) {
           console.error(`[lookbook-image] repo insert error for variant ${i}:`, insertErr.message);
-          results.push({ image_id: "", status: "stored_no_repo", shot_type: shotType || undefined, error: insertErr.message });
+          results.push({ image_id: "", status: "stored_no_repo", shot_type: shotType || undefined, error: insertErr.message, identity_locked: identityLockUsed });
         } else {
-          results.push({ image_id: imgRecord.id, status: "ready", shot_type: shotType || undefined });
+          results.push({ image_id: imgRecord.id, status: "ready", shot_type: shotType || undefined, identity_locked: identityLockUsed });
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
