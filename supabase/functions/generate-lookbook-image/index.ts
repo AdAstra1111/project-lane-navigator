@@ -65,7 +65,6 @@ interface SectionContext {
   logline: string;
   stylePolicy: ImageStylePolicy;
   characterName?: string;
-  /** Location-specific generation */
   locationName?: string;
   locationDescription?: string;
 }
@@ -86,16 +85,57 @@ const SHOT_FRAMING: Record<ShotType, string> = {
   texture_ref: "Material and surface reference — real-world production design. Close-up on key physical materials: weathered wood, concrete, fabric weave, skin texture, metal patina, natural stone. Shot with macro lens, shallow DOF. Tactile, grounded, zero abstraction.",
   composition_ref: "Cinematography composition reference — real camera framing. Demonstrate specific framing grammar: rule of thirds, leading lines, negative space, symmetry. Show an actual physical environment framed through a cinema lens. No abstract or symbolic composition.",
   color_ref: "Color grading reference — real-world color palette in context. Show actual environments and surfaces demonstrating the project's chromatic identity: dominant hues, accent temperature, saturation level. Grounded in physical space, not abstract color fields.",
-  // Identity-specific framings — neutral, non-cinematic, studio-style
   identity_headshot: "IDENTITY REFERENCE — Front-facing headshot. Head and shoulders centered in frame. Plain neutral grey or off-white backdrop. Soft, even studio lighting (key + fill, no dramatic shadows). Neutral expression. No environmental context. No narrative elements. Clean casting-photo style. Face clearly visible, eyes to camera.",
   identity_profile: "IDENTITY REFERENCE — Three-quarter or side profile view. Head and upper body. Plain neutral backdrop. Soft studio lighting revealing facial structure from the side. Neutral expression. No environmental context. Clean reference photography style.",
   identity_full_body: "IDENTITY REFERENCE — Full body, head to toe, centered in frame. Neutral standing pose showing full proportions. Plain neutral grey or off-white backdrop. Even studio lighting. Baseline neutral wardrobe (simple, non-costume clothing). No environmental context, no props, no narrative. Casting reference style.",
 };
 
+// ── Shot-type specific identity enforcement ──────────────────────────────────
+
+const SHOT_TYPE_IDENTITY_CONSTRAINTS: Partial<Record<ShotType, string>> = {
+  identity_full_body: "Full-body framing MUST preserve accurate human proportions consistent with identity reference. Do NOT reinterpret height, build, or body type. Head-to-body ratio must match reference exactly.",
+  full_body: "Full-body framing MUST preserve accurate human proportions consistent with identity reference. Do NOT reinterpret height, build, or body type. Head-to-body ratio must match reference exactly.",
+  close_up: "Facial structure MUST match identity reference exactly. Eye shape, nose, jawline, cheekbone structure must be identical.",
+  identity_headshot: "Facial structure MUST match identity reference exactly. Eye shape, nose, jawline, cheekbone structure must be identical.",
+  medium: "Character proportions and facial structure must match identity reference. Waist-up framing must preserve build and shoulder width.",
+  profile: "Side profile must match identity reference — nose shape, jawline angle, brow ridge, forehead slope must be consistent.",
+  identity_profile: "Side profile must match identity reference — nose shape, jawline angle, brow ridge, forehead slope must be consistent.",
+};
+
 /**
- * Build identity-specific prompt — neutral, non-cinematic, studio-style.
- * Enforces visual consistency across identity pack.
+ * Build the full identity lock mandate for prompt injection.
+ * This is the hardest constraint — placed right after canon facts.
  */
+function buildIdentityLockMandate(characterName: string, identitySignatureBlock: string | null): string {
+  const lines = [
+    `[IDENTITY LOCK — DO NOT DEVIATE]`,
+    ``,
+    `This character MUST match the same person defined by the locked identity images.`,
+    ``,
+    `Maintain STRICT consistency in:`,
+    `- Facial structure (exact match — eye shape, eye spacing, nose shape, jawline, cheekbone structure, brow ridge)`,
+    `- Body proportions (height, build, shoulder width, head-to-body ratio)`,
+    `- Posture and silhouette`,
+    `- Skin tone, complexion, and facial proportions`,
+    `- Hair color, hair texture, hairline position`,
+    `- Wardrobe baseline (unless explicitly changed by state modifier)`,
+    ``,
+    `This is the SAME individual, not a variation or reinterpretation.`,
+    ``,
+    `REJECT:`,
+    `- Different face, different age, different build, different ethnicity`,
+    `- Different bone structure, different head-to-body ratio`,
+    `- Idealized or beautified version of the reference`,
+    `- "Similar-looking person" — must be UNMISTAKABLY identical`,
+  ];
+
+  if (identitySignatureBlock) {
+    lines.push('', identitySignatureBlock);
+  }
+
+  return lines.join('\n');
+}
+
 function buildIdentityPrompt(characterName: string, shotType: ShotType, ctx: SectionContext): string {
   const framing = SHOT_FRAMING[shotType];
   const characterDesc = ctx.characters || "A distinctive individual with clear, memorable features.";
@@ -156,7 +196,6 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       break;
   }
 
-  // Anti-drift: ground visual_language to production design, not abstract/fantasy
   const driftExclusions = [
     'No dragons, no fantasy creatures, no mythical beasts, no supernatural entities',
     'No symbolic fantasy imagery, no magical effects, no sci-fi elements unless explicitly part of the project',
@@ -185,7 +224,6 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
   ].join("\n");
 }
 
-// Legacy section prompt for backward compat when pack_mode is off
 function buildSectionPrompt(section: LookbookSection, ctx: SectionContext, variantIndex: number): string {
   const pack = SHOT_PACKS[section === "character" ? "character" : section === "world" ? "world" : section === "key_moment" ? "key_moment" : "visual_language"];
   const shotType = pack[variantIndex % pack.length];
@@ -242,10 +280,7 @@ async function generateImage(
   gatewayUrl: string,
   referenceImageUrls?: string[],
 ): Promise<ProviderImageResult> {
-  // Build content: text + optional reference images
   const content: Array<Record<string, unknown>> = [];
-
-  // Inject reference images first so the model "sees" them before the prompt
   if (referenceImageUrls?.length) {
     for (const url of referenceImageUrls) {
       content.push({ type: "image_url", image_url: { url } });
@@ -317,17 +352,15 @@ serve(async (req) => {
       base_look_mode = false,
       location_name, location_description,
       location_ref_mode = false,
-      // Phase 3 — state variant generation
       state_key = null,
       state_label = null,
       state_prompt_modifier = null,
-      // Character Identity System
       identity_mode = false,
-      // Identity Lock — anchor references for locked generation
       identity_anchor_paths = null,
       identity_notes = null,
       identity_canon_facts = null,
       identity_traits_block = null,
+      identity_signature_block = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -348,6 +381,7 @@ serve(async (req) => {
       identity_notes?: string | null;
       identity_canon_facts?: string | null;
       identity_traits_block?: string | null;
+      identity_signature_block?: string | null;
     };
 
     if (!project_id || !section) {
@@ -418,29 +452,56 @@ serve(async (req) => {
     // ── Resolve identity anchor signed URLs if provided ──
     const identityReferenceUrls: string[] = [];
     let identityLockUsed = false;
+    let headshotAnchorUsed = false;
+    let fullBodyAnchorUsed = false;
+
     if (identity_anchor_paths && (identity_anchor_paths.headshot || identity_anchor_paths.fullBody)) {
-      for (const path of [identity_anchor_paths.headshot, identity_anchor_paths.fullBody].filter(Boolean) as string[]) {
+      if (identity_anchor_paths.headshot) {
         try {
           const { data: signedData } = await supabase.storage
             .from("project-posters")
-            .createSignedUrl(path, 3600);
+            .createSignedUrl(identity_anchor_paths.headshot, 3600);
           if (signedData?.signedUrl) {
             identityReferenceUrls.push(signedData.signedUrl);
-            identityLockUsed = true;
+            headshotAnchorUsed = true;
           }
         } catch (e) {
-          console.warn(`[lookbook-image] Failed to resolve identity anchor: ${path}`, e);
+          console.warn(`[lookbook-image] Failed to resolve headshot anchor: ${identity_anchor_paths.headshot}`, e);
         }
       }
+      if (identity_anchor_paths.fullBody) {
+        try {
+          const { data: signedData } = await supabase.storage
+            .from("project-posters")
+            .createSignedUrl(identity_anchor_paths.fullBody, 3600);
+          if (signedData?.signedUrl) {
+            identityReferenceUrls.push(signedData.signedUrl);
+            fullBodyAnchorUsed = true;
+          }
+        } catch (e) {
+          console.warn(`[lookbook-image] Failed to resolve full-body anchor: ${identity_anchor_paths.fullBody}`, e);
+        }
+      }
+      identityLockUsed = headshotAnchorUsed || fullBodyAnchorUsed;
     }
-    console.log(`[lookbook-image] Identity lock: ${identityLockUsed ? 'ACTIVE' : 'INACTIVE'}, refs: ${identityReferenceUrls.length}, notes: ${identity_notes ? 'YES' : 'NO'}`);
+
+    console.log(`[lookbook-image] Identity lock: ${identityLockUsed ? 'ACTIVE' : 'INACTIVE'}, headshot: ${headshotAnchorUsed}, fullBody: ${fullBodyAnchorUsed}, notes: ${identity_notes ? 'YES' : 'NO'}, signature: ${identity_signature_block ? 'YES' : 'NO'}`);
+
+    // ── IEL: NEVER allow character generation without anchors when they exist ──
+    // If identity_anchor_paths were provided but failed to resolve, that's a hard error
+    if (identity_anchor_paths && assetGroup === "character" && !identityLockUsed) {
+      console.error(`[lookbook-image] IEL VIOLATION: identity anchors provided but failed to resolve — aborting character generation`);
+      return new Response(JSON.stringify({
+        error: "Identity anchors provided but could not be resolved. Generation aborted to prevent drift.",
+        identity_lock_failed: true,
+      }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Determine shots to generate
-    // Identity mode: deterministic identity pack (headshot + profile + full body)
     const IDENTITY_PACK: ShotType[] = ["identity_headshot", "identity_profile", "identity_full_body"];
-    // base_look_mode guarantees: 2 headshots + 2 full_body + 1 medium
     const BASE_LOOK_PACK: ShotType[] = ["close_up", "profile", "full_body", "full_body", "medium"];
-    // location_ref_mode: wide establishing + atmospheric + detail + time_variant
     const LOCATION_REF_PACK: ShotType[] = ["wide", "atmospheric", "detail", "time_variant"];
     const shotPack = identity_mode && assetGroup === "character"
       ? IDENTITY_PACK
@@ -453,59 +514,70 @@ serve(async (req) => {
       ? shotPack.slice(0, Math.min(count, shotPack.length))
       : [];
 
-    // If not pack_mode or no pack, fall back to count-based generation
     const genCount = shotsToGenerate.length > 0 ? shotsToGenerate.length : Math.min(Math.max(count, 1), 6);
 
     const results: Array<{ image_id: string; status: string; shot_type?: string; error?: string; identity_locked?: boolean }> = [];
 
     for (let i = 0; i < genCount; i++) {
       const shotType = shotsToGenerate[i] || null;
-      let prompt: string;
 
-      // Identity mode: override prompt with identity-specific construction
+      // ── PROMPT ASSEMBLY — strict priority order ──
+      // 1. Base prompt (shot framing + subject)
+      // 2. Canon facts (highest data priority)
+      // 3. Identity lock mandate (hard constraint)
+      // 4. Identity signature (structured face/body/silhouette)
+      // 5. Visual traits block (source-tagged)
+      // 6. User notes (subordinate)
+      // 7. State modifier
+      // 8. Shot-type specific constraints
+
       const isIdentityShot = shotType?.startsWith("identity_");
+
+      // Step 1: Base prompt
+      let prompt: string;
       if (identity_mode && isIdentityShot && character_name) {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
-        // If locked identity exists, inject continuity mandate for additional candidates
-        if (identityLockUsed) {
-          prompt += `\n\nIDENTITY LOCK ACTIVE — STRICT RESEMBLANCE MANDATE:\nReference images of this exact person are provided. You MUST generate THE SAME PERSON.\n- Preserve EXACT facial structure: eye shape, eye spacing, nose shape, jawline, cheekbone structure, brow ridge\n- Preserve EXACT skin tone, complexion, and facial proportions\n- Preserve hair color, hair texture, hairline position\n- Preserve body proportions, height-to-width ratio, silhouette\n- This must be UNMISTAKABLY the same individual — not a similar-looking person\n- Do NOT reinterpret, idealize, or drift from the reference\n- Treat reference images as the absolute ground truth for this person's appearance`;
-        }
       } else {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx)
           : buildSectionPrompt(section, ctx, i);
-
-        // For ALL character shots (cinematic refs, state variants), inject identity continuity when locked
-        if (identityLockUsed && assetGroup === "character" && character_name) {
-          prompt += `\n\nCHARACTER IDENTITY CONTINUITY — MANDATORY:\nReference images of the character "${character_name}" are provided. This character MUST look like THE SAME PERSON as in the reference images.\n- Preserve EXACT facial structure: eye shape, eye spacing, nose shape, jawline, cheekbone structure\n- Preserve skin tone, hair color/style, hairline\n- Preserve body proportions and silhouette\n- The character may be in different clothing, lighting, or emotional state, but the PERSON must be identical\n- Do NOT generate a different-looking person in the same costume\n- Treat the reference images as the canonical casting of this character`;
-        }
       }
 
-      // Inject canon-derived character facts FIRST (highest priority after identity)
+      // Step 2: Canon facts (highest priority data)
       if (identity_canon_facts) {
         prompt += `\n\nCANON CHARACTER FACTS: ${identity_canon_facts}`;
       }
 
-      // Inject structured traits block (source-tagged, prioritized)
+      // Step 3: Identity lock mandate (hard constraint — applies to ALL character shots when locked)
+      if (identityLockUsed && assetGroup === "character" && character_name) {
+        prompt += `\n\n${buildIdentityLockMandate(character_name, identity_signature_block || null)}`;
+      }
+
+      // Step 4: Visual traits block (source-tagged, prioritized)
       if (identity_traits_block) {
         prompt += `\n\n${identity_traits_block}`;
       }
 
-      // Inject identity notes AFTER canon and traits (subordinate)
-      if (identity_notes && identity_mode) {
-        prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon): ${identity_notes}`;
+      // Step 5: User identity notes (subordinate to canon and lock)
+      if (identity_notes) {
+        prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon and identity lock): ${identity_notes}`;
       }
 
-      // Phase 3: Inject state variant modifier into prompt
+      // Step 6: State variant modifier
       if (state_prompt_modifier) {
-        prompt = prompt + `\n\nSTATE VARIANT: ${state_prompt_modifier}\nThis is a state-specific reference showing the subject in this particular condition/state. Maintain visual continuity with the base reference while clearly showing the state change. The PERSON remains the same — only the state changes.`;
+        prompt += `\n\nSTATE VARIANT: ${state_prompt_modifier}\nThis is a state-specific reference showing the subject in this particular condition/state. Maintain visual continuity with the base reference while clearly showing the state change. The PERSON remains the same — only the state changes.`;
+      }
+
+      // Step 7: Shot-type specific identity constraints
+      if (identityLockUsed && shotType && SHOT_TYPE_IDENTITY_CONSTRAINTS[shotType as ShotType]) {
+        prompt += `\n\nSHOT-TYPE CONSTRAINT: ${SHOT_TYPE_IDENTITY_CONSTRAINTS[shotType as ShotType]}`;
       }
 
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
 
-      // Use identity references for ALL character generation when locked, not just identity_mode
+      // Use identity references for ALL character generation when locked
       const refsForThisShot = (identityLockUsed && assetGroup === "character") ? identityReferenceUrls : [];
 
       try {
@@ -551,14 +623,19 @@ serve(async (req) => {
               variant_index: i,
               shot_type: shotType,
               state_key: state_key || null,
+              // Full audit trail
               identity_mode: identity_mode || false,
               identity_locked: identityLockUsed,
-              identity_anchors_used: identityReferenceUrls.length,
+              identity_headshot_anchor_used: headshotAnchorUsed,
+              identity_full_body_anchor_used: fullBodyAnchorUsed,
+              identity_anchors_count: identityReferenceUrls.length,
               identity_notes_used: !!identity_notes,
               identity_canon_facts_used: !!identity_canon_facts,
               identity_traits_used: !!identity_traits_block,
+              identity_signature_used: !!identity_signature_block,
+              identity_lock_strength: (headshotAnchorUsed && fullBodyAnchorUsed) ? 'strong' : (headshotAnchorUsed || fullBodyAnchorUsed) ? 'partial' : 'none',
+              state_variant_used: !!state_prompt_modifier,
             },
-            // Visual Asset System + Provenance fields
             asset_group: assetGroup,
             subject: character_name || location_name || null,
             shot_type: shotType,
@@ -576,7 +653,6 @@ serve(async (req) => {
               : base_look_mode ? "character_reference"
               : location_ref_mode ? "location_reference"
               : `lookbook_${section}`,
-            // Phase 3 — state fields
             state_key: state_key || null,
             state_label: state_label || null,
           })
