@@ -65,6 +65,8 @@ export interface SlideContent {
   quote?: string;
   /** Image URL (poster, mood, etc.) */
   imageUrl?: string;
+  /** Multiple image URLs for gallery/grid slides */
+  imageUrls?: string[];
   /** Image caption */
   imageCaption?: string;
   /** Character cards for character slide */
@@ -72,6 +74,7 @@ export interface SlideContent {
     name: string;
     role: string;
     description: string;
+    imageUrl?: string;
   }>;
   /** Comparable titles */
   comparables?: Array<{
@@ -84,6 +87,8 @@ export interface SlideContent {
   companyName?: string;
   /** Company logo URL */
   companyLogoUrl?: string;
+  /** Debug provenance — image IDs used */
+  _debug_image_ids?: string[];
 }
 
 export interface LookBookData {
