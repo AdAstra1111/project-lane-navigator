@@ -4,20 +4,23 @@
  * Provides:
  * 1. Reset Active Canon button
  * 2. Required Visual Set status (filled vs empty slots)
- * 3. Approval queue for recommended candidates
- * 4. Reuse pool management
- * 5. Archive browser
+ * 3. Auto Populate Visual Set — batch generation pipeline
+ * 4. Approval queue for recommended candidates
+ * 5. Reuse pool management
+ * 6. Archive browser
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
-  Lock, Package,
+  Lock, Package, Wand2, Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -28,6 +31,7 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { resolveRequiredVisualSet, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import type { ProjectImage, AssetGroup } from '@/lib/images/types';
 
 interface VisualCanonResetPanelProps {
@@ -62,10 +66,22 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const [showArchive, setShowArchive] = useState(false);
   const [showReusePool, setShowReusePool] = useState(false);
 
+  // Auto-populate state
+  const [populating, setPopulating] = useState(false);
+  const [populateProgress, setPopulateProgress] = useState<{ generated: number; total: number; failed: number } | null>(null);
+  const [useCanonDescriptions, setUseCanonDescriptions] = useState(true);
+  const [useApprovedAnchors, setUseApprovedAnchors] = useState(true);
+
   const {
     resetActiveCanon, restoreFromArchive, markForReusePool,
     approveIntoCanon, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
+
+  const { refetch: refetchImages } = useProjectImages(projectId, {
+    activeOnly: false,
+    curationStates: ['active', 'candidate', 'archived', 'rejected'],
+    limit: 500,
+  });
 
   // Load canon
   useEffect(() => {
@@ -98,6 +114,48 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const reusePoolImages = useMemo(() => allImages.filter(i => (i as any).reuse_pool_eligible), [allImages]);
   const pendingSlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length > 0), [requiredSet]);
   const emptySlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0), [requiredSet]);
+
+  // Auto-populate handler
+  const handleAutoPopulate = useCallback(async (identityOnly: boolean) => {
+    setPopulating(true);
+    setPopulateProgress(null);
+    toast.info(identityOnly ? 'Generating identity images…' : 'Auto-populating visual set…', { duration: 3000 });
+
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-populate-visual-set', {
+        body: {
+          project_id: projectId,
+          identity_only: identityOnly,
+          use_canon_descriptions: useCanonDescriptions,
+          use_approved_anchors: useApprovedAnchors,
+        },
+      });
+
+      if (error) throw new Error(error.message || 'Generation failed');
+
+      const result = data as any;
+      setPopulateProgress({
+        generated: result.generated || 0,
+        total: result.total_slots || 0,
+        failed: result.failed || 0,
+      });
+
+      if (result.generated > 0) {
+        toast.success(`Generated ${result.generated} candidate image${result.generated !== 1 ? 's' : ''}${result.failed > 0 ? ` (${result.failed} failed)` : ''}`);
+        // Refresh images
+        refetchImages();
+      } else if (result.status === 'complete') {
+        toast.info('All slots already have candidates');
+      } else {
+        toast.error(`Generation failed: ${result.failed} slot${result.failed !== 1 ? 's' : ''} had errors`);
+      }
+    } catch (err: any) {
+      console.error('[auto-populate] error:', err);
+      toast.error(`Auto-populate failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setPopulating(false);
+    }
+  }, [projectId, useCanonDescriptions, useApprovedAnchors, refetchImages]);
 
   if (loading || imagesLoading) {
     return (
@@ -141,8 +199,16 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
             </div>
           </div>
 
+          {/* Completion bar */}
+          {requiredSet.totalCount > 0 && (
+            <Progress
+              value={requiredSet.completionPercent}
+              className="h-1.5 mb-2"
+            />
+          )}
+
           {pendingSlots.length > 0 && (
-            <p className="text-[9px] text-amber-600 mb-2">
+            <p className="text-[9px] text-amber-600 mb-1">
               ⚠ {pendingSlots.length} slot{pendingSlots.length !== 1 ? 's' : ''} have candidates awaiting approval
             </p>
           )}
@@ -159,6 +225,100 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
           )}
         </CardContent>
       </Card>
+
+      {/* ── Auto Populate Visual Set ── */}
+      {emptySlots.length > 0 && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Wand2 className="h-3.5 w-3.5 text-primary" />
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
+                Auto Populate Visual Set
+              </span>
+              <Badge variant="secondary" className="text-[8px] px-1 py-0">
+                {emptySlots.length} empty
+              </Badge>
+            </div>
+
+            <p className="text-[9px] text-muted-foreground mb-3">
+              Generate candidate images for all unfilled slots. Images are created as candidates — nothing is auto-approved.
+            </p>
+
+            {/* Controls */}
+            <div className="space-y-2 mb-3">
+              <div className="flex items-center justify-between">
+                <label className="text-[9px] text-muted-foreground">Use canon descriptions</label>
+                <Switch
+                  checked={useCanonDescriptions}
+                  onCheckedChange={setUseCanonDescriptions}
+                  disabled={populating}
+                  className="scale-75 origin-right"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="text-[9px] text-muted-foreground">Use approved images as anchors</label>
+                <Switch
+                  checked={useApprovedAnchors}
+                  onCheckedChange={setUseApprovedAnchors}
+                  disabled={populating}
+                  className="scale-75 origin-right"
+                />
+              </div>
+            </div>
+
+            {/* Progress */}
+            {populating && (
+              <div className="flex items-center gap-2 mb-3 p-2 rounded-md bg-muted/50">
+                <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />
+                <span className="text-[9px] text-muted-foreground">
+                  Generating images across {emptySlots.length} slots… This may take a few minutes.
+                </span>
+              </div>
+            )}
+
+            {/* Completion summary */}
+            {populateProgress && !populating && (
+              <div className="mb-3 p-2 rounded-md bg-muted/30 text-[9px]">
+                <span className="text-foreground font-medium">
+                  Generated {populateProgress.generated}/{populateProgress.total} slots
+                </span>
+                {populateProgress.failed > 0 && (
+                  <span className="text-destructive ml-1">
+                    ({populateProgress.failed} failed)
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* CTA Buttons */}
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                size="sm"
+                className="gap-1.5 text-[10px] h-7"
+                disabled={populating || emptySlots.length === 0}
+                onClick={() => handleAutoPopulate(false)}
+              >
+                {populating ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                ) : (
+                  <Wand2 className="h-2.5 w-2.5" />
+                )}
+                Auto Populate Visual Set
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-[10px] h-7"
+                disabled={populating}
+                onClick={() => handleAutoPopulate(true)}
+              >
+                <Zap className="h-2.5 w-2.5" />
+                Generate Identity Only
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Action Buttons ── */}
       <div className="flex flex-wrap gap-1.5">
