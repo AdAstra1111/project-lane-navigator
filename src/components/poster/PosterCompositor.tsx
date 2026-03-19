@@ -929,3 +929,106 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number,
 
   return lines.slice(0, 3);
 }
+
+/**
+ * Balanced text wrapping — avoids ugly orphans and lopsided splits.
+ * 
+ * "balanced" tries to equalize line widths.
+ * "compact" wraps normally (greedy).
+ * "airy" uses a narrower max width to force more lines with breathing room.
+ * 
+ * Punctuation-aware: prefers breaks after commas, colons, em-dashes.
+ */
+function wrapTextBalanced(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  font: string,
+  balance: TitleBalanceMode = "balanced",
+): string[] {
+  ctx.font = font;
+
+  const effectiveMax = balance === "airy" ? maxWidth * 0.78 : maxWidth;
+
+  // First, greedy wrap
+  const greedyLines = wrapText(ctx, text, effectiveMax, font);
+
+  if (greedyLines.length <= 1 || balance === "compact") {
+    return greedyLines;
+  }
+
+  // For balanced mode, try to equalize line widths
+  if (balance === "balanced" || balance === "airy") {
+    const words = text.split(" ");
+    if (words.length <= 1) return greedyLines;
+
+    // For 2-line splits: try each split point, pick most balanced
+    if (greedyLines.length === 2) {
+      let bestSplit = -1;
+      let bestDiff = Infinity;
+
+      for (let i = 1; i < words.length; i++) {
+        const line1 = words.slice(0, i).join(" ");
+        const line2 = words.slice(i).join(" ");
+        const w1 = ctx.measureText(line1).width;
+        const w2 = ctx.measureText(line2).width;
+
+        if (w1 > effectiveMax || w2 > effectiveMax) continue;
+
+        // Prefer splits after punctuation
+        const punctBonus = /[,;:\u2014\u2013–—-]$/.test(line1) ? -20 : 0;
+        const diff = Math.abs(w1 - w2) + punctBonus;
+
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestSplit = i;
+        }
+      }
+
+      if (bestSplit > 0) {
+        return [
+          words.slice(0, bestSplit).join(" "),
+          words.slice(bestSplit).join(" "),
+        ];
+      }
+    }
+
+    // For 3-line splits: try balanced partition
+    if (greedyLines.length >= 3 && words.length >= 3) {
+      let bestI = 1, bestJ = 2;
+      let bestMaxWidth = Infinity;
+
+      for (let i = 1; i < words.length - 1; i++) {
+        for (let j = i + 1; j < words.length; j++) {
+          const l1 = words.slice(0, i).join(" ");
+          const l2 = words.slice(i, j).join(" ");
+          const l3 = words.slice(j).join(" ");
+          const w1 = ctx.measureText(l1).width;
+          const w2 = ctx.measureText(l2).width;
+          const w3 = ctx.measureText(l3).width;
+
+          if (w1 > effectiveMax || w2 > effectiveMax || w3 > effectiveMax) continue;
+
+          const maxW = Math.max(w1, w2, w3);
+          const range = maxW - Math.min(w1, w2, w3);
+
+          if (range < bestMaxWidth) {
+            bestMaxWidth = range;
+            bestI = i;
+            bestJ = j;
+          }
+        }
+      }
+
+      const result = [
+        words.slice(0, bestI).join(" "),
+        words.slice(bestI, bestJ).join(" "),
+        words.slice(bestJ).join(" "),
+      ].filter(l => l.length > 0);
+
+      if (result.length >= 2) return result.slice(0, 3);
+    }
+  }
+
+  return greedyLines;
+}
