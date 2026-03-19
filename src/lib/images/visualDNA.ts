@@ -3,15 +3,24 @@
  * visual truth model for each character from canon, narrative, inference, and user guidance.
  * 
  * DNA is versioned, auditable, and governs all downstream image generation.
+ * 
+ * Visual Truth Layers:
+ *   1. Script Truth (locked) — explicit canon facts
+ *   2. Binding Markers (approved → enforced) — persistent visible features
+ *   3. Narrative Markers (protected) — story-critical visible traits
+ *   4. Inferred Guidance (flexible) — contextual derivations
+ *   5. Evidence Traits (draft) — AI-extracted, non-authoritative
+ *   6. Producer Guidance (classified) — user notes
  */
 
-import type { CharacterTrait, TraitSource, TraitConstraint, TraitCategory } from './characterTraits';
+import type { CharacterTrait, TraitSource, TraitConstraint, TraitCategory, BindingMarker } from './characterTraits';
 import {
   extractTraitsFromCanon,
   deriveTraitsFromContext,
   extractNarrativeTraits,
   parseUserNotes,
   detectTraitContradictions,
+  detectBindingMarkers,
   type TraitContradiction,
 } from './characterTraits';
 import {
@@ -40,10 +49,14 @@ export interface ProducerGuidanceItem {
   warning?: string;
 }
 
+export type ClarificationStatus = 'resolved' | 'partial' | 'missing';
+
 export interface MissingClarification {
   category: TraitCategory;
   question: string;
   importance: 'high' | 'medium' | 'low';
+  status: ClarificationStatus;
+  resolvedBy?: string;
 }
 
 export interface EvidenceTrait extends VisualDNATrait {
@@ -57,28 +70,31 @@ export interface CharacterVisualDNA {
   /** Layer 1: Explicit visual traits from canon/script — LOCKED */
   scriptTruth: VisualDNALayer;
   
-  /** Layer 2: Narrative-critical visible markers — PROTECTED */
+  /** Layer 2: Binding visual markers — must persist across all images when visible */
+  bindingMarkers: BindingMarker[];
+  
+  /** Layer 3: Narrative-critical visible markers — PROTECTED */
   narrativeMarkers: VisualDNALayer;
   
-  /** Layer 3: Flexible traits derived from role/world */
+  /** Layer 4: Flexible traits derived from role/world */
   inferredGuidance: VisualDNALayer;
   
-  /** Layer 4: User/producer guidance — classified */
+  /** Layer 5: User/producer guidance — classified */
   producerGuidance: ProducerGuidanceItem[];
   
-  /** Layer 5: Traits that must NEVER drift */
+  /** Layer 6: Traits that must NEVER drift */
   lockedInvariants: VisualDNATrait[];
   
-  /** Layer 6: Traits allowed to vary */
+  /** Layer 7: Traits allowed to vary */
   flexibleAxes: VisualDNATrait[];
 
-  /** Layer 7: AI-extracted evidence traits — INFERRED, traceable */
+  /** Layer 8: AI-extracted evidence traits — INFERRED, traceable */
   evidenceTraits: EvidenceTrait[];
   
   /** Conflicts between sources */
   contradictions: TraitContradiction[];
   
-  /** Gaps in visual definition */
+  /** Gaps in visual definition — now with resolution status */
   missingClarifications: MissingClarification[];
   
   /** Identity signature derived from locked anchors */
@@ -112,6 +128,8 @@ export function resolveCharacterVisualDNA(
   canonJson: Record<string, unknown> | null,
   userNotes: string,
   identityLocked: boolean,
+  existingMarkers?: BindingMarker[],
+  existingEvidenceTraits?: EvidenceTrait[],
 ): CharacterVisualDNA {
   // Extract traits from each source
   const scriptTraits = extractTraitsFromCanon(canonCharacter);
@@ -139,6 +157,20 @@ export function resolveCharacterVisualDNA(
     };
   });
   
+  // Detect binding markers from all text sources
+  const detectedMarkers: BindingMarker[] = [];
+  if (canonCharacter) {
+    for (const field of ['appearance', 'physical', 'description', 'traits']) {
+      const val = canonCharacter[field];
+      if (typeof val === 'string' && val.trim()) {
+        detectedMarkers.push(...detectBindingMarkers(val, `canon.${field}`));
+      }
+    }
+  }
+  
+  // Merge with existing markers (preserve approved/resolved state)
+  const mergedMarkers = mergeMarkers(existingMarkers || [], detectedMarkers);
+  
   // Locked invariants: script + narrative traits (the "what must not drift" list)
   const lockedInvariants: VisualDNATrait[] = scriptTraits
     .filter(t => t.constraint === 'locked')
@@ -156,11 +188,28 @@ export function resolveCharacterVisualDNA(
     .filter(t => t.constraint === 'flexible')
     .map(traitToVisualDNATrait);
   
-  // Identify missing clarifications
+  // Build evidence coverage set for clarification resolution
+  const evidenceTraits = existingEvidenceTraits || [];
+  const evidenceCoveredCategories = new Set(evidenceTraits.map(t => t.category));
+  
+  // Identify missing clarifications with resolution status
   const coveredCategories = new Set(allTraits.map(t => t.category));
-  const missingClarifications: MissingClarification[] = CORE_VISUAL_CATEGORIES
-    .filter(c => !coveredCategories.has(c.category))
-    .map(c => ({ category: c.category, question: c.question, importance: c.importance }));
+  const markerCategories = new Set(mergedMarkers.filter(m => m.status !== 'rejected').map(() => 'marker' as TraitCategory));
+  
+  const missingClarifications: MissingClarification[] = CORE_VISUAL_CATEGORIES.map(c => {
+    const hasStrong = coveredCategories.has(c.category);
+    const hasEvidence = evidenceCoveredCategories.has(c.category);
+    const hasMarker = c.category === 'marker' && markerCategories.size > 0;
+    
+    if (hasStrong || hasMarker) {
+      return { category: c.category, question: c.question, importance: c.importance, status: 'resolved' as ClarificationStatus, resolvedBy: 'canon/script' };
+    }
+    if (hasEvidence) {
+      const evidenceSource = evidenceTraits.find(t => t.category === c.category)?.evidenceSource;
+      return { category: c.category, question: c.question, importance: c.importance, status: 'partial' as ClarificationStatus, resolvedBy: evidenceSource || 'evidence' };
+    }
+    return { category: c.category, question: c.question, importance: c.importance, status: 'missing' as ClarificationStatus };
+  }).filter(c => c.status !== 'resolved');
   
   // Derive identity signature from locked traits
   const identitySignature = deriveIdentitySignature(allTraits);
@@ -171,18 +220,38 @@ export function resolveCharacterVisualDNA(
   return {
     characterName,
     scriptTruth: { traits: scriptTraits.map(traitToVisualDNATrait) },
+    bindingMarkers: mergedMarkers,
     narrativeMarkers: { traits: narrativeTraits.map(traitToVisualDNATrait) },
     inferredGuidance: { traits: inferredTraits.map(traitToVisualDNATrait) },
     producerGuidance,
     lockedInvariants: allInvariants,
     flexibleAxes,
-    evidenceTraits: [],
+    evidenceTraits,
     contradictions,
     missingClarifications,
     identitySignature: hasIdSig ? identitySignature : null,
     identityStrength,
     allTraits,
   };
+}
+
+/**
+ * Merge existing markers (with approval state) with newly detected ones.
+ * Existing approved/rejected markers are preserved. New detections are added only if novel.
+ */
+function mergeMarkers(existing: BindingMarker[], detected: BindingMarker[]): BindingMarker[] {
+  const merged = [...existing];
+  const existingKeys = new Set(existing.map(m => `${m.markerType}:${m.bodyRegion}`));
+  
+  for (const d of detected) {
+    const key = `${d.markerType}:${d.bodyRegion}`;
+    if (!existingKeys.has(key)) {
+      merged.push(d);
+      existingKeys.add(key);
+    }
+  }
+  
+  return merged;
 }
 
 function traitToVisualDNATrait(t: CharacterTrait): VisualDNATrait {
@@ -209,14 +278,29 @@ export function serializeDNAForStorage(dna: CharacterVisualDNA) {
     missing_clarifications: JSON.parse(JSON.stringify(dna.missingClarifications)),
     identity_signature: dna.identitySignature ? JSON.parse(JSON.stringify(dna.identitySignature)) : null,
     identity_strength: dna.identityStrength,
-    // Evidence traits persisted separately — never promoted to locked/protected
-    recipe_json: dna.evidenceTraits.length > 0
-      ? JSON.parse(JSON.stringify({
-          evidence_traits: dna.evidenceTraits,
-          evidence_status: 'draft',
-        }))
-      : {},
+    // Evidence traits and binding markers persisted in recipe_json
+    recipe_json: JSON.parse(JSON.stringify({
+      evidence_traits: dna.evidenceTraits,
+      evidence_status: dna.evidenceTraits.length > 0 ? 'draft' : 'none',
+      binding_markers: dna.bindingMarkers,
+    })),
   };
+}
+
+/**
+ * Deserialize binding markers from stored recipe_json.
+ */
+export function deserializeBindingMarkers(recipeJson: Record<string, any> | null): BindingMarker[] {
+  if (!recipeJson?.binding_markers) return [];
+  return (recipeJson.binding_markers as BindingMarker[]) || [];
+}
+
+/**
+ * Deserialize evidence traits from stored recipe_json.
+ */
+export function deserializeEvidenceTraits(recipeJson: Record<string, any> | null): EvidenceTrait[] {
+  if (!recipeJson?.evidence_traits) return [];
+  return (recipeJson.evidence_traits as EvidenceTrait[]) || [];
 }
 
 // ── Prompt Injection ──
@@ -238,12 +322,26 @@ export function formatInvariantsBlock(dna: CharacterVisualDNA): string {
 
 /**
  * Format full DNA context for generation prompts.
- * Priority order: locked invariants > protected markers > flexible guidance > producer guidance
+ * Priority order: binding markers > locked invariants > script truth > protected markers > flexible guidance > producer guidance > evidence
  */
 export function formatDNAPromptContext(dna: CharacterVisualDNA): string {
   const blocks: string[] = [];
   
-  // 1. Locked invariants (highest priority)
+  // 0. Binding markers (HIGHEST priority — mandatory enforcement)
+  const approvedMarkers = dna.bindingMarkers.filter(m => m.status === 'approved');
+  if (approvedMarkers.length > 0) {
+    blocks.push([
+      `[BINDING VISUAL MARKERS — ${dna.characterName.toUpperCase()} — MANDATORY]`,
+      '(These features MUST appear in the image whenever the relevant body region is visible.)',
+      ...approvedMarkers.map(m => {
+        const lateralStr = m.laterality !== 'unknown' ? ` (${m.laterality})` : '';
+        const regionStr = m.bodyRegion !== 'unspecified' ? ` on ${m.bodyRegion}` : '';
+        return `- ${m.markerType.toUpperCase()}${regionStr}${lateralStr} — ENFORCE: visible when region shown`;
+      }),
+    ].join('\n'));
+  }
+  
+  // 1. Locked invariants
   const invariantsBlock = formatInvariantsBlock(dna);
   if (invariantsBlock) blocks.push(invariantsBlock);
   
@@ -281,7 +379,6 @@ export function formatDNAPromptContext(dna: CharacterVisualDNA): string {
   }
 
   // 6. Evidence-extracted traits — DRAFT ONLY, clearly demarcated as weak/suggestive
-  // Only high-confidence evidence traits are injected, explicitly marked as non-authoritative
   const highConfEvidence = dna.evidenceTraits.filter(t => t.confidence === 'high' || t.confidence === 'medium');
   if (highConfEvidence.length > 0) {
     blocks.push([
