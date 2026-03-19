@@ -5928,6 +5928,8 @@ export type Database = {
           normalized_alias: string
           project_id: string
           review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
           source: string
         }
         Insert: {
@@ -5939,6 +5941,8 @@ export type Database = {
           normalized_alias: string
           project_id: string
           review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           source?: string
         }
         Update: {
@@ -5950,6 +5954,8 @@ export type Database = {
           normalized_alias?: string
           project_id?: string
           review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           source?: string
         }
         Relationships: [
@@ -5988,8 +5994,10 @@ export type Database = {
           entity_name: string
           entity_type: string
           id: string
+          ingestion_run_id: string | null
           parent_state_id: string | null
           project_id: string
+          review_status: string
           source_reason: string | null
           state_category: string
           state_key: string
@@ -6008,8 +6016,10 @@ export type Database = {
           entity_name: string
           entity_type: string
           id?: string
+          ingestion_run_id?: string | null
           parent_state_id?: string | null
           project_id: string
+          review_status?: string
           source_reason?: string | null
           state_category: string
           state_key: string
@@ -6028,8 +6038,10 @@ export type Database = {
           entity_name?: string
           entity_type?: string
           id?: string
+          ingestion_run_id?: string | null
           parent_state_id?: string | null
           project_id?: string
+          review_status?: string
           source_reason?: string | null
           state_category?: string
           state_key?: string
@@ -6038,6 +6050,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "entity_visual_states_ingestion_run_id_fkey"
+            columns: ["ingestion_run_id"]
+            isOneToOne: false
+            referencedRelation: "story_ingestion_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "entity_visual_states_parent_state_id_fkey"
             columns: ["parent_state_id"]
@@ -17228,7 +17247,10 @@ export type Database = {
           ingestion_run_id: string | null
           is_primary: boolean
           project_id: string
+          review_status: string
           review_tier: string
+          reviewed_at: string | null
+          reviewed_by: string | null
           role_in_scene: string
           scene_id: string
           source_reason: string
@@ -17244,7 +17266,10 @@ export type Database = {
           ingestion_run_id?: string | null
           is_primary?: boolean
           project_id: string
+          review_status?: string
           review_tier?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           role_in_scene?: string
           scene_id: string
           source_reason?: string
@@ -17260,7 +17285,10 @@ export type Database = {
           ingestion_run_id?: string | null
           is_primary?: boolean
           project_id?: string
+          review_status?: string
           review_tier?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           role_in_scene?: string
           scene_id?: string
           source_reason?: string
@@ -20027,7 +20055,10 @@ export type Database = {
           ingestion_run_id: string | null
           project_id: string
           promoted_to_evs_id: string | null
+          review_status: string
           review_tier: string
+          reviewed_at: string | null
+          reviewed_by: string | null
           scene_id: string | null
           state_category: string
           to_state_key: string
@@ -20043,7 +20074,10 @@ export type Database = {
           ingestion_run_id?: string | null
           project_id: string
           promoted_to_evs_id?: string | null
+          review_status?: string
           review_tier?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           scene_id?: string | null
           state_category?: string
           to_state_key: string
@@ -20059,7 +20093,10 @@ export type Database = {
           ingestion_run_id?: string | null
           project_id?: string
           promoted_to_evs_id?: string | null
+          review_status?: string
           review_tier?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           scene_id?: string | null
           state_category?: string
           to_state_key?: string
@@ -20114,12 +20151,15 @@ export type Database = {
           completed_at: string | null
           created_at: string
           created_by: string | null
+          diff_json: Json | null
           failure_reason: string | null
           id: string
           manifest_json: Json
+          parse_quality_json: Json
           project_id: string
           source_document_ids: string[]
           source_kind: string
+          source_resolution_json: Json
           source_version_ids: string[]
           stage_summary: Json
           status: string
@@ -20129,12 +20169,15 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          diff_json?: Json | null
           failure_reason?: string | null
           id?: string
           manifest_json?: Json
+          parse_quality_json?: Json
           project_id: string
           source_document_ids?: string[]
           source_kind?: string
+          source_resolution_json?: Json
           source_version_ids?: string[]
           stage_summary?: Json
           status?: string
@@ -20144,12 +20187,15 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
+          diff_json?: Json | null
           failure_reason?: string | null
           id?: string
           manifest_json?: Json
+          parse_quality_json?: Json
           project_id?: string
           source_document_ids?: string[]
           source_kind?: string
+          source_resolution_json?: Json
           source_version_ids?: string[]
           stage_summary?: Json
           status?: string
