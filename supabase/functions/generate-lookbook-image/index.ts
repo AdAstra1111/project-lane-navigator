@@ -502,19 +502,31 @@ serve(async (req) => {
     }
 
     // Determine shots to generate
+    // ── Single-slot mode: forced_shot_type overrides all pack logic ──
     const IDENTITY_PACK: ShotType[] = ["identity_headshot", "identity_profile", "identity_full_body"];
     const BASE_LOOK_PACK: ShotType[] = ["close_up", "profile", "full_body", "full_body", "medium"];
     const LOCATION_REF_PACK: ShotType[] = ["wide", "atmospheric", "detail", "time_variant"];
-    const shotPack = identity_mode && assetGroup === "character"
-      ? IDENTITY_PACK
-      : base_look_mode && assetGroup === "character"
-        ? BASE_LOOK_PACK
-        : location_ref_mode && assetGroup === "world"
-          ? LOCATION_REF_PACK
-          : (SHOT_PACKS[assetGroup] || []);
-    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode || location_ref_mode || identity_mode
-      ? shotPack.slice(0, Math.min(count, shotPack.length))
-      : [];
+
+    let shotsToGenerate: ShotType[];
+    if (forced_shot_type) {
+      // Deterministic single-slot mode — generate exactly this shot type
+      shotsToGenerate = [forced_shot_type as ShotType];
+    } else if (identity_mode && assetGroup === "character") {
+      shotsToGenerate = IDENTITY_PACK;
+    } else if (base_look_mode && assetGroup === "character") {
+      shotsToGenerate = BASE_LOOK_PACK;
+    } else if (location_ref_mode && assetGroup === "world") {
+      shotsToGenerate = LOCATION_REF_PACK;
+    } else if (pack_mode) {
+      shotsToGenerate = (SHOT_PACKS[assetGroup] || []);
+    } else {
+      shotsToGenerate = [];
+    }
+
+    // When forced or pack mode, limit to count
+    if (shotsToGenerate.length > 0 && !forced_shot_type) {
+      shotsToGenerate = shotsToGenerate.slice(0, Math.min(count, shotsToGenerate.length));
+    }
 
     const genCount = shotsToGenerate.length > 0 ? shotsToGenerate.length : Math.min(Math.max(count, 1), 6);
 
