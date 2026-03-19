@@ -454,6 +454,11 @@ function CharacterIdentitySection({
         )}
       </div>
 
+      {/* Trait Display */}
+      {resolvedTraits.length > 0 && (
+        <CharacterTraitDisplay traits={resolvedTraits} contradictions={traitContradictions} />
+      )}
+
       {identityImages.length === 0 ? (
         <Button
           size="sm"
