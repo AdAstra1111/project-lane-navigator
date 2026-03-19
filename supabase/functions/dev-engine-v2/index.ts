@@ -21092,10 +21092,12 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         }).select().single();
         if (!sc) throw new Error("Failed to create split scene");
         const parsed = sgParseSlugline(content.split('\n')[0] || '');
+        const splitCanonLocId = await sgResolveCanonLocationId(supabase, projectId, parsed.location);
         const { data: ver } = await supabase.from("scene_graph_versions").insert({
           scene_id: sc.id, project_id: projectId, version_number: 1, status: 'draft',
           created_by: user.id, slugline: parsed.slugline, location: parsed.location,
           time_of_day: parsed.time_of_day, content,
+          canon_location_id: splitCanonLocId,
         }).select().single();
         await supabase.from("scene_graph_order").insert({
           project_id: projectId, scene_id: sc.id, order_key: key, is_active: true,
