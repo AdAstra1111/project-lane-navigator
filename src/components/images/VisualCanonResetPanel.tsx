@@ -371,7 +371,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
       </Card>
 
       {/* ── Auto Populate Visual Set ── */}
-      {emptySlots.length > 0 && (
+      {(emptySlots.length > 0 || populating) && (
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="p-3">
             <div className="flex items-center gap-1.5 mb-2">
@@ -379,9 +379,11 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
               <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
                 Auto Populate Visual Set
               </span>
-              <Badge variant="secondary" className="text-[8px] px-1 py-0">
-                {emptySlots.length} empty
-              </Badge>
+              {!populating && emptySlots.length > 0 && (
+                <Badge variant="secondary" className="text-[8px] px-1 py-0">
+                  {emptySlots.length} empty
+                </Badge>
+              )}
             </div>
 
             <p className="text-[9px] text-muted-foreground mb-3">
@@ -389,34 +391,90 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
             </p>
 
             {/* Controls */}
-            <div className="space-y-2 mb-3">
-              <div className="flex items-center justify-between">
-                <label className="text-[9px] text-muted-foreground">Use canon descriptions</label>
-                <Switch
-                  checked={useCanonDescriptions}
-                  onCheckedChange={setUseCanonDescriptions}
-                  disabled={populating}
-                  className="scale-75 origin-right"
-                />
+            {!populating && (
+              <div className="space-y-2 mb-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-[9px] text-muted-foreground">Use canon descriptions</label>
+                  <Switch
+                    checked={useCanonDescriptions}
+                    onCheckedChange={setUseCanonDescriptions}
+                    className="scale-75 origin-right"
+                  />
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <label className="text-[9px] text-muted-foreground">Use approved images as anchors</label>
-                <Switch
-                  checked={useApprovedAnchors}
-                  onCheckedChange={setUseApprovedAnchors}
-                  disabled={populating}
-                  className="scale-75 origin-right"
-                />
-              </div>
-            </div>
+            )}
 
-            {/* Progress */}
-            {populating && (
-              <div className="flex items-center gap-2 mb-3 p-2 rounded-md bg-muted/50">
-                <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />
-                <span className="text-[9px] text-muted-foreground">
-                  Generating images across {emptySlots.length} slots… This may take a few minutes.
-                </span>
+            {/* Live Progress */}
+            {populating && populateProgress && (
+              <div className="mb-3 space-y-2">
+                <div className="p-2.5 rounded-md bg-muted/50 space-y-2">
+                  {/* Progress bar */}
+                  <div className="flex items-center justify-between text-[9px]">
+                    <span className="text-muted-foreground">
+                      {populateProgress.generated + populateProgress.failed}/{populateProgress.total} slots
+                    </span>
+                    <span className="text-foreground font-medium">
+                      {Math.round(((populateProgress.generated + populateProgress.failed) / populateProgress.total) * 100)}%
+                    </span>
+                  </div>
+                  <Progress
+                    value={((populateProgress.generated + populateProgress.failed) / populateProgress.total) * 100}
+                    className="h-1.5"
+                  />
+
+                  {/* Current slot */}
+                  {populateProgress.currentSlot && (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[9px] text-foreground font-medium truncate">
+                          {populateProgress.currentSlot}
+                        </p>
+                        {populateProgress.currentPhase && (
+                          <p className="text-[8px] text-muted-foreground">
+                            Phase: {populateProgress.currentPhase}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Live counts */}
+                  <div className="flex gap-3 text-[8px]">
+                    <span className="text-emerald-500">✓ {populateProgress.generated} generated</span>
+                    {populateProgress.failed > 0 && (
+                      <span className="text-destructive">✗ {populateProgress.failed} failed</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Recent completions log */}
+                {populateProgress.completedSlots.length > 0 && (
+                  <div className="max-h-[80px] overflow-y-auto space-y-0.5">
+                    {populateProgress.completedSlots.slice(-5).reverse().map((cs, idx) => (
+                      <div key={cs.key + idx} className="flex items-center gap-1.5 text-[8px]">
+                        {cs.status === 'generated' ? (
+                          <CheckCircle className="h-2.5 w-2.5 text-emerald-500 shrink-0" />
+                        ) : (
+                          <XCircle className="h-2.5 w-2.5 text-destructive shrink-0" />
+                        )}
+                        <span className={cs.status === 'generated' ? 'text-muted-foreground' : 'text-destructive'}>
+                          {cs.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Cancel button */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-[9px] h-6 text-muted-foreground"
+                  onClick={() => { abortRef.current = true; }}
+                >
+                  Cancel remaining
+                </Button>
               </div>
             )}
 
@@ -435,32 +493,29 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
             )}
 
             {/* CTA Buttons */}
-            <div className="flex flex-wrap gap-1.5">
-              <Button
-                size="sm"
-                className="gap-1.5 text-[10px] h-7"
-                disabled={populating || emptySlots.length === 0}
-                onClick={() => handleAutoPopulate(false)}
-              >
-                {populating ? (
-                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                ) : (
+            {!populating && (
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-[10px] h-7"
+                  disabled={emptySlots.length === 0}
+                  onClick={() => handleAutoPopulate(false)}
+                >
                   <Wand2 className="h-2.5 w-2.5" />
-                )}
-                Auto Populate Visual Set
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-[10px] h-7"
-                disabled={populating}
-                onClick={() => handleAutoPopulate(true)}
-                title="Generate candidate cast identity images first (headshot, profile, full body) before the rest of the visual set."
-              >
-                <Zap className="h-2.5 w-2.5" />
-                Generate Identity Only
-              </Button>
-            </div>
+                  Auto Populate Visual Set
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 text-[10px] h-7"
+                  onClick={() => handleAutoPopulate(true)}
+                  title="Generate candidate cast identity images first (headshot, profile, full body) before the rest of the visual set."
+                >
+                  <Zap className="h-2.5 w-2.5" />
+                  Generate Identity Only
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
