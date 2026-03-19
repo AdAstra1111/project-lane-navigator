@@ -334,6 +334,7 @@ export async function generateLookBookData(
     type: 'visual_language',
     title: 'Visual Language',
     body: visualApproach,
+    imageUrl: visualLanguageImageUrl || undefined,
     bullets: [
       `${identity.imageStyle.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase())} palette`,
       identity.typography.titleUppercase ? 'Bold, graphic title treatment' : 'Elegant, refined typography',
