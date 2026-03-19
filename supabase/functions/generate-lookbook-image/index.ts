@@ -65,6 +65,9 @@ interface SectionContext {
   logline: string;
   stylePolicy: ImageStylePolicy;
   characterName?: string;
+  /** Location-specific generation */
+  locationName?: string;
+  locationDescription?: string;
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
