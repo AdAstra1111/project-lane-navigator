@@ -1,11 +1,14 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles, Film, PenTool, ImagePlus } from 'lucide-react';
+import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles, Film, PenTool, ImagePlus, ChevronDown, Activity, Eye, Wrench, Zap, Palette } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -301,6 +304,22 @@ export default function ProjectDetail() {
   const handleExportDeliverablesCSV = () => { if (project) exportDeliverablesCSV(deliverables, project.title); };
   const handleExportCostsCSV = () => { if (project) exportCostsCSV(costEntries, project.title); };
 
+  // Resolve effective mode — hooks must be before early returns
+  const { mode: userMode, setMode } = useUIMode();
+  const effectiveMode = getEffectiveMode(userMode, (project as any)?.ui_mode_override);
+
+  const { data: activePoster } = useActiveProjectPoster(id);
+
+  // Accordion state — only "state" open by default
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    state: true,
+    development: false,
+    visual: false,
+    diagnostics: false,
+    repair: false,
+    autorun: false,
+  });
+
   // ProjectDetail is always rendered inside ProjectShell now (Week 2 refactor)
 
   if (isLoading) {
@@ -335,236 +354,421 @@ export default function ProjectDetail() {
   const hasDocuments = documents.length > 0;
   const hasScript = scripts.length > 0;
 
-  // Resolve effective mode
-  const { mode: userMode, setMode } = useUIMode();
-  const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
-
-  const { data: activePoster } = useActiveProjectPoster(id);
   const heroImageUrl = activePoster.url || (project as any).hero_image_url;
+
+  const toggleSection = (key: string) => {
+    setOpenSections(prev => {
+      const next: Record<string, boolean> = {};
+      for (const k of Object.keys(prev)) {
+        next[k] = k === key ? !prev[k] : false;
+      }
+      return next;
+    });
+  };
+
+  const laneBadgeLabel = project.assigned_lane
+    ? project.assigned_lane.charAt(0).toUpperCase() + project.assigned_lane.slice(1)
+    : null;
+
+  const episodeCount = (project as any)?.episode_count || null;
 
   return (
     <div className="bg-background">
 
-      {/* Hero Image Banner — active poster or legacy hero image */}
-      {heroImageUrl && (
-        <div className="relative h-[200px] sm:h-[260px] overflow-hidden -mb-6">
-          <img src={heroImageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/20" />
-          <div className="absolute inset-0 bg-gradient-to-r from-background/50 to-transparent" />
-        </div>
-      )}
+      {/* ═══════════════════════════════════════════════════════════════════════
+          HERO SECTION — Poster as project identity
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="relative w-full bg-black">
+        {heroImageUrl ? (
+          <div className="relative flex items-center justify-center min-h-[320px] sm:min-h-[420px] max-h-[520px]">
+            <img
+              src={heroImageUrl}
+              alt={`${project.title} poster`}
+              className="max-w-full max-h-[520px] object-contain"
+              loading="lazy"
+            />
+            {/* Gradient overlay at bottom for text legibility */}
+            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-none" />
+          </div>
+        ) : (
+          <div className="flex items-center justify-center min-h-[200px] sm:min-h-[280px] bg-gradient-to-b from-card/80 to-background">
+            <div className="text-center space-y-2">
+              <ImagePlus className="h-10 w-10 text-muted-foreground/30 mx-auto" />
+              <p className="text-xs text-muted-foreground/50">No poster generated</p>
+            </div>
+          </div>
+        )}
 
+        {/* Overlay: title, lane, format, actions */}
+        <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6">
+          <div className="container max-w-6xl mx-auto">
+            <div className="flex items-end justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {laneBadgeLabel && (
+                    <Badge className="bg-primary/80 text-primary-foreground text-[10px] font-medium tracking-wide uppercase px-2 py-0.5">
+                      {laneBadgeLabel}
+                    </Badge>
+                  )}
+                  {project.format && (
+                    <Badge variant="outline" className="border-white/20 text-white/70 text-[10px]">
+                      {project.format.replace(/-/g, ' ')}
+                    </Badge>
+                  )}
+                  {episodeCount && (
+                    <Badge variant="outline" className="border-white/20 text-white/70 text-[10px]">
+                      {episodeCount} episodes
+                    </Badge>
+                  )}
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-serif">
+                  {project.title}
+                </h1>
+                {project.genres && project.genres.length > 0 && (
+                  <p className="text-xs text-white/50">{project.genres.join(' · ')}</p>
+                )}
+              </div>
+
+              {/* Primary actions */}
+              <div className="flex items-center gap-2 shrink-0">
+                <Link to={`/projects/${id}/poster`}>
+                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
+                    <ImagePlus className="h-3.5 w-3.5" /> Poster
+                  </Button>
+                </Link>
+                <Link to={`/projects/${id}/pitch-deck`}>
+                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
+                    <Sparkles className="h-3.5 w-3.5" /> Look Book
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Top-right utility buttons */}
+        <div className="absolute top-3 right-3 flex items-center gap-1">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-md text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8">
+                <Download className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportPDF}>
+                <FileText className="h-3.5 w-3.5 mr-2" />PDF One-Pager
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {deals.length > 0 && (
+                <DropdownMenuItem onClick={handleExportDealsCSV}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />Deals CSV
+                </DropdownMenuItem>
+              )}
+              {deliverables.length > 0 && (
+                <DropdownMenuItem onClick={handleExportDeliverablesCSV}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />Deliverables CSV
+                </DropdownMenuItem>
+              )}
+              {costEntries.length > 0 && (
+                <DropdownMenuItem onClick={handleExportCostsCSV}>
+                  <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />Costs CSV
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="ghost" size="icon" className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8 hidden sm:inline-flex" title="Duplicate" onClick={handleDuplicate} disabled={duplicate.isPending}>
+            {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+          </Button>
+          <Link to={`/projects/${id}/present`} className="hidden sm:inline-flex">
+            <Button variant="ghost" size="icon" className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8">
+              <Presentation className="h-4 w-4" />
+            </Button>
+          </Link>
+          <Link to={`/projects/${id}/trailer-pipeline`} className="hidden sm:inline-flex">
+            <Button variant="ghost" size="icon" className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8">
+              <Film className="h-4 w-4" />
+            </Button>
+          </Link>
+          <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-white/60 hover:text-destructive hover:bg-destructive/10 h-8 w-8">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete "{project.title}"?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete the project, its analysis, and all uploaded documents.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={deleteProject.isPending}>
+                  {deleteProject.isPending ? (<><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Deleting…</>) : 'Delete Project'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          SYSTEM SECTIONS — Collapsible accordion hierarchy
+          ═══════════════════════════════════════════════════════════════════════ */}
       <main className="container max-w-6xl py-6">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
+          className="space-y-3"
         >
-          {/* Project Header (compact) */}
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
-              <div className="min-w-0">
-                {project.genres && project.genres.length > 0 && (
-                  <p className="text-xs text-muted-foreground truncate">{project.genres.join(' · ')}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Export">
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleExportPDF}>
-                    <FileText className="h-3.5 w-3.5 mr-2" />PDF One-Pager
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {deals.length > 0 && (
-                    <DropdownMenuItem onClick={handleExportDealsCSV}>
-                      <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />Deals CSV
-                    </DropdownMenuItem>
-                  )}
-                  {deliverables.length > 0 && (
-                    <DropdownMenuItem onClick={handleExportDeliverablesCSV}>
-                      <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />Deliverables CSV
-                    </DropdownMenuItem>
-                  )}
-                  {costEntries.length > 0 && (
-                    <DropdownMenuItem onClick={handleExportCostsCSV}>
-                      <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />Costs CSV
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8 hidden sm:inline-flex" title="Duplicate" onClick={handleDuplicate} disabled={duplicate.isPending}>
-                {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-              </Button>
-              <Link to={`/projects/${id}/present`} className="hidden sm:inline-flex">
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Presentation Mode">
-                  <Presentation className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Link to={`/projects/${id}/pitch-deck`} className="hidden sm:inline-flex">
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="AI Pitch Deck">
-                  <Sparkles className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Link to={`/projects/${id}/trailer-pipeline`} className="hidden sm:inline-flex">
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Cinematic Studio">
-                  <Film className="h-4 w-4" />
-                </Button>
-              </Link>
-              <Link to="/compare" className="hidden sm:inline-flex">
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Compare">
-                  <ArrowLeftRight className="h-4 w-4" />
-                </Button>
-              </Link>
-              <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-                <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 h-8 w-8">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete "{project.title}"?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete the project, its analysis, and all uploaded documents.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={deleteProject.isPending}>
-                      {deleteProject.isPending ? (<><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Deleting…</>) : 'Delete Project'}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </div>
-
-          {/* Summary Bar removed — ProjectShell owns the top bar now */}
-
-          {/* Auto-Run Setup Panel */}
-          <AutoRunSetupPanel project={project} />
-
-          {/* Screenplay Intake Banner — intake-run orchestration truth */}
+          {/* Screenplay Intake Banner — always visible when relevant */}
           <ScreenplayIntakeBanner projectId={id} />
-
-          {/* Import Pipeline Status — downstream materialisation readiness */}
           <ImportStatusPanel projectId={id} />
 
-          {/* NDG Summary — lightweight graph overview */}
-          <NDGSummaryPanel projectId={id} />
+          {/* ── A. PROJECT STATE ── */}
+          <SystemSection
+            sectionKey="state"
+            icon={<Activity className="h-4 w-4" />}
+            title="Project State"
+            subtitle="What is true right now"
+            isOpen={openSections.state}
+            onToggle={toggleSection}
+          >
+            <div className="space-y-4">
+              <NDGSummaryPanel projectId={id} />
+              <SceneIntelligencePanel projectId={id} />
+              {effectiveMode === 'simple' ? (
+                <SimpleProjectView
+                  project={project}
+                  readiness={readiness}
+                  analysis={analysis}
+                  scriptCount={scripts.length}
+                  castCount={cast.length}
+                  partnerCount={partners.length}
+                  hodCount={hods.length}
+                  financeScenarioCount={financeScenarios.length}
+                  onSwitchToAdvanced={() => setMode('advanced')}
+                />
+              ) : (
+                <AdvancedProjectView
+                  project={project}
+                  projectId={id!}
+                  readiness={readiness}
+                  tvReadiness={tvReadiness}
+                  modeReadiness={modeReadiness}
+                  isTV={!!isTV}
+                  isAlternateMode={!!isAlternateMode}
+                  scoreHistory={scoreHistory}
+                  nextStageGates={nextStageGates}
+                  currentUserId={user?.id || null}
+                  lifecycleStage={lifecycleStage}
+                  masterViability={masterViability}
+                  analysis={analysis}
+                  hasNewAnalysis={hasNewAnalysis}
+                  insights={insights}
+                  scripts={scripts}
+                  currentScript={currentScript}
+                  hasDocuments={hasDocuments}
+                  hasScript={hasScript}
+                  documents={documents}
+                  onUpload={(files, scriptInfo, docType) => addDocuments.mutate({ files, scriptInfo, docType })}
+                  isUploading={addDocuments.isPending}
+                  scriptText={scriptText}
+                  devReadiness={devReadiness}
+                  cast={cast}
+                  hods={hods}
+                  scriptCharacters={scriptCharacters}
+                  scriptCharactersLoading={scriptCharsLoading}
+                  pkgReadiness={pkgReadiness}
+                  budgets={budgets}
+                  addBudget={addBudget}
+                  deals={deals}
+                  financeScenarios={financeScenarios}
+                  scheduleMetrics={scheduleMetrics}
+                  preProReadiness={preProReadiness}
+                  prodReadiness={prodReadiness}
+                  postReadiness={postReadiness}
+                  partners={partners}
+                  deliverables={deliverables as any}
+                  trendSignals={trendSignals}
+                  salesReadiness={salesReadiness}
+                  financeReadiness={financeReadiness}
+                  onIncentiveAnalysed={setIncentiveAnalysedThisSession}
+                  costEntries={costEntries}
+                />
+              )}
+            </div>
+          </SystemSection>
 
-          {/* Narrative Repair Dashboard — unified planner + execution + history */}
-          <NarrativeRepairDashboard projectId={id} />
-          {/* Scene Intelligence — NDG v1 read-only graph panel */}
-          <SceneIntelligencePanel projectId={id} />
+          {/* ── B. DEVELOPMENT ENGINE ── */}
+          <SystemSection
+            sectionKey="development"
+            icon={<PenTool className="h-4 w-4" />}
+            title="Development Engine"
+            subtitle="Build the project"
+            isOpen={openSections.development}
+            onToggle={toggleSection}
+          >
+            <div className="space-y-3">
+              <ReverseEngineerCallout projectId={id!} documents={documents} />
+              <div className="flex items-center gap-3">
+                <Link to={`/projects/${id}/development`} className="flex-1">
+                  <Button variant="outline" className="w-full gap-2 h-11">
+                    <PenTool className="h-4 w-4 text-primary" />
+                    Open Development Engine
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </SystemSection>
 
-          {/* Reverse Engineer Callout */}
-          <ReverseEngineerCallout projectId={id!} documents={documents} />
+          {/* ── C. VISUAL ENGINE ── */}
+          <SystemSection
+            sectionKey="visual"
+            icon={<Palette className="h-4 w-4" />}
+            title="Visual Engine"
+            subtitle="Visualize the project"
+            isOpen={openSections.visual}
+            onToggle={toggleSection}
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <Link to={`/projects/${id}/poster`} className="flex-1 min-w-[180px]">
+                <Button variant="outline" className="w-full gap-2 h-11">
+                  <ImagePlus className="h-4 w-4 text-primary" />
+                  Poster Engine
+                </Button>
+              </Link>
+              <Link to={`/projects/${id}/visual-dev`} className="flex-1 min-w-[180px]">
+                <Button variant="outline" className="w-full gap-2 h-11">
+                  <Film className="h-4 w-4 text-primary" />
+                  Visual Production Hub
+                </Button>
+              </Link>
+              <Link to={`/projects/${id}/images`} className="flex-1 min-w-[180px]">
+                <Button variant="outline" className="w-full gap-2 h-11">
+                  <ImagePlus className="h-4 w-4 text-primary" />
+                  Image Library
+                </Button>
+              </Link>
+              <Link to={`/projects/${id}/pitch-deck`} className="flex-1 min-w-[180px]">
+                <Button variant="outline" className="w-full gap-2 h-11">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Look Book
+                </Button>
+              </Link>
+            </div>
+          </SystemSection>
 
-          {/* Quick-access buttons */}
-          <div className="flex items-center gap-3 mt-4 mb-6">
-            <Link to={`/projects/${id}/visual-dev`} className="flex-1">
-              <Button variant="outline" className="w-full gap-2 h-11">
-                <Film className="h-4 w-4 text-primary" />
-                Visual Production Hub
-              </Button>
-            </Link>
-            <Link to={`/projects/${id}/development`} className="flex-1">
-              <Button variant="outline" className="w-full gap-2 h-11">
-                <PenTool className="h-4 w-4 text-primary" />
-                Development Engine
-              </Button>
-            </Link>
-            <Link to={`/projects/${id}/poster`} className="flex-1">
-              <Button variant="outline" className="w-full gap-2 h-11">
-                <ImagePlus className="h-4 w-4 text-primary" />
-                Poster Engine
-              </Button>
-            </Link>
-            <Link to={`/projects/${id}/images`} className="flex-1">
-              <Button variant="outline" className="w-full gap-2 h-11">
-                <ImagePlus className="h-4 w-4 text-primary" />
-                Image Library
-              </Button>
-            </Link>
-          </div>
+          {/* ── D. NARRATIVE DIAGNOSTICS ── */}
+          <SystemSection
+            sectionKey="diagnostics"
+            icon={<Eye className="h-4 w-4" />}
+            title="Narrative Diagnostics"
+            subtitle="What needs attention"
+            isOpen={openSections.diagnostics}
+            onToggle={toggleSection}
+          >
+            {/* Diagnostics are part of the advanced view's overview tab — link for now */}
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Structural findings, coherence checks, and canon drift alerts surface here.
+              </p>
+              <Link to={`/projects/${id}/development`}>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <Eye className="h-3.5 w-3.5" /> Open Diagnostics
+                </Button>
+              </Link>
+            </div>
+          </SystemSection>
 
-          {/* Mode-based content */}
-          {effectiveMode === 'simple' ? (
-            <SimpleProjectView
-              project={project}
-              readiness={readiness}
-              analysis={analysis}
-              scriptCount={scripts.length}
-              castCount={cast.length}
-              partnerCount={partners.length}
-              hodCount={hods.length}
-              financeScenarioCount={financeScenarios.length}
-              onSwitchToAdvanced={() => setMode('advanced')}
-            />
-          ) : (
-            <AdvancedProjectView
-              project={project}
-              projectId={id!}
-              readiness={readiness}
-              tvReadiness={tvReadiness}
-              modeReadiness={modeReadiness}
-              isTV={!!isTV}
-              isAlternateMode={!!isAlternateMode}
-              scoreHistory={scoreHistory}
-              nextStageGates={nextStageGates}
-              currentUserId={user?.id || null}
-              lifecycleStage={lifecycleStage}
-              masterViability={masterViability}
-              analysis={analysis}
-              hasNewAnalysis={hasNewAnalysis}
-              insights={insights}
-              scripts={scripts}
-              currentScript={currentScript}
-              hasDocuments={hasDocuments}
-              hasScript={hasScript}
-              documents={documents}
-              onUpload={(files, scriptInfo, docType) => addDocuments.mutate({ files, scriptInfo, docType })}
-              isUploading={addDocuments.isPending}
-              scriptText={scriptText}
-              devReadiness={devReadiness}
-              cast={cast}
-              hods={hods}
-              scriptCharacters={scriptCharacters}
-              scriptCharactersLoading={scriptCharsLoading}
-              pkgReadiness={pkgReadiness}
-              budgets={budgets}
-              addBudget={addBudget}
-              deals={deals}
-              financeScenarios={financeScenarios}
-              scheduleMetrics={scheduleMetrics}
-              preProReadiness={preProReadiness}
-              prodReadiness={prodReadiness}
-              postReadiness={postReadiness}
-              partners={partners}
-              deliverables={deliverables as any}
-              trendSignals={trendSignals}
-              salesReadiness={salesReadiness}
-              financeReadiness={financeReadiness}
-              onIncentiveAnalysed={setIncentiveAnalysedThisSession}
-              costEntries={costEntries}
-            />
-          )}
+          {/* ── E. REPAIR ENGINE ── */}
+          <SystemSection
+            sectionKey="repair"
+            icon={<Wrench className="h-4 w-4" />}
+            title="Repair Engine"
+            subtitle="Fix the project"
+            isOpen={openSections.repair}
+            onToggle={toggleSection}
+          >
+            <NarrativeRepairDashboard projectId={id} />
+          </SystemSection>
+
+          {/* ── F. AUTO-RUN ── */}
+          <SystemSection
+            sectionKey="autorun"
+            icon={<Zap className="h-4 w-4" />}
+            title="Auto-Run"
+            subtitle="Automate the system"
+            isOpen={openSections.autorun}
+            onToggle={toggleSection}
+          >
+            <AutoRunSetupPanel project={project} />
+          </SystemSection>
         </motion.div>
       </main>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SystemSection — collapsible section container
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SystemSection({
+  sectionKey,
+  icon,
+  title,
+  subtitle,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  sectionKey: string;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  isOpen: boolean;
+  onToggle: (key: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible open={isOpen} onOpenChange={() => onToggle(sectionKey)}>
+      <CollapsibleTrigger className="w-full">
+        <div className={cn(
+          'flex items-center justify-between w-full px-4 py-3 rounded-lg border border-border/50 transition-colors',
+          isOpen ? 'bg-card border-border' : 'bg-card/30 hover:bg-card/60',
+        )}>
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              'flex items-center justify-center h-8 w-8 rounded-md',
+              isOpen ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+            )}>
+              {icon}
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-medium text-foreground">{title}</p>
+              <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+            </div>
+          </div>
+          <ChevronDown className={cn(
+            'h-4 w-4 text-muted-foreground transition-transform duration-200',
+            isOpen && 'rotate-180',
+          )} />
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="pt-3 pb-1 px-1">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
