@@ -10,6 +10,7 @@
 
 import type { CharacterVisualDNA, VisualDNATrait } from './visualDNA';
 import type { ProjectImage, CanonConstraints } from './types';
+import { isMarkerApplicableForShot } from './characterTraits';
 
 // ── Types ──
 
