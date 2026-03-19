@@ -1,14 +1,13 @@
 /**
  * generateLookBookData — Assembles Look Book slides from canonical project state.
- * Uses getCanonicalProjectState for authoritative content sourcing.
- * Runs client-side, pulling from Supabase.
+ * Uses resolveAllCanonImages for section-accurate image resolution,
+ * matching the same DB queries as the workspace panels.
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
-import type { ProjectImage } from '@/lib/images/types';
-import { DOCUMENT_IMAGE_MAP } from '@/lib/images/types';
 import { resolveImageStylePolicy } from '@/lib/images/stylePolicy';
+import { resolveAllCanonImages } from './resolveCanonImages';
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -106,22 +105,18 @@ export async function generateLookBookData(
     .eq('id', projectId)
     .maybeSingle();
 
-  if (projectErr) {
-    console.error('[LookBook] project fetch error:', projectErr.message);
-    throw new Error('Could not load project data: ' + projectErr.message);
-  }
+  if (projectErr) throw new Error('Could not load project data: ' + projectErr.message);
   if (!project) throw new Error('Project not found — check access permissions');
   console.log('[LookBook] ✓ project loaded:', (project as any).title);
 
-  // Normalize: genres is string[], join for display
   const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
 
-  // 2. Load canonical state (authoritative source of truth)
+  // 2. Load canonical state
   const canonicalState = await getCanonicalProjectState(projectId);
   const canon = canonicalState.state;
-  console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source, 'fields:', canonicalState.evidence.canon_editor_fields);
+  console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source);
 
-  // 3. Load current document versions for synopsis/statement
+  // 3. Load document versions for synopsis/statement
   const { data: docs } = await supabase
     .from('project_documents')
     .select('doc_type, latest_version_id')
@@ -133,13 +128,11 @@ export async function generateLookBookData(
   if (docs?.length) {
     const versionIds = docs.map((d: any) => d.latest_version_id).filter(Boolean);
     if (versionIds.length) {
-      // Use is_current versions for authoritative content
       const { data: versions } = await supabase
         .from('project_document_versions')
         .select('plaintext, deliverable_type, is_current')
         .in('id', versionIds)
         .eq('is_current', true);
-      
       for (const v of versions || []) {
         const text = (v as any).plaintext || '';
         if (text.length > synopsis.length && (v as any).deliverable_type !== 'treatment') {
@@ -149,8 +142,6 @@ export async function generateLookBookData(
           creativeStatement = text.slice(0, 600);
         }
       }
-
-      // Fallback: if no is_current versions found, use the latest_version_id versions
       if (!synopsis && !creativeStatement) {
         const { data: fallbackVersions } = await supabase
           .from('project_document_versions')
@@ -169,86 +160,40 @@ export async function generateLookBookData(
     }
   }
 
-  // 4. Load canonical images for Look Book roles — including lookbook-specific strategy keys
-  const lookbookRoles = DOCUMENT_IMAGE_MAP.lookbook || [];
-  let canonicalImages: ProjectImage[] = [];
-  try {
-    const { data: imgs } = await (supabase as any)
-      .from('project_images')
-      .select('*')
-      .eq('project_id', projectId)
-      .eq('is_active', true)
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: false });
-    if (imgs?.length) {
-      // Hydrate signed URLs
-      await Promise.all((imgs as ProjectImage[]).map(async (img) => {
-        try {
-          const { data: signed } = await supabase.storage
-            .from(img.storage_bucket || 'project-posters')
-            .createSignedUrl(img.storage_path, 3600);
-          img.signedUrl = signed?.signedUrl || undefined;
-        } catch { /* skip */ }
-      }));
-      canonicalImages = imgs;
-    }
-  } catch { /* table may not exist yet */ }
+  // 4. Resolve canonical images per section — SAME logic as workspace
+  const canonImages = await resolveAllCanonImages(projectId);
 
-  // Fallback: if no canonical images, try legacy poster table
-  let coverImageUrl = canonicalImages.find(i => i.role === 'poster_primary' || i.role === 'lookbook_cover')?.signedUrl || '';
-  if (!coverImageUrl) {
-    try {
-      const { data: activePoster } = await (supabase as any)
-        .from('project_posters')
-        .select('key_art_storage_path')
-        .eq('project_id', projectId)
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle();
-      if (activePoster?.key_art_storage_path) {
-        const { data: signed } = await supabase.storage
-          .from('project-posters')
-          .createSignedUrl(activePoster.key_art_storage_path, 3600);
-        if (signed?.signedUrl) coverImageUrl = signed.signedUrl;
-      }
-    } catch { /* poster table may not exist yet */ }
+  // Extract key URLs from resolved canon images
+  const coverImageUrl =
+    canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
+    canonImages.poster_directions.images[0]?.signedUrl ||
+    '';
+
+  const worldImages = canonImages.world_locations.images;
+  const worldImageUrl = worldImages[0]?.signedUrl || '';
+
+  const atmosphereImages = canonImages.atmosphere_lighting.images;
+  const textureImages = canonImages.texture_detail.images;
+  const motifImages = canonImages.symbolic_motifs.images;
+
+  // Build character image map from resolved canon
+  const charImages = canonImages.character_identity.images;
+  const characterImageMap = new Map<string, string>();
+  for (const img of charImages) {
+    if (img.entity_id && img.signedUrl && !characterImageMap.has(img.entity_id)) {
+      characterImageMap.set(img.entity_id, img.signedUrl);
+    }
   }
 
-  // Resolve world images — prefer lookbook-specific, fallback to any world_establishing
-  const worldImageUrl =
-    canonicalImages.find(i => i.strategy_key === 'lookbook_world' && i.is_primary)?.signedUrl ||
-    canonicalImages.find(i => i.strategy_key === 'lookbook_world')?.signedUrl ||
-    canonicalImages.find(i => i.role === 'world_establishing')?.signedUrl ||
-    '';
+  // Also try matching by subject (character name)
+  const characterNameImageMap = new Map<string, string>();
+  for (const img of charImages) {
+    if (img.subject && img.signedUrl && !characterNameImageMap.has(img.subject.toLowerCase())) {
+      characterNameImageMap.set(img.subject.toLowerCase(), img.signedUrl);
+    }
+  }
 
-  // Resolve key moment image
-  const keyMomentImageUrl =
-    canonicalImages.find(i => i.strategy_key === 'lookbook_key_moment' && i.is_primary)?.signedUrl ||
-    canonicalImages.find(i => i.strategy_key === 'lookbook_key_moment')?.signedUrl ||
-    '';
-
-  // Resolve visual language image
-  const visualLanguageImageUrl =
-    canonicalImages.find(i => i.strategy_key === 'lookbook_visual_language' && i.is_primary)?.signedUrl ||
-    canonicalImages.find(i => i.strategy_key === 'lookbook_visual_language')?.signedUrl ||
-    '';
-
-  // Resolve character images
-  const characterImageMap = new Map<string, string>();
-  // First try lookbook-specific character images
-  canonicalImages
-    .filter(i => i.strategy_key === 'lookbook_character' && i.signedUrl)
-    .forEach(i => {
-      if (i.entity_id && !characterImageMap.has(i.entity_id)) characterImageMap.set(i.entity_id, i.signedUrl!);
-    });
-  // Then fallback to any character_primary
-  canonicalImages
-    .filter(i => i.role === 'character_primary' && i.entity_id && i.signedUrl)
-    .forEach(i => {
-      if (!characterImageMap.has(i.entity_id!)) characterImageMap.set(i.entity_id!, i.signedUrl!);
-    });
-
-  // 5. Build identity + resolve style policy
+  // 5. Build identity
   const identity = resolveIdentity(canon, genre);
   const stylePolicy = resolveImageStylePolicy({
     format: (project as any).format,
@@ -260,7 +205,7 @@ export async function generateLookBookData(
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
 
-  // 6. Build slides from canonical content
+  // 6. Build slides
   const slides: SlideContent[] = [];
 
   // COVER
@@ -272,16 +217,15 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
+    _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
   });
 
-  // OVERVIEW — use canonical premise over raw synopsis
-  const overviewBody = logline;
-  const overviewDetail = (canon.premise as string) || synopsis.slice(0, 500);
+  // OVERVIEW
   slides.push({
     type: 'overview',
     title: 'Project Overview',
-    body: overviewBody,
-    bodySecondary: overviewDetail || undefined,
+    body: logline,
+    bodySecondary: (canon.premise as string) || synopsis.slice(0, 500) || undefined,
     bullets: [
       genre ? `Genre: ${genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
@@ -290,7 +234,7 @@ export async function generateLookBookData(
   });
 
   // WORLD & SETTING
-  if (canon.world_rules || canon.locations || canon.timeline) {
+  if (canon.world_rules || canon.locations || canon.timeline || worldImages.length > 0) {
     slides.push({
       type: 'world',
       title: 'The World',
@@ -298,20 +242,30 @@ export async function generateLookBookData(
       bodySecondary: (canon.locations as string) || undefined,
       quote: (canon.timeline as string) || undefined,
       imageUrl: worldImageUrl || undefined,
+      imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.world_locations.imageIds,
     });
   }
 
-  // CHARACTERS — from canonical state
+  // CHARACTERS
   const chars = canon.characters;
   if (Array.isArray(chars) && chars.length > 0) {
     slides.push({
       type: 'characters',
       title: 'Characters',
-      characters: chars.slice(0, 5).map((c: any) => ({
-        name: c.name || 'Unnamed',
-        role: c.role || '',
-        description: c.goals || c.traits || c.description || '',
-      })),
+      characters: chars.slice(0, 5).map((c: any) => {
+        const charImgUrl =
+          (c.id && characterImageMap.get(c.id)) ||
+          (c.name && characterNameImageMap.get(c.name?.toLowerCase())) ||
+          '';
+        return {
+          name: c.name || 'Unnamed',
+          role: c.role || '',
+          description: c.goals || c.traits || c.description || '',
+          imageUrl: charImgUrl || undefined,
+        };
+      }),
+      _debug_image_ids: canonImages.character_identity.imageIds,
     });
   }
 
@@ -326,23 +280,26 @@ export async function generateLookBookData(
     });
   }
 
-  // VISUAL LANGUAGE
+  // VISUAL LANGUAGE — with actual images from atmosphere + texture sections
+  const visualImages = [...atmosphereImages, ...textureImages];
   const visualApproach = stylePolicy.mode === 'photorealistic_cinematic'
-    ? 'Grounded in theatrical realism — every frame should feel like a still from a major motion picture. Real textures, believable lighting, cinematic depth of field.'
-    : `A deliberately stylised visual approach, drawing on ${stylePolicy.mode.replace(/_/g, ' ')} traditions to serve the project's creative vision.`;
+    ? 'Grounded in theatrical realism — every frame should feel like a still from a major motion picture.'
+    : `A deliberately stylised visual approach, drawing on ${stylePolicy.mode.replace(/_/g, ' ')} traditions.`;
   slides.push({
     type: 'visual_language',
     title: 'Visual Language',
     body: visualApproach,
-    imageUrl: visualLanguageImageUrl || undefined,
+    imageUrl: visualImages[0]?.signedUrl || undefined,
+    imageUrls: visualImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
     bullets: [
       `${identity.imageStyle.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase())} palette`,
       identity.typography.titleUppercase ? 'Bold, graphic title treatment' : 'Elegant, refined typography',
       'Consistent visual identity across all presentation materials',
     ],
+    _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
   });
 
-  // STORY ENGINE (series)
+  // STORY ENGINE
   const format = ((project as any).format || '').toLowerCase();
   if (format.includes('series') || format.includes('vertical') || format.includes('limited')) {
     slides.push({
@@ -354,6 +311,8 @@ export async function generateLookBookData(
         'Character arcs span the full season',
         'Escalating stakes across the narrative',
       ],
+      imageUrl: motifImages[0]?.signedUrl || undefined,
+      _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 1),
     });
   }
 
@@ -387,7 +346,12 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
   });
 
-  console.log('[LookBook] ✓ generation complete — slides:', slides.length, slides.map(s => s.type));
+  // Debug provenance summary
+  const provenanceSummary = slides
+    .filter(s => s._debug_image_ids?.length)
+    .map(s => `${s.type}: ${s._debug_image_ids!.length} images`)
+    .join(', ');
+  console.log('[LookBook] ✓ generation complete — slides:', slides.length, '| images:', provenanceSummary);
 
   return {
     projectId,
