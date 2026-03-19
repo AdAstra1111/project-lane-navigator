@@ -310,9 +310,9 @@ export default function ProjectDetail() {
 
   const { data: activePoster } = useActiveProjectPoster(id);
 
-  // Accordion state — only "state" open by default
+  // Accordion state — all collapsed by default
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    state: true,
+    state: false,
     development: false,
     visual: false,
     diagnostics: false,
