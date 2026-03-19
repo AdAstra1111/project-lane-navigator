@@ -323,6 +323,10 @@ serve(async (req) => {
       state_prompt_modifier = null,
       // Character Identity System
       identity_mode = false,
+      // Identity Lock — anchor references for locked generation
+      identity_anchor_paths = null,
+      identity_notes = null,
+      identity_canon_facts = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -339,6 +343,9 @@ serve(async (req) => {
       state_label?: string | null;
       state_prompt_modifier?: string | null;
       identity_mode?: boolean;
+      identity_anchor_paths?: { headshot?: string; fullBody?: string } | null;
+      identity_notes?: string | null;
+      identity_canon_facts?: string | null;
     };
 
     if (!project_id || !section) {
