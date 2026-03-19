@@ -8,6 +8,7 @@ import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
 import { resolveImageStylePolicy } from '@/lib/images/stylePolicy';
 import { resolveAllCanonImages } from './resolveCanonImages';
+import { normalizeCanonText } from './normalizeCanonText';
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -68,7 +69,7 @@ function resolveColorPalette(tone?: string, genre?: string): LookBookColorSystem
 }
 
 function resolveIdentity(canonState: Record<string, unknown>, genre?: string): LookBookVisualIdentity {
-  const tone = (canonState.tone_style as string) || '';
+  const tone = normalizeCanonText(canonState.tone_style, 'tone_style');
   const colors = resolveColorPalette(tone, genre);
   const t = tone.toLowerCase();
   return {
@@ -102,9 +103,9 @@ function buildVisualLanguageCopy(
   tone: string,
   imageStyle: string,
 ): { body: string; bullets: string[] } {
-  const period = (canon.world_rules as string || '').match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
-  const worldRules = (canon.world_rules as string) || '';
-  const toneStyle = (canon.tone_style as string) || tone || '';
+  const period = normalizeCanonText(canon.world_rules, 'world_rules').match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
+  const worldRules = normalizeCanonText(canon.world_rules, 'world_rules');
+  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
 
   // Build a project-specific visual thesis
   const fragments: string[] = [];
@@ -148,8 +149,8 @@ function buildStoryEngineCopy(
   genre: string,
   logline: string,
 ): { body: string; bodySecondary: string; bullets: string[] } {
-  const formatConstraints = (canon.format_constraints as string) || '';
-  const toneStyle = (canon.tone_style as string) || '';
+  const formatConstraints = normalizeCanonText(canon.format_constraints, 'format_constraints');
+  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style');
   const isSeries = format.includes('series') || format.includes('vertical') || format.includes('limited');
 
   let body: string;
@@ -190,9 +191,9 @@ function buildThemesCopy(
   genre: string,
   tone: string,
 ): { body: string; bodySecondary: string } {
-  const toneStyle = (canon.tone_style as string) || tone || '';
-  const worldRules = (canon.world_rules as string) || '';
-  const logline = (canon.logline as string) || '';
+  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
+  const worldRules = normalizeCanonText(canon.world_rules, 'world_rules');
+  const logline = normalizeCanonText(canon.logline, 'logline');
 
   let body = toneStyle;
   if (typeof toneStyle === 'string' && toneStyle.length < 60) {
@@ -315,7 +316,7 @@ export async function generateLookBookData(
     genres: (project as any).genres || [],
     tone,
   });
-  const logline = (canon.logline as string) || '';
+  const logline = normalizeCanonText(canon.logline, 'logline');
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
@@ -336,9 +337,9 @@ export async function generateLookBookData(
   });
 
   // ── OVERVIEW ──
-  const overviewBody = logline || (canon.premise as string) || synopsis.slice(0, 300);
-  const overviewSecondary = logline && ((canon.premise as string) || synopsis.slice(0, 500))
-    ? ((canon.premise as string) || synopsis.slice(0, 500))
+  const overviewBody = logline || normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 300);
+  const overviewSecondary = logline && (normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 500))
+    ? (normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 500))
     : undefined;
   slides.push({
     type: 'overview',
@@ -348,7 +349,7 @@ export async function generateLookBookData(
     bullets: [
       genre ? `Genre: ${genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
-      (canon.tone_style as string) ? `Tone: ${canon.tone_style}` : '',
+      normalizeCanonText(canon.tone_style, 'tone_style') ? `Tone: ${normalizeCanonText(canon.tone_style)}` : '',
       (project as any).target_audience ? `Audience: ${(project as any).target_audience}` : '',
       (project as any).assigned_lane ? `Lane: ${(project as any).assigned_lane}` : '',
     ].filter(Boolean),
@@ -359,9 +360,9 @@ export async function generateLookBookData(
     slides.push({
       type: 'world',
       title: 'The World',
-      body: (canon.world_rules as string) || undefined,
-      bodySecondary: (canon.locations as string) || undefined,
-      quote: (canon.timeline as string) || undefined,
+      body: normalizeCanonText(canon.world_rules, 'world_rules') || undefined,
+      bodySecondary: normalizeCanonText(canon.locations, 'locations') || undefined,
+      quote: normalizeCanonText(canon.timeline, 'timeline') || undefined,
       imageUrl: worldImageUrl || undefined,
       imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.world_locations.imageIds,
@@ -394,7 +395,7 @@ export async function generateLookBookData(
   }
 
   // ── THEMES ──
-  const themesRaw = (canon.tone_style as string) || tone || '';
+  const themesRaw = normalizeCanonText(canon.tone_style, 'tone_style') || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(canon, genre, tone);
     slides.push({
