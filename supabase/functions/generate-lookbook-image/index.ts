@@ -65,6 +65,9 @@ interface SectionContext {
   logline: string;
   stylePolicy: ImageStylePolicy;
   characterName?: string;
+  /** Location-specific generation */
+  locationName?: string;
+  locationDescription?: string;
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
@@ -96,7 +99,11 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
         : ctx.characters || "The protagonist — a compelling screen presence with emotional depth.";
       break;
     case "world":
-      subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
+      if (ctx.locationName) {
+        subjectDescription = `Location: "${ctx.locationName}". ${ctx.locationDescription || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+      } else {
+        subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
+      }
       break;
     case "key_moment":
       subjectDescription = ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.";
@@ -244,6 +251,8 @@ serve(async (req) => {
       project_id, section, count = 4, entity_id, character_name,
       asset_group: requestedAssetGroup, pack_mode = false,
       base_look_mode = false,
+      location_name, location_description,
+      location_ref_mode = false,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -253,6 +262,9 @@ serve(async (req) => {
       asset_group?: AssetGroup;
       pack_mode?: boolean;
       base_look_mode?: boolean;
+      location_name?: string;
+      location_description?: string;
+      location_ref_mode?: boolean;
     };
 
     if (!project_id || !section) {
@@ -316,15 +328,21 @@ serve(async (req) => {
       logline,
       stylePolicy,
       characterName: character_name,
+      locationName: location_name,
+      locationDescription: location_description,
     };
 
     // Determine shots to generate
     // base_look_mode guarantees: 2 headshots + 2 full_body + 1 medium
     const BASE_LOOK_PACK: ShotType[] = ["close_up", "profile", "full_body", "full_body", "medium"];
+    // location_ref_mode: wide establishing + atmospheric + detail + time_variant
+    const LOCATION_REF_PACK: ShotType[] = ["wide", "atmospheric", "detail", "time_variant"];
     const shotPack = base_look_mode && assetGroup === "character"
       ? BASE_LOOK_PACK
-      : (SHOT_PACKS[assetGroup] || []);
-    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode
+      : location_ref_mode && assetGroup === "world"
+        ? LOCATION_REF_PACK
+        : (SHOT_PACKS[assetGroup] || []);
+    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode || location_ref_mode
       ? shotPack.slice(0, Math.min(count, shotPack.length))
       : [];
 
@@ -384,16 +402,20 @@ serve(async (req) => {
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,
-            subject: character_name || null,
+            subject: character_name || location_name || null,
             shot_type: shotType,
             curation_state: "candidate",
             subject_type: assetGroup === "character" ? "character"
-              : assetGroup === "world" ? "location"
+              : (assetGroup === "world" && location_name) ? "location"
+              : assetGroup === "world" ? "world"
               : assetGroup === "key_moment" ? "moment"
               : assetGroup === "visual_language" ? "production_design"
               : null,
-            subject_ref: character_name || section || null,
-            generation_purpose: base_look_mode ? "character_reference" : `lookbook_${section}`,
+            subject_ref: character_name || location_name || null,
+            location_ref: location_name || null,
+            generation_purpose: base_look_mode ? "character_reference"
+              : location_ref_mode ? "location_reference"
+              : `lookbook_${section}`,
           })
           .select("id")
           .single();
