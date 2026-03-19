@@ -215,7 +215,3 @@ export default function LookBookPage() {
   );
 }
 
-// Re-export cn for the template
-function cn(...inputs: (string | undefined | null | false)[]): string {
-  return inputs.filter(Boolean).join(' ');
-}
