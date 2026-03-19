@@ -651,10 +651,10 @@ function CharacterTraitDisplay({
             </div>
           )}
           <div className="flex flex-wrap gap-1.5 text-[7px] text-muted-foreground pt-0.5">
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.script)}>SCRIPT</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.narrative)}>NARRATIVE</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.inferred)}>INFERRED</span>
-            <span className={cn('px-1 rounded border', SOURCE_COLORS.user)}>USER</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.script)}>SCRIPT (locked)</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.narrative)}>NARRATIVE (visible markers)</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.inferred)}>INFERRED (flexible)</span>
+            <span className={cn('px-1 rounded border', SOURCE_COLORS.user)}>USER (your notes)</span>
           </div>
         </div>
       )}
