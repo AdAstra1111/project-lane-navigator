@@ -597,6 +597,8 @@ function CharacterIdentitySection({
   const [localNotes, setLocalNotes] = useState('');
   const [localCanonCheck, setLocalCanonCheck] = useState<{ status: string; messages: string[] }>({ status: 'unchecked', messages: [] });
   const [bootstrappingSingle, setBootstrappingSingle] = useState(false);
+  const [startingFresh, setStartingFresh] = useState(false);
+  const [downloadingPack, setDownloadingPack] = useState(false);
   const qc = useQueryClient();
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const { notes: savedNotes, canonCheckStatus, canonCheckMessages, isSaving, save: saveNotes } = useCharacterIdentityNotes(projectId, character.name);
@@ -613,6 +615,16 @@ function CharacterIdentitySection({
   const primaryHeadshot = identityImages.find(i => i.is_primary && i.shot_type === 'identity_headshot');
   const primaryProfile = identityImages.find(i => i.is_primary && i.shot_type === 'identity_profile');
   const primaryFullBody = identityImages.find(i => i.is_primary && i.shot_type === 'identity_full_body');
+
+  // Slot status summary
+  const slotStatus = useMemo(() => {
+    const slots = [
+      { label: 'Headshot', primary: primaryHeadshot, candidates: headshots.length },
+      { label: 'Profile', primary: primaryProfile, candidates: profiles.length },
+      { label: 'Full Body', primary: primaryFullBody, candidates: fullBodies.length },
+    ];
+    return slots;
+  }, [primaryHeadshot, primaryProfile, primaryFullBody, headshots.length, profiles.length, fullBodies.length]);
 
   const runCanonCheck = useCallback(() => {
     const result = checkIdentityNotesAgainstCanon(localNotes, canonCharacter as any, canonJson);
@@ -756,6 +768,169 @@ function CharacterIdentitySection({
     }
   }, [projectId, character.name, generating, qc, identityLocked, primaryHeadshot, primaryFullBody, localNotes, canonFactsString, localCanonCheck.status, traitsPromptBlock, identitySignatureBlock]);
 
+  // ── Start Fresh Identity: archive all identity images, clear primaries, regenerate ──
+  const handleStartFresh = useCallback(async (andGenerate: boolean) => {
+    if (startingFresh || generating) return;
+    setStartingFresh(true);
+    try {
+      // Step 1: Archive all existing identity images for this character
+      const identityIds = identityImages.map(i => i.id);
+      if (identityIds.length > 0) {
+        await (supabase as any)
+          .from('project_images')
+          .update({
+            curation_state: 'archived',
+            is_active: false,
+            is_primary: false,
+            archived_from_active_at: new Date().toISOString(),
+          })
+          .eq('project_id', projectId)
+          .eq('asset_group', 'character')
+          .eq('subject', character.name)
+          .in('shot_type', ['identity_headshot', 'identity_profile', 'identity_full_body']);
+      }
+
+      qc.invalidateQueries({ queryKey: ['project-images', projectId] });
+      qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
+      toast.success(`Archived ${identityIds.length} identity images for ${character.name}`);
+
+      // Step 2: Generate fresh pack if requested (no stale anchors — fresh_identity_mode)
+      if (andGenerate) {
+        const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
+          body: {
+            project_id: projectId,
+            section: 'character',
+            count: 3,
+            character_name: character.name,
+            asset_group: 'character',
+            pack_mode: true,
+            identity_mode: true,
+            fresh_identity_mode: true, // Explicitly exclude stale anchors
+            identity_anchor_paths: null, // No reuse of old anchors
+            identity_notes: localNotes.trim() || null,
+            identity_canon_facts: canonFactsString || null,
+            identity_traits_block: traitsPromptBlock || null,
+            identity_signature_block: identitySignatureBlock || null,
+          },
+        });
+        if (error) throw error;
+        const results = data?.results || [];
+        const successCount = results.filter((r: any) => r.status === 'ready').length;
+        if (successCount > 0) {
+          toast.success(`Generated ${successCount} fresh identity images for ${character.name}`);
+        }
+        qc.invalidateQueries({ queryKey: ['project-images', projectId] });
+        qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
+      }
+    } catch (e: any) {
+      toast.error(`Start fresh failed: ${e.message}`);
+    } finally {
+      setStartingFresh(false);
+    }
+  }, [startingFresh, generating, identityImages, projectId, character.name, qc, localNotes, canonFactsString, traitsPromptBlock, identitySignatureBlock]);
+
+  // ── Download identity pack (current primaries or all active identity images) ──
+  const handleDownloadIdentityPack = useCallback(async () => {
+    const downloadTargets = [primaryHeadshot, primaryProfile, primaryFullBody].filter(Boolean) as ProjectImage[];
+    if (downloadTargets.length === 0) {
+      toast.info('No primary identity images to download');
+      return;
+    }
+    setDownloadingPack(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const folder = zip.folder(`${character.name.replace(/\s+/g, '_')}_identity`)!;
+
+      for (const img of downloadTargets) {
+        const url = img.signedUrl;
+        if (!url) continue;
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const blob = await resp.blob();
+          const ext = blob.type.includes('png') ? 'png' : 'jpg';
+          folder.file(`${img.shot_type || 'image'}.${ext}`, blob);
+        } catch {
+          console.warn(`Failed to fetch identity image ${img.id}`);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `${character.name.replace(/\s+/g, '_')}_identity_pack.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Downloaded ${downloadTargets.length} identity images`);
+    } catch (e: any) {
+      toast.error('Download failed: ' + (e.message || 'Unknown error'));
+    } finally {
+      setDownloadingPack(false);
+    }
+  }, [primaryHeadshot, primaryProfile, primaryFullBody, character.name]);
+
+  // ── Auto-fill Best Matches: pick one best primary per identity slot from existing candidates ──
+  const handleAutoFillBest = useCallback(async () => {
+    const IDENTITY_SLOTS = ['identity_headshot', 'identity_profile', 'identity_full_body'] as const;
+    let selected = 0;
+
+    for (const slotType of IDENTITY_SLOTS) {
+      const slotImages = identityImages.filter(i => i.shot_type === slotType);
+      if (slotImages.length === 0) continue;
+
+      // Already has a primary — skip
+      const existingPrimary = slotImages.find(i => i.is_primary);
+      if (existingPrimary) continue;
+
+      // Rank: prefer active > candidate, then newest
+      const ranked = [...slotImages].sort((a, b) => {
+        const stateOrder = (s: string) => s === 'active' ? 0 : s === 'candidate' ? 1 : 2;
+        const diff = stateOrder(a.curation_state) - stateOrder(b.curation_state);
+        if (diff !== 0) return diff;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+
+      const best = ranked[0];
+      if (!best) continue;
+
+      // Clear any existing primaries in this slot
+      await (supabase as any)
+        .from('project_images')
+        .update({ is_primary: false })
+        .eq('project_id', projectId)
+        .eq('asset_group', 'character')
+        .eq('subject', character.name)
+        .eq('shot_type', slotType)
+        .eq('is_primary', true);
+
+      // Set the best as primary + active, demote others to candidate
+      await (supabase as any)
+        .from('project_images')
+        .update({ is_primary: true, curation_state: 'active', is_active: true })
+        .eq('id', best.id);
+
+      // Demote non-primary to candidate
+      const othersInSlot = slotImages.filter(i => i.id !== best.id);
+      for (const other of othersInSlot) {
+        await (supabase as any)
+          .from('project_images')
+          .update({ is_primary: false, curation_state: 'candidate', is_active: false })
+          .eq('id', other.id);
+      }
+
+      selected++;
+    }
+
+    if (selected > 0) {
+      qc.invalidateQueries({ queryKey: ['project-images', projectId] });
+      qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
+      toast.success(`Auto-selected best match for ${selected} identity slot${selected !== 1 ? 's' : ''}`);
+    } else {
+      toast.info('All identity slots already have primaries or no candidates available');
+    }
+  }, [identityImages, projectId, character.name, qc]);
+
   const generateButtonLabel = identityImages.length === 0
     ? 'Generate Identity Pack (headshot + profile + full body)'
     : identityLocked
@@ -763,7 +938,7 @@ function CharacterIdentitySection({
       : 'Generate More Identity Candidates';
 
   const isContradiction = localCanonCheck.status === 'contradiction';
-  const generateDisabled = generating || (identityLocked && isContradiction);
+  const generateDisabled = generating || startingFresh || (identityLocked && isContradiction);
 
   return (
     <div className="mb-4">
@@ -788,6 +963,23 @@ function CharacterIdentitySection({
         hasHeadshot={!!primaryHeadshot}
         hasFullBody={!!primaryFullBody}
       />
+
+      {/* Identity Slot Status — strict 1/1 per slot */}
+      {identityImages.length > 0 && (
+        <div className="mb-2 grid grid-cols-3 gap-1.5">
+          {slotStatus.map(s => (
+            <div key={s.label} className="rounded-md bg-muted/30 px-2 py-1.5 text-center">
+              <p className="text-[8px] text-muted-foreground uppercase tracking-wider">{s.label}</p>
+              <p className={cn('text-[10px] font-semibold', s.primary ? 'text-emerald-600' : 'text-amber-600')}>
+                {s.primary ? '1/1 Primary' : `0/1 Primary`}
+              </p>
+              {s.candidates > (s.primary ? 1 : 0) && (
+                <p className="text-[8px] text-muted-foreground">{s.candidates - (s.primary ? 1 : 0)} candidates</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* DNA Bootstrap CTA for this character */}
       {identityLocked && dnaStatus === 'none' && (
@@ -907,20 +1099,79 @@ function CharacterIdentitySection({
         </div>
       )}
 
-      {/* Generation Button */}
-      <Button
-        size="sm"
-        variant="outline"
-        className="gap-1.5 text-xs h-7 w-full"
-        onClick={generateIdentity}
-        disabled={generateDisabled}
-      >
-        {generating ? (
-          <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
-        ) : (
-          <><Plus className="h-3 w-3" /> {generateButtonLabel}</>
+      {/* ── Identity Action Bar ── */}
+      <div className="space-y-1.5">
+        {/* Row 1: Generate + Auto-fill */}
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-xs h-7 flex-1"
+            onClick={generateIdentity}
+            disabled={generateDisabled}
+          >
+            {generating ? (
+              <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
+            ) : (
+              <><Plus className="h-3 w-3" /> {generateButtonLabel}</>
+            )}
+          </Button>
+
+          {identityImages.length > 0 && !identityLocked && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-[10px] h-7"
+              onClick={handleAutoFillBest}
+              title="Select the best candidate as primary for each unfilled identity slot"
+            >
+              <Wand2 className="h-2.5 w-2.5" />
+              Auto-fill Best
+            </Button>
+          )}
+        </div>
+
+        {/* Row 2: Start Fresh + Download */}
+        {identityImages.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-[10px] h-7 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+              onClick={() => handleStartFresh(false)}
+              disabled={startingFresh || generating}
+              title="Archive all existing identity images and clear slot bindings"
+            >
+              {startingFresh ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RefreshCw className="h-2.5 w-2.5" />}
+              Start Fresh
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 text-[10px] h-7 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+              onClick={() => handleStartFresh(true)}
+              disabled={startingFresh || generating}
+              title="Archive old identity images and generate a fresh pack from current canon/DNA"
+            >
+              {startingFresh ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <><RefreshCw className="h-2.5 w-2.5" /><Plus className="h-2 w-2" /></>}
+              Start Fresh + Generate
+            </Button>
+            {(primaryHeadshot || primaryProfile || primaryFullBody) && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1 text-[10px] h-7"
+                onClick={handleDownloadIdentityPack}
+                disabled={downloadingPack}
+                title="Download current primary identity images as a zip pack"
+              >
+                {downloadingPack ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Download className="h-2.5 w-2.5" />}
+                Download Pack
+              </Button>
+            )}
+          </div>
         )}
-      </Button>
+      </div>
 
       {identityImages.length > 0 && <GenerationLockBadge identityLocked={identityLocked} />}
     </div>
