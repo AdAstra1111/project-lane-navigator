@@ -415,6 +415,132 @@ export default function PosterEnginePanel() {
             )}
           </CollapsibleContent>
         </Collapsible>
+
+        {/* Title Typography Controls */}
+        <Collapsible open={showTitleStyle} onOpenChange={setShowTitleStyle}>
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full justify-between px-4 py-2.5 bg-card/50 rounded-lg border border-border/30 hover:border-border/60">
+              <div className="flex items-center gap-2">
+                <PenLine className="w-3.5 h-3.5" />
+                <span className="font-medium text-foreground">Title Typography</span>
+                <span className="text-muted-foreground">
+                  — {TITLE_TYPOGRAPHY_MODES[titleStyle.typographyMode || "classic_theatrical_serif"]?.label || "Template Default"}
+                </span>
+              </div>
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", showTitleStyle && "rotate-180")} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 px-4 py-3 bg-card/50 rounded-lg border border-border/30 space-y-3">
+              {/* Typography Mode */}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs w-20 shrink-0 text-muted-foreground">Style</Label>
+                <Select
+                  value={titleStyle.typographyMode || ""}
+                  onValueChange={(v) => setTitleStyle(prev => ({ ...prev, typographyMode: (v || undefined) as TitleTypographyMode | undefined }))}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1">
+                    <SelectValue placeholder="Template default" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(TITLE_TYPOGRAPHY_MODES).map(([key, info]) => (
+                      <SelectItem key={key} value={key} className="text-xs">
+                        {info.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Case */}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs w-20 shrink-0 text-muted-foreground">Case</Label>
+                <Select
+                  value={titleStyle.caseMode || ""}
+                  onValueChange={(v) => setTitleStyle(prev => ({ ...prev, caseMode: (v || undefined) as TitleCaseMode | undefined }))}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1">
+                    <SelectValue placeholder="Mode default" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(TITLE_CASE_OPTIONS).map(([key, label]) => (
+                      <SelectItem key={key} value={key} className="text-xs">
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Position */}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs w-20 shrink-0 text-muted-foreground">Position</Label>
+                <Select
+                  value={titleStyle.positionMode || ""}
+                  onValueChange={(v) => setTitleStyle(prev => ({ ...prev, positionMode: (v || undefined) as TitlePositionMode | undefined }))}
+                >
+                  <SelectTrigger className="h-7 text-xs flex-1">
+                    <SelectValue placeholder="Center (default)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(TITLE_POSITION_OPTIONS).map(([key, label]) => (
+                      <SelectItem key={key} value={key} className="text-xs">
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Color */}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs w-20 shrink-0 text-muted-foreground">Color</Label>
+                <div className="flex items-center gap-2 flex-1">
+                  {["#F0EBE1", "#E5DFD3", "#D4B878", "#F5F2ED", "#B8A06A"].map(hex => (
+                    <button
+                      key={hex}
+                      onClick={() => setTitleStyle(prev => ({ ...prev, colorHex: prev.colorHex === hex ? undefined : hex }))}
+                      className={cn(
+                        "w-6 h-6 rounded-full border-2 transition-all",
+                        titleStyle.colorHex === hex ? "border-primary scale-110" : "border-border/40 hover:border-border"
+                      )}
+                      style={{ backgroundColor: hex }}
+                      title={hex}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Depth toggle */}
+              <div className="flex items-center gap-3">
+                <Label className="text-xs w-20 shrink-0 text-muted-foreground">Depth</Label>
+                <button
+                  onClick={() => setTitleStyle(prev => ({ ...prev, enableDepth: !prev.enableDepth }))}
+                  className={cn(
+                    "text-xs px-3 py-1 rounded border transition-colors",
+                    titleStyle.enableDepth
+                      ? "bg-primary/10 border-primary/30 text-primary"
+                      : "bg-card border-border/30 text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {titleStyle.enableDepth ? "Emboss On" : "Emboss Off"}
+                </button>
+              </div>
+
+              {/* Reset */}
+              <div className="pt-1 border-t border-border/20">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-[10px] h-6 text-muted-foreground"
+                  onClick={() => setTitleStyle({})}
+                >
+                  Reset to template defaults
+                </Button>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
       {/* Generating state */}
