@@ -11,7 +11,7 @@
 // ── Types ──
 
 export type TraitCategory = 'age' | 'gender' | 'build' | 'face' | 'hair' | 'skin' | 'clothing' | 'posture' | 'marker' | 'other';
-export type TraitSource = 'script' | 'inferred' | 'narrative' | 'user';
+export type TraitSource = 'script' | 'inferred' | 'narrative' | 'user' | 'evidence';
 export type TraitConfidence = 'high' | 'medium' | 'low';
 export type TraitConstraint = 'locked' | 'protected' | 'flexible' | 'user';
 
