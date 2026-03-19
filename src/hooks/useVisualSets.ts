@@ -237,6 +237,8 @@ export function useVisualSets(projectId: string | undefined) {
           status: 'draft',
           required_slot_count: requiredCount,
           current_dna_version_id: params.dnaVersionId || null,
+          entity_state_id: params.entityStateId || null,
+          entity_state_key: params.entityStateKey || null,
         })
         .select()
         .single();
