@@ -753,7 +753,7 @@ serve(async (req) => {
             prompt_inputs: { ...inputs, strategy_key: strategy.key, strategy_label: strategy.label, world_lock: inputs.worldLock },
             provider: genConfig.provider,
             model: genConfig.model,
-            render_status: "composed_final",
+            render_status: "key_art_only",
             is_active: false,
           })
           .select()
