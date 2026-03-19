@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
-  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3,
+  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3, BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPan
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
 import { VisualSetCurationPanel } from '@/components/images/VisualSetCurationPanel';
+import { StoryIngestionPanel } from '@/components/project/StoryIngestionPanel';
 import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
