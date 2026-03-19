@@ -214,7 +214,7 @@ function FormatContent({ canon, project }: { canon: any; project: any }) {
       {hasConstraints && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Format Constraints</h4>
-          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{canon.format_constraints}</p>
+          <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{hasConstraints}</p>
         </div>
       )}
       {hasForbidden && (
