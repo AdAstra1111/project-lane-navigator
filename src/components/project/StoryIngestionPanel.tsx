@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Loader2, Zap, CheckCircle2, AlertTriangle, BookOpen, Shield, FileText,
   ChevronDown, ChevronRight, Eye, ThumbsUp, ThumbsDown, AlertCircle, Info,
+  Users, MapPin, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -15,6 +16,7 @@ import {
   ParseQuality,
   SourceResolution,
   RunDiff,
+  ParticipationSummary,
 } from '@/hooks/useStoryIngestion';
 
 interface StoryIngestionPanelProps {
@@ -125,31 +127,160 @@ function DiffSummaryBlock({ diff }: { diff: RunDiff }) {
 
 function ReviewRequiredBlock({
   reviewRequired,
+  autoResolved,
   onOpenReview,
 }: {
   reviewRequired: { entities: number; aliases: number; transitions: number; participation: number };
+  autoResolved?: { participation: number };
   onOpenReview: () => void;
 }) {
-  const total = Object.values(reviewRequired).reduce((a, b) => a + b, 0);
-  if (total === 0) return null;
+  // Canon decisions = entities + aliases + transitions (high-value)
+  const decisionCount = reviewRequired.entities + reviewRequired.aliases + reviewRequired.transitions;
+  const pendingParticipation = reviewRequired.participation;
+  const autoResolvedParticipation = autoResolved?.participation || 0;
+  const totalReviewable = decisionCount + pendingParticipation;
+
+  if (totalReviewable === 0 && autoResolvedParticipation === 0) return null;
 
   return (
-    <div className="rounded-md border border-yellow-200 dark:border-yellow-800/40 bg-yellow-50/50 dark:bg-yellow-900/10 p-2.5 space-y-1.5">
+    <div className="rounded-md border border-border/40 bg-muted/20 p-2.5 space-y-1.5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-yellow-800 dark:text-yellow-300">
-          <Eye className="h-3.5 w-3.5" />
-          {total} items need review
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
+          <Eye className="h-3.5 w-3.5 text-primary" />
+          {decisionCount > 0
+            ? `${decisionCount} decision${decisionCount !== 1 ? 's' : ''} need review`
+            : 'No canon decisions pending'
+          }
         </div>
-        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={onOpenReview}>
-          Review
-        </Button>
+        {totalReviewable > 0 && (
+          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={onOpenReview}>
+            Review
+          </Button>
+        )}
       </div>
-      <div className="grid grid-cols-2 gap-1 text-[10px] text-yellow-700 dark:text-yellow-400">
-        {reviewRequired.entities > 0 && <span>Entities: {reviewRequired.entities}</span>}
-        {reviewRequired.aliases > 0 && <span>Aliases: {reviewRequired.aliases}</span>}
-        {reviewRequired.transitions > 0 && <span>Transitions: {reviewRequired.transitions}</span>}
-        {reviewRequired.participation > 0 && <span>Participation: {reviewRequired.participation}</span>}
+      <div className="grid grid-cols-1 gap-0.5 text-[10px] text-muted-foreground">
+        {reviewRequired.entities > 0 && (
+          <span className="text-foreground font-medium">
+            🔸 Entities: {reviewRequired.entities}
+          </span>
+        )}
+        {reviewRequired.aliases > 0 && (
+          <span className="text-foreground font-medium">
+            🔸 Aliases: {reviewRequired.aliases}
+          </span>
+        )}
+        {reviewRequired.transitions > 0 && (
+          <span className="text-foreground font-medium">
+            🔸 State Transitions: {reviewRequired.transitions}
+          </span>
+        )}
+        {autoResolvedParticipation > 0 && (
+          <span className="text-muted-foreground">
+            ✓ {autoResolvedParticipation} participation events auto-resolved
+          </span>
+        )}
+        {pendingParticipation > 0 && (
+          <span className="text-yellow-600 dark:text-yellow-400">
+            ⚠ {pendingParticipation} ambiguous participation need review
+          </span>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ── Participation Summary Cards ──
+function ParticipationSummarySection({
+  summaries,
+  onAction,
+}: {
+  summaries: ParticipationSummary[];
+  onAction: (target: string, id: string, action: string) => void;
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+
+  const totalAuto = summaries.reduce((a, s) => a + s.auto_resolved, 0);
+  const totalPending = summaries.reduce((a, s) => a + s.pending, 0);
+  const totalAll = summaries.reduce((a, s) => a + s.total, 0);
+
+  const pendingSummaries = summaries.filter(s => s.pending > 0);
+  const resolvedSummaries = summaries.filter(s => s.pending === 0 && s.total > 0);
+
+  return (
+    <div className="space-y-1.5">
+      {/* Top-level summary */}
+      <div className="flex items-center justify-between px-2 py-1.5 rounded bg-muted/30 text-[11px]">
+        <div className="flex items-center gap-1.5">
+          <Users className="h-3 w-3 text-muted-foreground" />
+          <span className="font-medium text-foreground">Participation</span>
+          <Badge variant="secondary" className="text-[9px] h-4">{totalAll} total</Badge>
+          {totalAuto > 0 && (
+            <Badge variant="outline" className="text-[9px] h-4 text-emerald-600 border-emerald-200 dark:border-emerald-800">
+              {totalAuto} auto-resolved
+            </Badge>
+          )}
+          {totalPending > 0 && (
+            <Badge variant="outline" className="text-[9px] h-4 text-yellow-600 border-yellow-200 dark:border-yellow-800">
+              {totalPending} pending
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Pending participation — always visible if exists */}
+      {pendingSummaries.map(s => (
+        <div key={s.entity_id} className="pl-3 space-y-1">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <AlertTriangle className="h-3 w-3 text-yellow-500" />
+            <span className="font-medium text-foreground">{s.entity_name}</span>
+            <span className="text-muted-foreground">
+              — {s.pending} scene{s.pending !== 1 ? 's' : ''} need review
+            </span>
+          </div>
+          {/* Show individual pending items for this entity */}
+          {s.pending_items.slice(0, 10).map((p: any) => (
+            <div key={p.id} className="flex items-center justify-between pl-4 py-0.5 text-[10px]">
+              <div className="text-muted-foreground">
+                {p.role_in_scene} · {p.source_reason} · conf: {(p.confidence * 100).toFixed(0)}%
+              </div>
+              <div className="flex gap-0.5">
+                <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => onAction('participation', p.id, 'approve')}>
+                  <ThumbsUp className="h-2.5 w-2.5 text-emerald-600" />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => onAction('participation', p.id, 'reject')}>
+                  <ThumbsDown className="h-2.5 w-2.5 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+          {s.pending_items.length > 10 && (
+            <div className="pl-4 text-[10px] text-muted-foreground">+{s.pending_items.length - 10} more</div>
+          )}
+        </div>
+      ))}
+
+      {/* Auto-resolved — collapsed by default */}
+      {resolvedSummaries.length > 0 && (
+        <Collapsible open={showDetails} onOpenChange={setShowDetails}>
+          <CollapsibleTrigger className="w-full">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-muted/50 text-[10px] text-muted-foreground cursor-pointer">
+              <ChevronRight className={cn('h-2.5 w-2.5 transition-transform', showDetails && 'rotate-90')} />
+              Show {resolvedSummaries.length} auto-resolved entit{resolvedSummaries.length !== 1 ? 'ies' : 'y'}
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="pl-4 space-y-0.5">
+              {resolvedSummaries.map(s => (
+                <div key={s.entity_id} className="flex items-center gap-1.5 text-[10px] text-muted-foreground py-0.5">
+                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                  <span className="text-foreground">{s.entity_name}</span>
+                  <span>appears in {s.total} scene{s.total !== 1 ? 's' : ''} (auto-resolved)</span>
+                </div>
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   );
 }
@@ -174,15 +305,19 @@ function ReviewDetailPanel({
 
   if (!reviewData) return null;
 
-  const { entities, state_transitions, aliases, participation_pending, review_summary } = reviewData;
+  const { entities, state_transitions, aliases, participation_summaries, review_summary } = reviewData;
 
   const reviewEntities = entities.filter((e: any) => e.meta_json?.review_tier !== 'auto_accepted');
   const reviewAliases = aliases.filter((a: any) => a.review_status === 'review_required');
   const reviewTransitions = state_transitions.filter((t: any) => t.review_status === 'pending');
 
-  const sections = [
+  const decisionCount = reviewEntities.length + reviewAliases.length + reviewTransitions.length;
+
+  // Section 1: Canon Decisions (high priority)
+  const canonSections = [
     {
-      title: 'Entities',
+      title: 'Entity Candidates',
+      icon: <Sparkles className="h-3 w-3 text-primary" />,
       target: 'entity',
       items: reviewEntities,
       renderItem: (e: any) => (
@@ -206,7 +341,8 @@ function ReviewDetailPanel({
       ),
     },
     {
-      title: 'Aliases',
+      title: 'Alias Resolution',
+      icon: <Users className="h-3 w-3 text-primary" />,
       target: 'alias',
       items: reviewAliases,
       renderItem: (a: any) => (
@@ -231,6 +367,7 @@ function ReviewDetailPanel({
     },
     {
       title: 'State Transitions',
+      icon: <AlertTriangle className="h-3 w-3 text-primary" />,
       target: 'transition',
       items: reviewTransitions,
       renderItem: (t: any) => (
@@ -253,33 +390,12 @@ function ReviewDetailPanel({
         </div>
       ),
     },
-    {
-      title: 'Participation',
-      target: 'participation',
-      items: participation_pending,
-      renderItem: (p: any) => (
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <span className="text-foreground font-medium">{p.entity_type}</span>
-            <span className="text-muted-foreground ml-1.5">{p.role_in_scene} · {p.source_reason}</span>
-            <Badge variant="outline" className="ml-1.5 text-[9px] h-4">
-              conf: {(p.confidence * 100).toFixed(0)}%
-            </Badge>
-          </div>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => onAction('participation', p.id, 'approve')}>
-              <ThumbsUp className="h-3 w-3 text-emerald-600" />
-            </Button>
-            <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => onAction('participation', p.id, 'reject')}>
-              <ThumbsDown className="h-3 w-3 text-red-500" />
-            </Button>
-          </div>
-        </div>
-      ),
-    },
   ].filter(s => s.items.length > 0);
 
-  if (sections.length === 0) {
+  const hasAnything = canonSections.length > 0 ||
+    (participation_summaries && participation_summaries.length > 0);
+
+  if (!hasAnything) {
     return (
       <div className="text-[11px] text-muted-foreground p-3 flex items-center gap-1.5">
         <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
@@ -289,30 +405,67 @@ function ReviewDetailPanel({
   }
 
   return (
-    <div className="space-y-2">
-      {sections.map(section => (
-        <Collapsible key={section.title}>
-          <CollapsibleTrigger className="w-full">
-            <div className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted/50 text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                <span className="font-medium">{section.title}</span>
-                <Badge variant="secondary" className="text-[9px] h-4">{section.items.length}</Badge>
-              </div>
-            </div>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="pl-4 pr-1 divide-y divide-border/30 text-[11px]">
-              {section.items.slice(0, 20).map((item: any) => (
-                <div key={item.id}>{section.renderItem(item)}</div>
-              ))}
-              {section.items.length > 20 && (
-                <div className="py-1 text-muted-foreground">+{section.items.length - 20} more</div>
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      ))}
+    <div className="space-y-3">
+      {/* Top-level review summary */}
+      <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-muted/20 text-[11px]">
+        <span className="font-medium text-foreground">
+          {decisionCount > 0
+            ? `${decisionCount} canon decision${decisionCount !== 1 ? 's' : ''} need review`
+            : 'No canon decisions pending'
+          }
+        </span>
+        {review_summary.participation_auto_resolved > 0 && (
+          <span className="text-muted-foreground">
+            · {review_summary.participation_auto_resolved} participation auto-resolved
+          </span>
+        )}
+      </div>
+
+      {/* Section 1: Canon Decisions */}
+      {canonSections.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1">
+            Canon Decisions
+          </div>
+          {canonSections.map(section => (
+            <Collapsible key={section.title} defaultOpen>
+              <CollapsibleTrigger className="w-full">
+                <div className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted/50 text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    {section.icon}
+                    <span className="font-medium">{section.title}</span>
+                    <Badge variant="secondary" className="text-[9px] h-4">{section.items.length}</Badge>
+                  </div>
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="pl-4 pr-1 divide-y divide-border/30 text-[11px]">
+                  {section.items.slice(0, 20).map((item: any) => (
+                    <div key={item.id}>{section.renderItem(item)}</div>
+                  ))}
+                  {section.items.length > 20 && (
+                    <div className="py-1 text-muted-foreground">+{section.items.length - 20} more</div>
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          ))}
+        </div>
+      )}
+
+      {/* Section 2: Participation Summaries (infrastructure) */}
+      {participation_summaries && participation_summaries.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium px-1">
+            Infrastructure
+          </div>
+          <ParticipationSummarySection
+            summaries={participation_summaries}
+            onAction={onAction}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -333,6 +486,7 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
   const sourceResolution = latestRun?.source_resolution_json;
   const diff = latestRun?.diff_json;
   const reviewRequired = manifest?.review_required;
+  const autoResolved = manifest?.auto_resolved;
 
   const handleOpenReview = async () => {
     if (!latestRun?.id) return;
@@ -345,7 +499,6 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
 
   const handleReviewAction = async (target: string, id: string, action: string) => {
     await reviewAction(target as any, id, action as any);
-    // Refresh review data
     if (latestRun?.id) {
       const data = await fetchReview(latestRun.id);
       setReviewData(data);
@@ -383,8 +536,8 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
               <span>Props: <span className="text-foreground font-medium">{manifest.props}</span></span>
               <span>Costumes: <span className="text-foreground font-medium">{manifest.costume_looks}</span></span>
               <span>State Changes: <span className="text-foreground font-medium">{manifest.state_transitions}</span></span>
-              <span>Participation: <span className="text-foreground font-medium">{manifest.participation_records}</span></span>
               <span>Entities: <span className="text-foreground font-medium">{manifest.entities_total}</span></span>
+              <span>Participation: <span className="text-foreground font-medium">{manifest.participation_records}</span></span>
             </div>
 
             {/* Source resolution */}
@@ -396,10 +549,11 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
             {/* Diff summary */}
             {diff && <DiffSummaryBlock diff={diff} />}
 
-            {/* Review required */}
+            {/* Review required — priority-aware */}
             {reviewRequired && (
               <ReviewRequiredBlock
                 reviewRequired={reviewRequired}
+                autoResolved={autoResolved}
                 onOpenReview={handleOpenReview}
               />
             )}

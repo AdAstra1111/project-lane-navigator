@@ -23,6 +23,9 @@ export interface IngestionManifest {
     transitions: number;
     participation: number;
   };
+  auto_resolved?: {
+    participation: number;
+  };
 }
 
 export interface ParseQuality {
@@ -83,6 +86,18 @@ export interface ReviewSummary {
   aliases_needing_review: number;
   transitions_pending: number;
   participation_pending: number;
+  participation_auto_resolved: number;
+  participation_total: number;
+}
+
+export interface ParticipationSummary {
+  entity_id: string;
+  entity_type: string;
+  entity_name: string;
+  total: number;
+  auto_resolved: number;
+  pending: number;
+  pending_items: any[];
 }
 
 export interface ReviewData {
@@ -90,6 +105,7 @@ export interface ReviewData {
   state_transitions: any[];
   aliases: any[];
   participation_pending: any[];
+  participation_summaries: ParticipationSummary[];
   review_summary: ReviewSummary;
 }
 
@@ -114,14 +130,18 @@ export function useStoryIngestion(projectId: string | undefined) {
       if (data?.error) throw new Error(data.error);
 
       const manifest = data.manifest as IngestionManifest;
-      const reviewCount = manifest.review_required
-        ? Object.values(manifest.review_required).reduce((a, b) => a + b, 0)
+      const decisionCount = manifest.review_required
+        ? (manifest.review_required.entities + manifest.review_required.aliases + manifest.review_required.transitions)
         : 0;
+      const pendingParticipation = manifest.review_required?.participation || 0;
+      const autoResolved = manifest.auto_resolved?.participation || 0;
 
-      toast.success(
-        `Ingestion complete: ${manifest.scenes_parsed} scenes, ${manifest.characters} characters, ${manifest.locations} locations` +
-        (reviewCount > 0 ? ` · ${reviewCount} items need review` : '')
-      );
+      let msg = `Ingestion complete: ${manifest.scenes_parsed} scenes, ${manifest.characters} characters, ${manifest.locations} locations`;
+      if (decisionCount > 0) msg += ` · ${decisionCount} decisions need review`;
+      if (autoResolved > 0) msg += ` · ${autoResolved} participation auto-resolved`;
+      if (pendingParticipation > 0) msg += ` · ${pendingParticipation} participation need review`;
+
+      toast.success(msg);
 
       setLatestRun({
         id: data.run_id,
