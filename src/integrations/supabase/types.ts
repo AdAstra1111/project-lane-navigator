@@ -24780,6 +24780,22 @@ export type Database = {
         | "aerial"
         | "macro"
         | "montage"
+        | "close_up"
+        | "full_body"
+        | "profile"
+        | "over_shoulder"
+        | "detail"
+        | "tableau"
+        | "emotional_variant"
+        | "atmospheric"
+        | "time_variant"
+        | "lighting_ref"
+        | "texture_ref"
+        | "composition_ref"
+        | "color_ref"
+        | "identity_headshot"
+        | "identity_profile"
+        | "identity_full_body"
       trailer_phase:
         | "hook"
         | "setup"
@@ -24956,6 +24972,22 @@ export const Constants = {
         "aerial",
         "macro",
         "montage",
+        "close_up",
+        "full_body",
+        "profile",
+        "over_shoulder",
+        "detail",
+        "tableau",
+        "emotional_variant",
+        "atmospheric",
+        "time_variant",
+        "lighting_ref",
+        "texture_ref",
+        "composition_ref",
+        "color_ref",
+        "identity_headshot",
+        "identity_profile",
+        "identity_full_body",
       ],
       trailer_phase: [
         "hook",
