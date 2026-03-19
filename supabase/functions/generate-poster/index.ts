@@ -1325,7 +1325,10 @@ serve(async (req) => {
         .limit(1);
       let nextVersion = (existingPosters?.[0]?.version_number || 0) + 1;
 
-      for (const strategy of strategies) {
+      for (let si = 0; si < strategies.length; si++) {
+        const strategy = strategies[si];
+        // Stagger requests to avoid rate limiting
+        if (si > 0) await sleep(1500);
         const prompt = buildStrategyPrompt(strategy, strategyCtx);
         const versionNum = nextVersion++;
 
