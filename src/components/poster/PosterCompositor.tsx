@@ -76,10 +76,17 @@ export const TITLE_CASE_OPTIONS: Record<TitleCaseMode, string> = {
 };
 
 export const TITLE_POSITION_OPTIONS: Record<TitlePositionMode, string> = {
+  auto: "Auto (composition-aware)",
   center: "Center",
   lower_center: "Lower Center",
   lower_third: "Lower Third",
   lower_left: "Lower Left",
+};
+
+export const TITLE_BALANCE_OPTIONS: Record<TitleBalanceMode, string> = {
+  compact: "Compact",
+  balanced: "Balanced",
+  airy: "Airy",
 };
 
 interface PosterCompositorProps {
