@@ -1,9 +1,11 @@
 /**
  * useVisualStyleProfile — CRUD hook for project_visual_style.
+ * Now supports auto-hydration from inferred values.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { resolveInferredVisualStyle, type InferredVisualStyle } from '@/lib/visual/resolveInferredVisualStyle';
 
 export interface VisualStyleProfile {
   id?: string;
@@ -48,21 +50,49 @@ function checkComplete(p: Partial<VisualStyleProfile>): boolean {
 
 export function useVisualStyleProfile(projectId: string | undefined) {
   const [profile, setProfile] = useState<VisualStyleProfile | null>(null);
+  const [inferred, setInferred] = useState<InferredVisualStyle | null>(null);
+  const [isAutoFilled, setIsAutoFilled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
-    const { data, error } = await (supabase as any)
-      .from('project_visual_style')
-      .select('*')
-      .eq('project_id', projectId)
-      .maybeSingle();
-    if (error) {
-      console.error('[VSAL] load error:', error.message);
+
+    // Load saved profile and inferred values in parallel
+    const [dbResult, inferredResult] = await Promise.all([
+      (supabase as any)
+        .from('project_visual_style')
+        .select('*')
+        .eq('project_id', projectId)
+        .maybeSingle(),
+      resolveInferredVisualStyle(projectId).catch(() => null),
+    ]);
+
+    if (dbResult.error) {
+      console.error('[VSAL] load error:', dbResult.error.message);
     }
-    setProfile(data || null);
+
+    if (inferredResult) {
+      setInferred(inferredResult);
+    }
+
+    if (dbResult.data) {
+      setProfile(dbResult.data);
+      setIsAutoFilled(false);
+    } else if (inferredResult) {
+      // No saved profile — use inferred as the initial view
+      setProfile({
+        project_id: projectId,
+        ...inferredResult,
+        is_complete: checkComplete(inferredResult),
+      });
+      setIsAutoFilled(true);
+    } else {
+      setProfile(null);
+      setIsAutoFilled(false);
+    }
+
     setLoading(false);
   }, [projectId]);
 
@@ -77,7 +107,6 @@ export function useVisualStyleProfile(projectId: string | undefined) {
 
     try {
       if (profile?.id) {
-        // Update
         const { error } = await (supabase as any)
           .from('project_visual_style')
           .update({
@@ -95,7 +124,6 @@ export function useVisualStyleProfile(projectId: string | undefined) {
           .eq('id', profile.id);
         if (error) throw error;
       } else {
-        // Insert
         const { data: user } = await supabase.auth.getUser();
         const { error } = await (supabase as any)
           .from('project_visual_style')
@@ -116,6 +144,7 @@ export function useVisualStyleProfile(projectId: string | undefined) {
         if (error) throw error;
       }
       toast.success('Visual style profile saved');
+      setIsAutoFilled(false);
       await load();
     } catch (err: any) {
       console.error('[VSAL] save error:', err.message);
@@ -125,5 +154,5 @@ export function useVisualStyleProfile(projectId: string | undefined) {
     }
   }, [projectId, profile, load]);
 
-  return { profile, loading, saving, save, reload: load };
+  return { profile, inferred, isAutoFilled, loading, saving, save, reload: load };
 }
