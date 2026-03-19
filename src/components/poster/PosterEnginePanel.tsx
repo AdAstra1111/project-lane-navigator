@@ -764,21 +764,43 @@ export default function PosterEnginePanel() {
                     <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 space-y-1.5">
                       <div className="flex items-center gap-1.5 text-[10px] font-medium text-destructive">
                         <ShieldAlert className="w-3 h-3" />
-                        Upstream Truth Changed
+                        {freshnessMap[expandedPoster.id].predatesDependencyTracking
+                          ? 'Pre-Tracking Poster'
+                          : 'Upstream Truth Changed'}
                       </div>
+                      {freshnessMap[expandedPoster.id].affectedClasses?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {freshnessMap[expandedPoster.id].affectedClasses.map((cls) => (
+                            <Badge key={cls} variant="outline" className="text-[8px] h-4 border-destructive/30 text-destructive">
+                              {DEPENDENCY_CLASS_LABELS[cls] || cls}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       {freshnessMap[expandedPoster.id].staleReasons.map((r, i) => (
                         <p key={i} className="text-[9px] text-muted-foreground">• {r}</p>
                       ))}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[9px] w-full gap-1"
-                        onClick={() => refreshStale.mutate(expandedPoster.id)}
-                        disabled={refreshStale.isPending}
-                      >
-                        {refreshStale.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-                        Refresh with Updated Truth
-                      </Button>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 text-[9px] flex-1 gap-1"
+                          onClick={() => refreshFromTruth.mutate(expandedPoster.id)}
+                          disabled={refreshFromTruth.isPending}
+                        >
+                          {refreshFromTruth.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+                          Refresh from Truth
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 text-[9px] gap-1"
+                          onClick={() => { /* scroll to edit section */ }}
+                        >
+                          <Edit3 className="w-2.5 h-2.5" />
+                          Edit Creatively
+                        </Button>
+                      </div>
                     </div>
                   )}
 
