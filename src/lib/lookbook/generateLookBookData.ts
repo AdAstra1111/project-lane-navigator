@@ -360,9 +360,9 @@ export async function generateLookBookData(
     slides.push({
       type: 'world',
       title: 'The World',
-      body: (canon.world_rules as string) || undefined,
-      bodySecondary: (canon.locations as string) || undefined,
-      quote: (canon.timeline as string) || undefined,
+      body: normalizeCanonText(canon.world_rules, 'world_rules') || undefined,
+      bodySecondary: normalizeCanonText(canon.locations, 'locations') || undefined,
+      quote: normalizeCanonText(canon.timeline, 'timeline') || undefined,
       imageUrl: worldImageUrl || undefined,
       imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.world_locations.imageIds,
