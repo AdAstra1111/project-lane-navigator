@@ -113,7 +113,7 @@ export default function VisualDevHub() {
   const [locations, setLocations] = useState<string[]>([]);
 
   // Load canon data for Change Studio targets
-  useState(() => {
+  useEffect(() => {
     if (!projectId) return;
     (async () => {
       const { data } = await (supabase as any)
@@ -133,7 +133,7 @@ export default function VisualDevHub() {
         }
       }
     })();
-  });
+  }, [projectId]);
 
   return (
     <div className="min-h-screen bg-background">
