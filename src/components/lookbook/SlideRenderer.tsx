@@ -323,37 +323,37 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
   );
 }
 
-/* ── Visual Language Slide — grid of attributes ── */
+/* ── Visual Language Slide — grid of attributes with images ── */
 function VisualLanguageSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex = 0, totalSlides = 1 }: SlideProps) {
+  const hasGallery = slide.imageUrls && slide.imageUrls.length > 0;
   return (
     <div style={baseStyle} className="slide-content flex flex-col p-24">
       <SectionLabel label="visual language" color={colors.accent} />
       <AccentLine color={colors.accent} />
+      <h2 className="text-6xl font-semibold mb-12" style={{ ...titleStyle, color: colors.text }}>{slide.title}</h2>
 
-      <h2 className="text-6xl font-semibold mb-16" style={{ ...titleStyle, color: colors.text }}>
-        {slide.title}
-      </h2>
-
-      <div className="grid grid-cols-2 gap-12 flex-1 max-w-5xl">
-        {(slide.bullets || []).map((b, i) => {
-          const [label, detail] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
-          return (
-            <div
-              key={i}
-              className="p-8 rounded-lg"
-              style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}` }}
-            >
-              {label && (
-                <span className="text-xs tracking-[0.2em] uppercase block mb-3" style={{ color: colors.accent }}>
-                  {label}
-                </span>
-              )}
-              <span className="text-xl leading-relaxed" style={{ color: colors.text }}>
-                {detail || b}
-              </span>
+      <div className="flex gap-16 flex-1">
+        <div className="flex-1">
+          {slide.body && (
+            <p className="text-xl leading-relaxed mb-10" style={{ color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif` }}>{slide.body}</p>
+          )}
+          {(slide.bullets || []).map((b, i) => (
+            <div key={i} className="flex items-start gap-4 mb-5">
+              <div className="w-1.5 h-1.5 rounded-full mt-2.5 shrink-0" style={{ background: colors.accent }} />
+              <span className="text-lg leading-relaxed" style={{ color: colors.text, opacity: 0.85 }}>{b}</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
+
+        {hasGallery && (
+          <div className="w-[560px] shrink-0 grid grid-cols-2 gap-4">
+            {slide.imageUrls!.slice(0, 4).map((url, i) => (
+              <div key={i} className="rounded-lg overflow-hidden aspect-[4/3]" style={{ border: `1px solid ${colors.accentMuted}` }}>
+                <img src={url} alt="" className="w-full h-full object-cover" style={{ filter: 'saturate(0.8) contrast(1.05)' }} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
