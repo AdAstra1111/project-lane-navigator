@@ -156,7 +156,9 @@ export default function LookBookPage() {
       <div className="px-4 py-2 border-b border-border bg-card/50 shrink-0 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-sm font-semibold text-foreground">Look Book</span>
+          <span className="text-sm font-semibold text-foreground">
+            {viewMode === 'workspace' ? 'Look Book Workspace' : 'Look Book Presentation'}
+          </span>
           <Badge variant="secondary" className="text-[10px]">
             {structureStatus === 'fully_populated' ? 'Complete' :
              structureStatus === 'partially_populated' ? `${populatedCount}/${sections.length} sections` :
@@ -176,24 +178,6 @@ export default function LookBookPage() {
           </Button>
         </div>
       </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="mb-4 rounded-lg border border-border bg-card/40 p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Monitor className="h-4 w-4 text-primary" />
-            <p className="text-xs font-medium text-foreground">Lookbook runtime diagnostics</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="text-[10px]">component: LookBookPage</Badge>
-            <Badge variant="outline" className="text-[10px]">route: {location.pathname}</Badge>
-            <Badge variant="outline" className="text-[10px]">project: {projectId ? 'present' : 'missing'}</Badge>
-            <Badge variant="outline" className="text-[10px]">sections: {sections.length}</Badge>
-            <Badge variant="outline" className="text-[10px]">status: {structureStatus}</Badge>
-            <Badge variant="outline" className="text-[10px]">workspace: {viewMode === 'workspace' ? 'active' : 'inactive'}</Badge>
-            <Badge variant="outline" className="text-[10px]">viewer: {viewMode === 'viewer' ? 'active' : 'inactive'}</Badge>
-            <Badge variant="outline" className="text-[10px]">viewer data: {viewerAvailable ? 'yes' : 'no'}</Badge>
-          </div>
-        </div>
 
         {structureStatus === 'invalid_structure' && (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-start gap-2">
