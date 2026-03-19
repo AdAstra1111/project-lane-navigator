@@ -109,6 +109,47 @@ function PosterImage({
   );
 }
 
+// ── Freshness Badge ──
+function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
+  freshness?: FreshnessResult;
+  posterId: string;
+  onRefresh: () => void;
+  isRefreshing: boolean;
+}) {
+  if (!freshness || freshness.status === 'current') return null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Badge
+        variant="outline"
+        className={cn(
+          "text-[9px] gap-1",
+          freshness.status === 'stale' && "border-destructive/40 text-destructive",
+          freshness.status === 'needs_refresh' && "border-amber-500/40 text-amber-500",
+        )}
+      >
+        <ShieldAlert className="w-2.5 h-2.5" />
+        {freshness.status === 'stale' ? 'Stale' : 'Needs Refresh'}
+      </Badge>
+      {freshness.staleReasons.length > 0 && (
+        <span className="text-[9px] text-muted-foreground max-w-[200px] truncate" title={freshness.staleReasons.join('; ')}>
+          {freshness.staleReasons[0]}
+        </span>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-5 text-[9px] px-2 gap-1"
+        onClick={onRefresh}
+        disabled={isRefreshing}
+      >
+        {isRefreshing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
 export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
   const { project } = useProject(projectId || "");
