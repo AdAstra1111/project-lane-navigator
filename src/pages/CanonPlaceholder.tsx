@@ -71,7 +71,7 @@ function PremiseContent({ canon }: { canon: any }) {
       {hasLogline && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Logline</h4>
-          <p className="text-sm text-foreground/90 leading-relaxed">{canon.logline}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed">{normalizeCanonText(canon.logline)}</p>
         </div>
       )}
       {hasPremise && (
