@@ -11,8 +11,10 @@ import {
   Image, RefreshCw, Upload, Trash2, CheckCircle2, AlertTriangle,
   Loader2, Sparkles, Star, ChevronDown, User, Mountain,
   Swords, Award, Megaphone, Drama, PenLine, Plus, X,
-  Download, Layout, Maximize2, Edit3, Wand2, Send,
+  Download, Layout, Maximize2, Edit3, Wand2, Send, ShieldAlert,
 } from "lucide-react";
+import { useProjectPostersFreshness, useRefreshStalePoster } from "@/hooks/useVisualTruthFreshness";
+import type { FreshnessResult } from "@/lib/visual-truth-dependencies";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
