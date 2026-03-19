@@ -79,6 +79,7 @@ function PosterImage({
   branding,
   credits,
   layoutVariant,
+  titleStyle,
   width,
   className,
   onCanvasReady,
@@ -88,6 +89,7 @@ function PosterImage({
   branding: { companyLogoUrl: string | null; companyName: string | null } | null;
   credits?: PosterCreditsData;
   layoutVariant?: PosterLayoutVariant;
+  titleStyle?: TitleStyleConfig;
   width: number;
   className?: string;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
@@ -102,6 +104,7 @@ function PosterImage({
       companyName={branding?.companyName}
       credits={credits}
       layoutVariant={layoutVariant || "cinematic-dark"}
+      titleStyle={titleStyle}
       width={width}
       onRender={onCanvasReady}
       className={className}
