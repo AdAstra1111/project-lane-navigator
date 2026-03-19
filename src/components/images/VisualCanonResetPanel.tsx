@@ -81,7 +81,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
 
   const {
     resetScopedCanon, restoreFromArchive, markForReusePool,
-    approveIntoCanon, rejectCandidate, resetting, lastReset,
+    approveIntoCanon, batchApproveAll, rejectCandidate, resetting, lastReset,
   } = useVisualCanonReset(projectId);
 
   const vs = useVisualSets(projectId);
