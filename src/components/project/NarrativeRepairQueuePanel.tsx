@@ -526,8 +526,19 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
             execResult.status === 'failed' ? 'border-destructive/30 bg-destructive/5 text-destructive' :
             'border-border/40 bg-muted/30 text-muted-foreground'
           }`}>
-            <span className="font-medium">{execResult.status === 'completed' ? 'Completed' : execResult.status === 'failed' ? 'Failed' : execResult.status}</span>
-            {execResult.outcome_summary && <span> — {execResult.outcome_summary}</span>}
+            <span className="font-medium">
+              {execResult.status === 'completed' ? 'Completed' : execResult.status === 'failed' ? 'Failed' : execResult.status}
+            </span>
+            {/* Show structured blocked reason if available */}
+            {execResult.execution_result?.blocked_reason ? (
+              <span> — {String(execResult.execution_result.blocked_reason)}</span>
+            ) : execResult.outcome_summary ? (
+              <span> — {execResult.outcome_summary}</span>
+            ) : null}
+            {/* Show prerequisite info */}
+            {execResult.execution_result?.prerequisite && (
+              <p className="text-[10px] mt-0.5 opacity-80">Prerequisite: {String(execResult.execution_result.prerequisite)}</p>
+            )}
           </div>
         )}
 
