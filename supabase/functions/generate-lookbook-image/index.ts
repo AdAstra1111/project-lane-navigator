@@ -371,9 +371,17 @@ serve(async (req) => {
 
     for (let i = 0; i < genCount; i++) {
       const shotType = shotsToGenerate[i] || null;
-      let prompt = shotType
-        ? buildPackPrompt(assetGroup, shotType, ctx)
-        : buildSectionPrompt(section, ctx, i);
+      let prompt: string;
+
+      // Identity mode: override prompt with identity-specific construction
+      const isIdentityShot = shotType?.startsWith("identity_");
+      if (identity_mode && isIdentityShot && character_name) {
+        prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
+      } else {
+        prompt = shotType
+          ? buildPackPrompt(assetGroup, shotType, ctx)
+          : buildSectionPrompt(section, ctx, i);
+      }
 
       // Phase 3: Inject state variant modifier into prompt
       if (state_prompt_modifier) {
@@ -387,8 +395,9 @@ serve(async (req) => {
       try {
         const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl);
 
+        const identitySegment = identity_mode ? '-identity' : '';
         const stateSegment = state_key ? `-${state_key}` : '';
-        const storagePath = `${project_id}/lookbook/${section}/${Date.now()}-${shotType || `v${i}`}${stateSegment}.${imageResult.format}`;
+        const storagePath = `${project_id}/lookbook/${section}/${Date.now()}-${shotType || `v${i}`}${identitySegment}${stateSegment}.${imageResult.format}`;
         const { error: uploadErr } = await supabase.storage
           .from("project-posters")
           .upload(storagePath, imageResult.rawBytes, {
@@ -403,10 +412,12 @@ serve(async (req) => {
             project_id,
             role: imageRole,
             entity_id: entity_id || null,
-            strategy_key: `lookbook_${section}`,
+            strategy_key: identity_mode ? "character_identity" : `lookbook_${section}`,
             prompt_used: prompt,
-            negative_prompt: stylePolicy.negativeStyleConstraints,
-            canon_constraints: { source_feature: "lookbook_engine", section },
+            negative_prompt: identity_mode
+              ? "cinematic scene, environmental context, narrative elements, dramatic lighting, props, costumes, action poses, text, watermarks, illustration, painting, CGI"
+              : stylePolicy.negativeStyleConstraints,
+            canon_constraints: { source_feature: identity_mode ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
             is_primary: false,
@@ -419,11 +430,12 @@ serve(async (req) => {
             style_mode: styleMode,
             generation_config: {
               ...repoMeta,
-              source_feature: "lookbook_engine",
+              source_feature: identity_mode ? "character_identity_engine" : "lookbook_engine",
               section,
               variant_index: i,
               shot_type: shotType,
               state_key: state_key || null,
+              identity_mode: identity_mode || false,
             },
             // Visual Asset System + Provenance fields
             asset_group: assetGroup,
@@ -438,7 +450,8 @@ serve(async (req) => {
               : null,
             subject_ref: character_name || location_name || null,
             location_ref: location_name || null,
-            generation_purpose: state_key ? `state_variant_${state_key}`
+            generation_purpose: identity_mode ? "character_identity"
+              : state_key ? `state_variant_${state_key}`
               : base_look_mode ? "character_reference"
               : location_ref_mode ? "location_reference"
               : `lookbook_${section}`,
