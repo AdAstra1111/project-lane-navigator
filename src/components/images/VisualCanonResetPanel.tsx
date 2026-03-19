@@ -241,7 +241,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
             </div>
 
             <p className="text-[9px] text-muted-foreground mb-3">
-              Generate candidate images for all unfilled slots. Images are created as candidates — nothing is auto-approved.
+              Generate candidate images for all missing visual slots. Nothing is auto-approved — each image enters the Approval Queue for review.
             </p>
 
             {/* Controls */}
@@ -311,6 +311,7 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
                 className="gap-1.5 text-[10px] h-7"
                 disabled={populating}
                 onClick={() => handleAutoPopulate(true)}
+                title="Generate candidate cast identity images first (headshot, profile, full body) before the rest of the visual set."
               >
                 <Zap className="h-2.5 w-2.5" />
                 Generate Identity Only

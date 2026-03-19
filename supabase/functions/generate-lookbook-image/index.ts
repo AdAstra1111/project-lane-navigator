@@ -361,6 +361,7 @@ serve(async (req) => {
       identity_canon_facts = null,
       identity_traits_block = null,
       identity_signature_block = null,
+      forced_shot_type = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -382,6 +383,7 @@ serve(async (req) => {
       identity_canon_facts?: string | null;
       identity_traits_block?: string | null;
       identity_signature_block?: string | null;
+      forced_shot_type?: string | null;
     };
 
     if (!project_id || !section) {
@@ -500,19 +502,31 @@ serve(async (req) => {
     }
 
     // Determine shots to generate
+    // ── Single-slot mode: forced_shot_type overrides all pack logic ──
     const IDENTITY_PACK: ShotType[] = ["identity_headshot", "identity_profile", "identity_full_body"];
     const BASE_LOOK_PACK: ShotType[] = ["close_up", "profile", "full_body", "full_body", "medium"];
     const LOCATION_REF_PACK: ShotType[] = ["wide", "atmospheric", "detail", "time_variant"];
-    const shotPack = identity_mode && assetGroup === "character"
-      ? IDENTITY_PACK
-      : base_look_mode && assetGroup === "character"
-        ? BASE_LOOK_PACK
-        : location_ref_mode && assetGroup === "world"
-          ? LOCATION_REF_PACK
-          : (SHOT_PACKS[assetGroup] || []);
-    const shotsToGenerate: ShotType[] = pack_mode || base_look_mode || location_ref_mode || identity_mode
-      ? shotPack.slice(0, Math.min(count, shotPack.length))
-      : [];
+
+    let shotsToGenerate: ShotType[];
+    if (forced_shot_type) {
+      // Deterministic single-slot mode — generate exactly this shot type
+      shotsToGenerate = [forced_shot_type as ShotType];
+    } else if (identity_mode && assetGroup === "character") {
+      shotsToGenerate = IDENTITY_PACK;
+    } else if (base_look_mode && assetGroup === "character") {
+      shotsToGenerate = BASE_LOOK_PACK;
+    } else if (location_ref_mode && assetGroup === "world") {
+      shotsToGenerate = LOCATION_REF_PACK;
+    } else if (pack_mode) {
+      shotsToGenerate = (SHOT_PACKS[assetGroup] || []);
+    } else {
+      shotsToGenerate = [];
+    }
+
+    // When forced or pack mode, limit to count
+    if (shotsToGenerate.length > 0 && !forced_shot_type) {
+      shotsToGenerate = shotsToGenerate.slice(0, Math.min(count, shotsToGenerate.length));
+    }
 
     const genCount = shotsToGenerate.length > 0 ? shotsToGenerate.length : Math.min(Math.max(count, 1), 6);
 
@@ -532,10 +546,11 @@ serve(async (req) => {
       // 8. Shot-type specific constraints
 
       const isIdentityShot = shotType?.startsWith("identity_");
+      const isIdentityGeneration = identity_mode || (forced_shot_type && isIdentityShot);
 
       // Step 1: Base prompt
       let prompt: string;
-      if (identity_mode && isIdentityShot && character_name) {
+      if (isIdentityGeneration && isIdentityShot && character_name) {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
       } else {
         prompt = shotType
@@ -600,12 +615,12 @@ serve(async (req) => {
             project_id,
             role: imageRole,
             entity_id: entity_id || null,
-            strategy_key: identity_mode ? "character_identity" : `lookbook_${section}`,
+            strategy_key: isIdentityGeneration ? "character_identity" : `lookbook_${section}`,
             prompt_used: prompt,
-            negative_prompt: identity_mode
+            negative_prompt: isIdentityGeneration
               ? "cinematic scene, environmental context, narrative elements, dramatic lighting, props, costumes, action poses, text, watermarks, illustration, painting, CGI"
               : stylePolicy.negativeStyleConstraints,
-            canon_constraints: { source_feature: identity_mode ? "character_identity_engine" : "lookbook_engine", section },
+            canon_constraints: { source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
             is_primary: false,
@@ -618,13 +633,13 @@ serve(async (req) => {
             style_mode: styleMode,
             generation_config: {
               ...repoMeta,
-              source_feature: identity_mode ? "character_identity_engine" : "lookbook_engine",
+              source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine",
               section,
               variant_index: i,
               shot_type: shotType,
               state_key: state_key || null,
               // Full audit trail
-              identity_mode: identity_mode || false,
+              identity_mode: identity_mode || isIdentityGeneration || false,
               identity_locked: identityLockUsed,
               identity_headshot_anchor_used: headshotAnchorUsed,
               identity_full_body_anchor_used: fullBodyAnchorUsed,
@@ -648,7 +663,7 @@ serve(async (req) => {
               : null,
             subject_ref: character_name || location_name || null,
             location_ref: location_name || null,
-            generation_purpose: identity_mode ? "character_identity"
+            generation_purpose: isIdentityGeneration ? "character_identity"
               : state_key ? `state_variant_${state_key}`
               : base_look_mode ? "character_reference"
               : location_ref_mode ? "location_reference"
