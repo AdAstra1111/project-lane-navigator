@@ -272,7 +272,7 @@ const POSTER_STRATEGIES = [
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture} visible in background. ` +
       `${ctx.toneVisual}. ` +
-      `The bottom quarter should fade into moody darkness — no faces or details there, just atmosphere.`,
+      `Full cinematic composition filling the entire frame — use every inch for storytelling.`,
   },
   {
     key: "world",
@@ -285,7 +285,7 @@ const POSTER_STRATEGIES = [
       `${ctx.worldLock.architecture}. ` +
       `Any human figure is small or silhouetted against the landscape. ` +
       `Epic composition, sweeping vista. ${ctx.toneVisual}. ` +
-      `The bottom quarter should fade into atmospheric darkness for typography placement.`,
+      `Full cinematic composition — use the entire canvas for the world.`,
   },
   {
     key: "conflict",
@@ -297,7 +297,7 @@ const POSTER_STRATEGIES = [
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.technology}. ` +
       `Dramatic angles, sense of motion and danger. ${ctx.toneVisual}. ` +
-      `Bottom 20% fades to near-black for title overlay.`,
+      `Full cinematic composition — no reserved blank areas, use every part of the frame.`,
   },
   {
     key: "prestige",
@@ -308,7 +308,7 @@ const POSTER_STRATEGIES = [
       (ctx.themes ? `Themes: ${ctx.themes}. ` : "") +
       `Visual elements drawn from ${ctx.worldLock.era} ${ctx.worldLock.culture !== "unspecified" ? ctx.worldLock.culture : ""} world. ` +
       `Restrained color palette, elegant negative space. ${ctx.toneVisual}. ` +
-      `Lower third should be clean atmospheric gradient fading to black — no subject matter there.`,
+      `Full atmospheric composition filling the entire canvas — no empty zones.`,
   },
   {
     key: "commercial",
@@ -319,7 +319,7 @@ const POSTER_STRATEGIES = [
       (ctx.logline ? `Hook: ${ctx.logline.slice(0, 150)}. ` : "") +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. Strong focal point. ${ctx.toneVisual}. Mainstream appeal. ` +
-      `Bottom quarter fades to solid dark for large title typography.`,
+      `Full cinematic composition — use the entire frame, no blank zones.`,
   },
   {
     key: "genre",
@@ -329,7 +329,7 @@ const POSTER_STRATEGIES = [
       `Every visual cue signals the genre immediately — ${ctx.genreVisual || "dramatic cinematography"}. ` +
       `Set in ${ctx.worldLock.era}, ${ctx.worldLock.geography !== "unspecified" ? ctx.worldLock.geography : "the story's world"}. ` +
       `${ctx.worldLock.wardrobe}. ${ctx.worldLock.architecture}. ${ctx.toneVisual}. ` +
-      `Bottom 20% fades to moody near-black for text overlay.`,
+      `Full cinematic composition — fill the entire frame with genre-defining imagery.`,
   },
 ] as const;
 
