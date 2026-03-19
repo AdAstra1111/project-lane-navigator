@@ -532,6 +532,13 @@ function buildStrategyContext(inputs: PosterPromptInputs, branding: { companyNam
 function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: StrategyContext): string {
   const base = strategy.briefing(ctx);
 
+  // Style policy enforcement (global)
+  const stylePolicyBlock = [
+    `IMAGE STYLE POLICY (MANDATORY):`,
+    `${ctx.stylePolicy.styleDirectives}`,
+    `DO NOT render in these styles: ${ctx.stylePolicy.negativeStyleConstraints}`,
+  ].join("\n");
+
   // World lock enforcement
   const worldLockBlock = [
     `CRITICAL WORLD CONSTRAINTS:`,
@@ -545,8 +552,8 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
 
   // Negative prompting
   const prohibitions = ctx.worldLock.prohibitions.length > 0
-    ? `ABSOLUTE PROHIBITIONS:\n${ctx.worldLock.prohibitions.join("\n")}`
-    : "";
+    ? `ABSOLUTE PROHIBITIONS:\n${ctx.worldLock.prohibitions.join("\n")}\n${ctx.stylePolicy.negativeStyleConstraints}`
+    : `ABSOLUTE PROHIBITIONS:\n${ctx.stylePolicy.negativeStyleConstraints}`;
 
   // Poster text treatment instructions
   const textTreatment = [
@@ -565,11 +572,13 @@ function buildStrategyPrompt(strategy: typeof POSTER_STRATEGIES[number], ctx: St
     `- Professional poster layout with clear visual hierarchy`,
     `- Proper negative space for title placement`,
     `- Portrait 2:3 aspect ratio`,
-    `- Photorealistic cinematic quality, 4K resolution feel`,
+    ctx.stylePolicy.mode === 'photorealistic_cinematic'
+      ? `- Photorealistic cinematic quality, 4K resolution feel — shot on real cinema camera`
+      : `- High production value ${ctx.stylePolicy.mode.replace(/_/g, ' ')} rendering`,
     `- The overall design should feel like it belongs on a cinema lobby wall`,
   ].join("\n");
 
-  return [base, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
+  return [base, stylePolicyBlock, ctx.compReference, worldLockBlock, prohibitions, textTreatment, composition].filter(Boolean).join("\n\n");
 }
 
 // ── Provider Adapter ─────────────────────────────────────────────────────────
