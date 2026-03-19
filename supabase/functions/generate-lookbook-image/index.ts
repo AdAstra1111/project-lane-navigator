@@ -413,6 +413,26 @@ serve(async (req) => {
       locationDescription: location_description,
     };
 
+    // ── Resolve identity anchor signed URLs if provided ──
+    const identityReferenceUrls: string[] = [];
+    let identityLockUsed = false;
+    if (identity_anchor_paths && (identity_anchor_paths.headshot || identity_anchor_paths.fullBody)) {
+      for (const path of [identity_anchor_paths.headshot, identity_anchor_paths.fullBody].filter(Boolean) as string[]) {
+        try {
+          const { data: signedData } = await supabase.storage
+            .from("project-posters")
+            .createSignedUrl(path, 3600);
+          if (signedData?.signedUrl) {
+            identityReferenceUrls.push(signedData.signedUrl);
+            identityLockUsed = true;
+          }
+        } catch (e) {
+          console.warn(`[lookbook-image] Failed to resolve identity anchor: ${path}`, e);
+        }
+      }
+    }
+    console.log(`[lookbook-image] Identity lock: ${identityLockUsed ? 'ACTIVE' : 'INACTIVE'}, refs: ${identityReferenceUrls.length}, notes: ${identity_notes ? 'YES' : 'NO'}`);
+
     // Determine shots to generate
     // Identity mode: deterministic identity pack (headshot + profile + full body)
     const IDENTITY_PACK: ShotType[] = ["identity_headshot", "identity_profile", "identity_full_body"];
@@ -434,7 +454,7 @@ serve(async (req) => {
     // If not pack_mode or no pack, fall back to count-based generation
     const genCount = shotsToGenerate.length > 0 ? shotsToGenerate.length : Math.min(Math.max(count, 1), 6);
 
-    const results: Array<{ image_id: string; status: string; shot_type?: string; error?: string }> = [];
+    const results: Array<{ image_id: string; status: string; shot_type?: string; error?: string; identity_locked?: boolean }> = [];
 
     for (let i = 0; i < genCount; i++) {
       const shotType = shotsToGenerate[i] || null;
@@ -444,10 +464,24 @@ serve(async (req) => {
       const isIdentityShot = shotType?.startsWith("identity_");
       if (identity_mode && isIdentityShot && character_name) {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
+        // If locked identity exists, inject continuity mandate for additional candidates
+        if (identityLockUsed) {
+          prompt += `\n\nIDENTITY LOCK ACTIVE: Reference images are provided. Generate a new candidate that is THE SAME PERSON as shown in the reference images. Preserve exact facial structure, skin tone, hair color/style, body proportions, and overall appearance. This must be unmistakably the same individual.`;
+        }
       } else {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx)
           : buildSectionPrompt(section, ctx, i);
+      }
+
+      // Inject identity notes if provided
+      if (identity_notes && identity_mode) {
+        prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon): ${identity_notes}`;
+      }
+
+      // Inject canon-derived character facts if provided
+      if (identity_canon_facts) {
+        prompt += `\n\nCANON CHARACTER FACTS: ${identity_canon_facts}`;
       }
 
       // Phase 3: Inject state variant modifier into prompt
@@ -459,8 +493,11 @@ serve(async (req) => {
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
 
+      // Determine which image references to pass to the model
+      const refsForThisShot = (identity_mode && identityLockUsed) ? identityReferenceUrls : [];
+
       try {
-        const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl);
+        const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl, refsForThisShot.length > 0 ? refsForThisShot : undefined);
 
         const identitySegment = identity_mode ? '-identity' : '';
         const stateSegment = state_key ? `-${state_key}` : '';
