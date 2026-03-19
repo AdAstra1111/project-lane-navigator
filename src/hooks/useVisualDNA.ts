@@ -9,7 +9,9 @@ import {
   resolveCharacterVisualDNA,
   serializeDNAForStorage,
   type CharacterVisualDNA,
+  type EvidenceTrait,
 } from '@/lib/images/visualDNA';
+import type { BindingMarker } from '@/lib/images/characterTraits';
 import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
 
 export function useVisualDNA(projectId: string | undefined, characterName: string | undefined) {
@@ -38,19 +40,23 @@ export function useVisualDNA(projectId: string | undefined, characterName: strin
       canonCharacter: Record<string, unknown> | null;
       canonJson: Record<string, unknown> | null;
       userNotes: string;
+      bindingMarkers?: BindingMarker[];
+      evidenceTraits?: EvidenceTrait[];
     }) => {
       if (!projectId || !characterName) throw new Error('Missing project/character');
       
       // Check identity lock
       const identity = await resolveCharacterIdentity(projectId, characterName);
       
-      // Resolve DNA
+      // Resolve DNA with binding markers and evidence
       const dna = resolveCharacterVisualDNA(
         characterName,
         params.canonCharacter,
         params.canonJson,
         params.userNotes,
         identity.locked,
+        params.bindingMarkers,
+        params.evidenceTraits,
       );
       
       // Get next version number
