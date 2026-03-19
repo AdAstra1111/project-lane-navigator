@@ -1,6 +1,6 @@
 /**
  * Canonical Image System — Types & role definitions.
- * Every image in the system has a declared role and canon constraints.
+ * Every image in the system has a declared role, asset group, and canon constraints.
  */
 
 export type ProjectImageRole =
@@ -14,6 +14,27 @@ export type ProjectImageRole =
   | 'lookbook_cover'
   | 'marketing_variant';
 
+export type AssetGroup = 'character' | 'world' | 'key_moment' | 'visual_language' | 'poster';
+
+export type ShotType =
+  | 'close_up'
+  | 'medium'
+  | 'wide'
+  | 'full_body'
+  | 'profile'
+  | 'over_shoulder'
+  | 'detail'
+  | 'tableau'
+  | 'emotional_variant'
+  | 'atmospheric'
+  | 'time_variant'
+  | 'lighting_ref'
+  | 'texture_ref'
+  | 'composition_ref'
+  | 'color_ref';
+
+export type CurationState = 'active' | 'candidate' | 'archived' | 'rejected';
+
 export interface CanonConstraints {
   era?: string;
   geography?: string;
@@ -23,6 +44,8 @@ export interface CanonConstraints {
   technology_level?: string;
   tone_style?: string;
   forbidden_elements?: string[];
+  source_feature?: string;
+  section?: string;
 }
 
 export interface ProjectImage {
@@ -44,24 +67,53 @@ export interface ProjectImage {
   created_at: string;
   created_by: string | null;
   user_id: string;
-  /** Provider used for generation (e.g. lovable-ai) */
   provider: string;
-  /** Model used for generation */
   model: string;
-  /** Resolved style mode at generation time */
   style_mode: string;
-  /** Full resolver config including rationale */
   generation_config: Record<string, unknown>;
+  /** New Visual Asset System fields */
+  asset_group: AssetGroup | null;
+  subject: string | null;
+  shot_type: ShotType | null;
+  curation_state: CurationState;
   /** Resolved signed URL — populated client-side */
   signedUrl?: string;
 }
+
+/** Shot packs define what shots to generate per asset group */
+export const SHOT_PACKS: Record<AssetGroup, ShotType[]> = {
+  character: ['close_up', 'medium', 'full_body', 'profile', 'emotional_variant'],
+  world: ['wide', 'atmospheric', 'detail', 'time_variant'],
+  key_moment: ['tableau', 'medium', 'close_up', 'wide'],
+  visual_language: ['lighting_ref', 'texture_ref', 'composition_ref', 'color_ref'],
+  poster: [], // poster uses its own engine
+};
+
+/** Human-readable shot type labels */
+export const SHOT_TYPE_LABELS: Record<ShotType, string> = {
+  close_up: 'Close-Up',
+  medium: 'Medium Shot',
+  wide: 'Wide Shot',
+  full_body: 'Full Body',
+  profile: 'Profile',
+  over_shoulder: 'Over Shoulder',
+  detail: 'Detail',
+  tableau: 'Tableau',
+  emotional_variant: 'Emotional Variant',
+  atmospheric: 'Atmospheric',
+  time_variant: 'Time Variant',
+  lighting_ref: 'Lighting Reference',
+  texture_ref: 'Texture Reference',
+  composition_ref: 'Composition Reference',
+  color_ref: 'Color Reference',
+};
 
 /** Role limits — max active images per role */
 export const ROLE_LIMITS: Record<ProjectImageRole, number> = {
   poster_primary: 1,
   poster_variant: 6,
-  character_primary: 1, // per entity_id
-  character_variant: 4, // per entity_id
+  character_primary: 1,
+  character_variant: 4,
   world_establishing: 3,
   world_detail: 6,
   visual_reference: 8,

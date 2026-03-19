@@ -1,11 +1,12 @@
 /**
  * LookBookPage — Studio-quality visual pitch deck / look book.
  * Route: /projects/:id/lookbook
- * Now includes per-section image generation and selection.
+ * Full Visual Asset System with pack generation, curation, and selection.
  */
 import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette } from 'lucide-react';
+import { Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
@@ -17,37 +18,58 @@ import { useProject } from '@/hooks/useProjects';
 import { useLookbookSectionImages } from '@/hooks/useLookbookSectionImages';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { SHOT_PACKS } from '@/lib/images/types';
 import type { LookBookData } from '@/lib/lookbook/types';
 
 const SECTIONS = [
-  { key: 'world' as const, label: 'World / Setting', icon: Globe, description: 'Atmospheric establishing shots of the story world' },
-  { key: 'character' as const, label: 'Characters', icon: User, description: 'Character portraits and presence' },
-  { key: 'key_moment' as const, label: 'Key Moments', icon: Zap, description: 'Pivotal dramatic scenes and turning points' },
-  { key: 'visual_language' as const, label: 'Visual Language', icon: Palette, description: 'Lighting, texture, and compositional style' },
+  { key: 'world' as const, label: 'World / Setting', icon: Globe, description: 'Establishing shots, atmospheric details, and environmental storytelling', packSize: SHOT_PACKS.world.length },
+  { key: 'character' as const, label: 'Characters', icon: User, description: 'Multi-angle character portraits: close-up, medium, full body, profile', packSize: SHOT_PACKS.character.length },
+  { key: 'key_moment' as const, label: 'Key Moments', icon: Zap, description: 'Pivotal dramatic scenes across different framings', packSize: SHOT_PACKS.key_moment.length },
+  { key: 'visual_language' as const, label: 'Visual Language', icon: Palette, description: 'Lighting, texture, composition, and color references', packSize: SHOT_PACKS.visual_language.length },
 ] as const;
 
 function SectionImagePanel({ projectId, section }: { projectId: string; section: typeof SECTIONS[number] }) {
   const { sectionImages, generating, generate } = useLookbookSectionImages(projectId, section.key);
   const [open, setOpen] = useState(sectionImages.length > 0);
 
+  const activeCount = sectionImages.filter(i => i.curation_state === 'active' || i.is_primary).length;
+  const candidateCount = sectionImages.filter(i => i.curation_state === 'candidate' && !i.is_primary).length;
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 px-3 rounded-md hover:bg-muted/50 transition-colors text-left">
+      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2.5 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
         <section.icon className="h-4 w-4 text-primary shrink-0" />
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium text-foreground">{section.label}</span>
-          <span className="text-xs text-muted-foreground ml-2">{sectionImages.length > 0 ? `${sectionImages.length} images` : ''}</span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            {activeCount > 0 && (
+              <span className="text-[10px] text-primary font-medium">{activeCount} active</span>
+            )}
+            {candidateCount > 0 && (
+              <span className="text-[10px] text-muted-foreground">{candidateCount} candidates</span>
+            )}
+            {sectionImages.length === 0 && (
+              <span className="text-[10px] text-muted-foreground/60">empty</span>
+            )}
+          </div>
         </div>
+        <ChevronRight className={cn(
+          'h-3.5 w-3.5 text-muted-foreground transition-transform',
+          open && 'rotate-90'
+        )} />
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
         <p className="text-xs text-muted-foreground mb-2">{section.description}</p>
         <ImageSelectorGrid
           projectId={projectId}
           images={sectionImages}
-          onGenerate={() => generate(3)}
+          onGenerate={() => generate(section.packSize)}
           isGenerating={generating}
-          generateLabel={`Generate ${section.label}`}
+          generateLabel={`Generate Pack (${section.packSize} shots)`}
           emptyLabel={`No ${section.label.toLowerCase()} images yet`}
+          showShotTypes
+          showCurationControls
+          enableCompare
         />
       </CollapsibleContent>
     </Collapsible>
@@ -106,19 +128,21 @@ export default function LookBookPage() {
     );
   }
 
-  // Empty state — no look book generated yet
   if (!lookBookData) {
     return (
       <div className="flex flex-col h-full">
-        {/* Image preparation panel */}
+        {/* Visual Asset System panel */}
         {projectId && (
-          <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-[50vh]">
-            <h3 className="text-sm font-semibold text-foreground mb-3">Section Images</h3>
-            <p className="text-xs text-muted-foreground mb-4">
-              Generate and select images for each section before building the Look Book. 
-              All images are stored in your project's image library.
-            </p>
-            <div className="space-y-1">
+          <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-[55vh]">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Visual Asset System</h3>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Generate multi-shot packs per section. Select, compare, and curate before building.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-0.5">
               {SECTIONS.map(section => (
                 <SectionImagePanel key={section.key} projectId={projectId} section={section} />
               ))}
@@ -134,7 +158,7 @@ export default function LookBookPage() {
             <h2 className="text-2xl font-display font-semibold text-foreground">Look Book</h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Generate a studio-quality visual pitch deck from your project's canon, 
-              characters, world, and creative vision. Images you've selected above will be used.
+              characters, world, and creative vision. Curate images above, then build.
             </p>
           </div>
           <Button
@@ -162,7 +186,6 @@ export default function LookBookPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Creative Framing + Regenerate */}
       <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
         <Button
           variant="ghost"
@@ -176,7 +199,6 @@ export default function LookBookPage() {
         </Button>
       </div>
 
-      {/* Framing strategy sidebar */}
       {projectId && (
         <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
           <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
@@ -192,3 +214,4 @@ export default function LookBookPage() {
     </div>
   );
 }
+
