@@ -77,7 +77,7 @@ function PremiseContent({ canon }: { canon: any }) {
       {hasPremise && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Premise</h4>
-          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{canon.premise}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{normalizeCanonText(canon.premise)}</p>
         </div>
       )}
       {hasThreads && (
