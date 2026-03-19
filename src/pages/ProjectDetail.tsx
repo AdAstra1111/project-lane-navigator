@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles, Film, PenTool, ImagePlus, ChevronDown, Activity, Eye, Wrench, Zap, Palette } from 'lucide-react';
+import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles, Film, PenTool, ImagePlus, ChevronDown, ChevronRight, Activity, Eye, Wrench, Zap, Palette, Users, CheckCircle2, AlertCircle } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -380,18 +380,19 @@ export default function ProjectDetail() {
           ═══════════════════════════════════════════════════════════════════════ */}
       <div className="relative w-full overflow-hidden">
         {heroImageUrl ? (
-          <div className="relative min-h-[260px] sm:min-h-[340px]">
+          <div className="relative min-h-[240px] sm:min-h-[320px]">
             <img
               src={heroImageUrl}
               alt={`${project.title} poster`}
-              className="absolute inset-0 w-full h-full object-cover object-top"
+              className="absolute inset-0 w-full h-full object-cover object-[center_20%]"
               loading="lazy"
             />
-            {/* Full scrim for text legibility */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30 pointer-events-none" />
+            {/* Strong multi-stop scrim — bottom-heavy for metadata zone */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/60 to-black/20 pointer-events-none" />
+            <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black to-transparent pointer-events-none" />
           </div>
         ) : (
-          <div className="relative min-h-[200px] sm:min-h-[260px] bg-gradient-to-b from-card/80 to-background">
+          <div className="relative min-h-[180px] sm:min-h-[240px] bg-gradient-to-b from-card/80 to-background">
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center space-y-2">
                 <ImagePlus className="h-10 w-10 text-muted-foreground/30 mx-auto" />
@@ -404,43 +405,43 @@ export default function ProjectDetail() {
         {/* Overlay: title, lane, format, actions */}
         <div className="absolute inset-x-0 bottom-0 p-4 sm:p-6">
           <div className="container max-w-6xl mx-auto">
-            <div className="flex items-end justify-between gap-4">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   {laneBadgeLabel && (
-                    <Badge className="bg-primary/80 text-primary-foreground text-[10px] font-medium tracking-wide uppercase px-2 py-0.5">
+                    <Badge className="bg-primary/80 text-primary-foreground text-[9px] font-medium tracking-wide uppercase px-1.5 py-0">
                       {laneBadgeLabel}
                     </Badge>
                   )}
                   {project.format && (
-                    <Badge variant="outline" className="border-white/20 text-white/70 text-[10px]">
+                    <Badge variant="outline" className="border-white/20 text-white/60 text-[9px] py-0">
                       {project.format.replace(/-/g, ' ')}
                     </Badge>
                   )}
                   {episodeCount && (
-                    <Badge variant="outline" className="border-white/20 text-white/70 text-[10px]">
-                      {episodeCount} episodes
+                    <Badge variant="outline" className="border-white/20 text-white/60 text-[9px] py-0">
+                      {episodeCount} ep
                     </Badge>
                   )}
                 </div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-serif">
+                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight font-serif leading-tight truncate">
                   {project.title}
                 </h1>
                 {project.genres && project.genres.length > 0 && (
-                  <p className="text-xs text-white/50">{project.genres.join(' · ')}</p>
+                  <p className="text-[11px] text-white/40">{project.genres.join(' · ')}</p>
                 )}
               </div>
 
               {/* Primary actions */}
               <div className="flex items-center gap-2 shrink-0">
-                <Link to={`/projects/${id}/poster`}>
-                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
-                    <ImagePlus className="h-3.5 w-3.5" /> Poster
+                <Link to={`/projects/${id}/visual-dev`}>
+                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5">
+                    <Users className="h-3.5 w-3.5" /> Cast &amp; Visuals
                   </Button>
                 </Link>
-                <Link to={`/projects/${id}/visual-dev`}>
-                  <Button size="sm" variant="outline" className="border-white/20 text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
-                    <Film className="h-3.5 w-3.5" /> Cast &amp; Visuals
+                <Link to={`/projects/${id}/poster`}>
+                  <Button size="sm" variant="ghost" className="text-white/60 hover:text-white hover:bg-white/10 text-xs gap-1.5 hidden sm:flex">
+                    <ImagePlus className="h-3.5 w-3.5" /> Poster
                   </Button>
                 </Link>
               </div>
@@ -522,9 +523,37 @@ export default function ProjectDetail() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════
+          VISUAL READINESS STRIP — at-a-glance status
+          ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="container max-w-6xl px-4 pt-4 pb-0">
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground overflow-x-auto">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {heroImageUrl ? (
+              <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+            ) : (
+              <AlertCircle className="h-3 w-3 text-amber-500" />
+            )}
+            <span>Poster {heroImageUrl ? 'selected' : 'missing'}</span>
+          </div>
+          <span className="text-border">·</span>
+          <Link to={`/projects/${id}/visual-dev`} className="flex items-center gap-1.5 shrink-0 hover:text-foreground transition-colors">
+            <Users className="h-3 w-3" />
+            <span>Cast &amp; Identity</span>
+            <ChevronRight className="h-2.5 w-2.5" />
+          </Link>
+          <span className="text-border">·</span>
+          <Link to={`/projects/${id}/images`} className="flex items-center gap-1.5 shrink-0 hover:text-foreground transition-colors">
+            <ImagePlus className="h-3 w-3" />
+            <span>Image Library</span>
+            <ChevronRight className="h-2.5 w-2.5" />
+          </Link>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
           SYSTEM SECTIONS — Collapsible accordion hierarchy
           ═══════════════════════════════════════════════════════════════════════ */}
-      <main className="container max-w-6xl py-6">
+      <main className="container max-w-6xl py-4">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
