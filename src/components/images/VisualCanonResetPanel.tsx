@@ -6,14 +6,15 @@
  * 2. Required Visual Set status (filled vs empty slots)
  * 3. Auto Populate Visual Set — batch generation pipeline
  * 4. Approval queue for recommended candidates
- * 5. Reuse pool management
- * 6. Archive browser
+ * 5. Batch Approve All + Download All actions
+ * 6. Reuse pool management
+ * 7. Archive browser
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
-  Lock, Package, Wand2, Zap,
+  Lock, Package, Wand2, Zap, CheckCheck, Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
