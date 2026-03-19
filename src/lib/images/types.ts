@@ -119,7 +119,26 @@ export const SHOT_TYPE_LABELS: Record<ShotType, string> = {
   texture_ref: 'Texture Reference',
   composition_ref: 'Composition Reference',
   color_ref: 'Color Reference',
+  identity_headshot: 'Identity Headshot',
+  identity_profile: 'Identity Profile',
+  identity_full_body: 'Identity Full Body',
 };
+
+/** Identity shot types — canonical character identity layer */
+export const IDENTITY_SHOT_TYPES: ShotType[] = ['identity_headshot', 'identity_profile', 'identity_full_body'];
+
+/** Identity pack composition — deterministic */
+export const IDENTITY_PACK: ShotType[] = ['identity_headshot', 'identity_profile', 'identity_full_body'];
+
+/** Check if a shot type belongs to the identity layer */
+export function isIdentityShotType(shotType: string | null): boolean {
+  return shotType != null && IDENTITY_SHOT_TYPES.includes(shotType as ShotType);
+}
+
+/** Check if an image is a character identity image */
+export function isCharacterIdentityImage(image: { generation_purpose?: string | null; shot_type?: string | null }): boolean {
+  return image.generation_purpose === 'character_identity' || isIdentityShotType(image.shot_type ?? null);
+}
 
 /** Role limits — max active images per role */
 export const ROLE_LIMITS: Record<ProjectImageRole, number> = {

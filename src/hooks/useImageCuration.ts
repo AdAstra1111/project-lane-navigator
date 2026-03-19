@@ -41,7 +41,9 @@ export function useImageCuration(projectId: string) {
   }, [projectId, updating]);
 
   /**
-   * Set an image as primary for its slot (asset_group + subject + shot_type).
+   * Set an image as primary for its slot.
+   * Slot = asset_group + subject + shot_type + generation_purpose.
+   * Identity and reference primaries are fully independent.
    * Enforces: only ONE primary per slot.
    */
   const setPrimary = useCallback(async (image: ProjectImage) => {
@@ -49,8 +51,6 @@ export function useImageCuration(projectId: string) {
     setUpdating(image.id);
     try {
       // Unset previous primary in same slot
-      // Slot = asset_group + subject + shot_type (all must match)
-      // If shot_type is null, scope to asset_group + subject only
       let deactivateQuery = (supabase as any)
         .from('project_images')
         .update({ is_primary: false })
@@ -59,10 +59,19 @@ export function useImageCuration(projectId: string) {
 
       if (image.asset_group) deactivateQuery = deactivateQuery.eq('asset_group', image.asset_group);
       if (image.subject) deactivateQuery = deactivateQuery.eq('subject', image.subject);
+
+      // Shot type scoping
       if (image.shot_type) {
         deactivateQuery = deactivateQuery.eq('shot_type', image.shot_type);
       } else {
         deactivateQuery = deactivateQuery.is('shot_type', null);
+      }
+
+      // IEL: generation_purpose scoping — identity vs reference primaries are independent
+      if (image.generation_purpose) {
+        deactivateQuery = deactivateQuery.eq('generation_purpose', image.generation_purpose);
+      } else {
+        deactivateQuery = deactivateQuery.is('generation_purpose', null);
       }
 
       await deactivateQuery;
