@@ -500,7 +500,7 @@ async function resolveCompanyBranding(
 }
 
 // ── Visual Truth Snapshot — captures upstream dependencies at generation time ──
-// Dependency-precise: captures only actual resolved inputs, including cast bindings
+// Entity-ID-first: resolves by structured IDs, approved-truth-gated
 
 interface TruthRef { id: string; name: string; version_id?: string; updated_at?: string; }
 interface VisualTruthSnapshot {
@@ -515,9 +515,103 @@ interface VisualTruthSnapshot {
   precise: boolean;
 }
 
+const APPROVED_STATUSES = ["active", "locked", "approved"];
+
 /**
- * Capture dependency-precise truth snapshot.
- * Only captures entities actually used in this poster's prompt context.
+ * Resolve visual subjects by entity IDs. Uses structured IDs, not fuzzy name matching.
+ * Names are used only as a last-resort lookup to obtain IDs, then IDs are used downstream.
+ */
+async function resolveVisualSubjectsServer(
+  sb: ReturnType<typeof createClient>,
+  projectId: string,
+  characterNames?: string[],
+  locationNames?: string[],
+): Promise<{
+  entityIds: string[];
+  locationIds: string[];
+  dnaVersionIds: string[];
+  stateIds: string[];
+  castBindingIds: string[];
+  characterLabels: string[];
+}> {
+  const result = {
+    entityIds: [] as string[],
+    locationIds: [] as string[],
+    dnaVersionIds: [] as string[],
+    stateIds: [] as string[],
+    castBindingIds: [] as string[],
+    characterLabels: [] as string[],
+  };
+
+  // Resolve characters: name -> ID lookup, then use IDs
+  if (characterNames?.length) {
+    const { data: allChars } = await sb.from("narrative_entities")
+      .select("id, canonical_name")
+      .eq("project_id", projectId).eq("entity_type", "character").eq("active", true).limit(100);
+    if (allChars?.length) {
+      const namesLower = characterNames.map(n => n.toLowerCase().trim());
+      const matched = allChars.filter((c: any) =>
+        namesLower.some(n =>
+          (c.canonical_name || "").toLowerCase().includes(n) ||
+          n.includes((c.canonical_name || "").toLowerCase())
+        )
+      );
+      result.entityIds = matched.map((c: any) => c.id);
+      result.characterLabels = matched.map((c: any) => c.canonical_name);
+    }
+  }
+
+  // Resolve locations: name -> ID lookup
+  if (locationNames?.length) {
+    const { data: allLocs } = await sb.from("canon_locations")
+      .select("id, canonical_name")
+      .eq("project_id", projectId).eq("active", true).limit(100);
+    if (allLocs?.length) {
+      const namesLower = locationNames.map(n => n.toLowerCase().trim());
+      const matched = allLocs.filter((l: any) =>
+        namesLower.some(n =>
+          (l.canonical_name || "").toLowerCase().includes(n) ||
+          n.includes((l.canonical_name || "").toLowerCase())
+        )
+      );
+      result.locationIds = matched.map((l: any) => l.id);
+    }
+  }
+
+  // Resolve DNA versions for matched characters
+  if (result.characterLabels.length > 0) {
+    const { data: dna } = await sb.from("character_visual_dna")
+      .select("id, character_name")
+      .eq("project_id", projectId).eq("is_current", true)
+      .in("character_name", result.characterLabels);
+    if (dna?.length) result.dnaVersionIds = dna.map((d: any) => d.id);
+  }
+
+  // Resolve cast bindings for matched characters
+  if (result.characterLabels.length > 0) {
+    const { data: casts } = await sb.from("visual_sets")
+      .select("id")
+      .eq("project_id", projectId).eq("domain", "character_identity")
+      .in("status", APPROVED_STATUSES)
+      .in("subject_ref", result.characterLabels);
+    if (casts?.length) result.castBindingIds = casts.map((c: any) => c.id);
+  }
+
+  // Resolve visual states scoped to matched entity IDs only
+  if (result.entityIds.length > 0) {
+    const { data: states } = await sb.from("entity_visual_states")
+      .select("id")
+      .eq("project_id", projectId)
+      .in("entity_id", result.entityIds);
+    if (states?.length) result.stateIds = states.map((s: any) => s.id);
+  }
+
+  return result;
+}
+
+/**
+ * Capture approved visual truth snapshot using resolved entity IDs.
+ * Only approved/locked/canonical entities enter the snapshot.
  */
 async function captureVisualTruthSnapshot(
   sb: ReturnType<typeof createClient>,
@@ -525,57 +619,57 @@ async function captureVisualTruthSnapshot(
   usedCharacterNames?: string[],
   usedLocationNames?: string[],
 ): Promise<VisualTruthSnapshot> {
-  // Characters — scope to used names if provided
-  let charQuery = sb.from("narrative_entities").select("id, canonical_name, updated_at")
-    .eq("project_id", projectId).eq("entity_type", "character").eq("active", true).limit(50);
-  
-  const charRes = await charQuery;
-  let allChars = (charRes.data || []) as any[];
-  
-  // If we know which characters were used, filter to those
-  if (usedCharacterNames?.length) {
-    const usedNamesLower = usedCharacterNames.map(n => n.toLowerCase());
-    allChars = allChars.filter((c: any) => 
-      usedNamesLower.some(n => (c.canonical_name || '').toLowerCase().includes(n) || n.includes((c.canonical_name || '').toLowerCase()))
-    );
-  }
+  const subjects = await resolveVisualSubjectsServer(sb, projectId, usedCharacterNames, usedLocationNames);
 
-  const [locRes, dnaRes, stateRes, castRes] = await Promise.all([
-    sb.from("canon_locations").select("id, canonical_name, updated_at")
-      .eq("project_id", projectId).eq("active", true).limit(50),
-    sb.from("character_visual_dna").select("id, character_name, version_number, created_at")
-      .eq("project_id", projectId).eq("is_current", true).limit(50),
-    sb.from("entity_visual_states").select("id, state_label, entity_id, updated_at")
-      .eq("project_id", projectId).limit(100),
-    sb.from("visual_sets").select("id, subject_ref, status, current_dna_version_id, updated_at")
-      .eq("project_id", projectId).eq("domain", "character_identity")
-      .in("status", ["active", "locked"]).limit(50),
-  ]);
+  const queries: Promise<any>[] = [];
 
-  const characters = allChars.map((c: any) => ({ id: c.id, name: c.canonical_name, updated_at: c.updated_at }));
+  // Characters — by resolved IDs only
+  queries.push(
+    subjects.entityIds.length > 0
+      ? sb.from("narrative_entities").select("id, canonical_name, updated_at").in("id", subjects.entityIds).eq("active", true)
+      : Promise.resolve({ data: [] })
+  );
+
+  // Locations — by resolved IDs only
+  queries.push(
+    subjects.locationIds.length > 0
+      ? sb.from("canon_locations").select("id, canonical_name, updated_at").in("id", subjects.locationIds).eq("active", true)
+      : Promise.resolve({ data: [] })
+  );
+
+  // DNA — by resolved IDs only
+  queries.push(
+    subjects.dnaVersionIds.length > 0
+      ? sb.from("character_visual_dna").select("id, character_name, version_number, created_at").in("id", subjects.dnaVersionIds).eq("is_current", true)
+      : Promise.resolve({ data: [] })
+  );
+
+  // States — by resolved IDs only
+  queries.push(
+    subjects.stateIds.length > 0
+      ? sb.from("entity_visual_states").select("id, state_label, entity_id, updated_at").in("id", subjects.stateIds)
+      : Promise.resolve({ data: [] })
+  );
+
+  // Cast bindings — by resolved IDs, approved only
+  queries.push(
+    subjects.castBindingIds.length > 0
+      ? sb.from("visual_sets").select("id, subject_ref, status, current_dna_version_id, updated_at").in("id", subjects.castBindingIds).in("status", APPROVED_STATUSES)
+      : Promise.resolve({ data: [] })
+  );
+
+  const [charRes, locRes, dnaRes, stateRes, castRes] = await Promise.all(queries);
+
+  const characters = (charRes.data || []).map((c: any) => ({ id: c.id, name: c.canonical_name, updated_at: c.updated_at }));
   const locations = (locRes.data || []).map((l: any) => ({ id: l.id, name: l.canonical_name, updated_at: l.updated_at }));
-  
-  // DNA — scope to used character names if available
-  let dnaAll = (dnaRes.data || []) as any[];
-  if (usedCharacterNames?.length) {
-    const usedNamesLower = usedCharacterNames.map(n => n.toLowerCase());
-    dnaAll = dnaAll.filter((d: any) =>
-      usedNamesLower.some(n => (d.character_name || '').toLowerCase().includes(n) || n.includes((d.character_name || '').toLowerCase()))
-    );
-  }
-  const dna_versions = dnaAll.map((d: any) => ({ id: d.id, name: d.character_name, version_id: d.id, updated_at: d.created_at }));
-  
+  const dna_versions = (dnaRes.data || []).map((d: any) => ({ id: d.id, name: d.character_name, version_id: d.id, updated_at: d.created_at }));
   const visual_states = (stateRes.data || []).map((s: any) => ({ id: s.id, name: s.state_label || "unnamed", updated_at: s.updated_at }));
-  
-  // Cast bindings — first-class dependency
   const cast_bindings = (castRes.data || []).map((cb: any) => ({
-    id: cb.id,
-    name: cb.subject_ref || "unknown",
+    id: cb.id, name: cb.subject_ref || "unknown",
     version_id: cb.current_dna_version_id || undefined,
     updated_at: cb.updated_at,
   }));
 
-  // Version-based hash — uses version_ids not timestamps
   const parts = [
     ...characters.map((c: TruthRef) => `char:${c.id}`),
     ...locations.map((l: TruthRef) => `loc:${l.id}`),
@@ -591,7 +685,7 @@ async function captureVisualTruthSnapshot(
     characters, locations, visual_states, dna_versions, cast_bindings,
     costume_looks: [], canon_hash,
     captured_at: new Date().toISOString(),
-    precise: !!usedCharacterNames,
+    precise: subjects.entityIds.length > 0 || subjects.locationIds.length > 0,
   };
 }
 
