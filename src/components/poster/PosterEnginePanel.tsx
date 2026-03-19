@@ -573,6 +573,7 @@ export default function PosterEnginePanel() {
                   branding={brandingData}
                   credits={creditsData}
                   layoutVariant={selectedTemplate}
+                  titleStyle={titleStyle}
                   width={120}
                   className="rounded shadow-lg"
                   onCanvasReady={(c) => { activePosterCanvasRef.current = c; }}
