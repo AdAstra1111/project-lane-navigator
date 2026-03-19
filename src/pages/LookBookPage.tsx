@@ -1,14 +1,18 @@
 /**
  * LookBookPage — Studio-quality visual pitch deck / look book.
  * Route: /projects/:id/lookbook
- * Full Visual Asset System with pack generation, curation, and selection.
- * Uses unified visual decision system: recommend → choose → lock → propagate.
+ * 2-state layout: EMPTY (CTA only) vs ACTIVE (compact toolbar + full workspace).
+ * Visual Asset System with pack generation, curation, provenance, and selection.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette, ChevronRight } from 'lucide-react';
+import {
+  Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette,
+  ChevronRight, Archive, Filter, Plus, ImageIcon, Info,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
@@ -17,12 +21,12 @@ import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSectionImages } from '@/hooks/useLookbookSectionImages';
-import { useVisualDecision, recommendLookbookSectionImage } from '@/hooks/useVisualDecision';
-import { DecisionBadge } from '@/components/visual-decisions/DecisionBadge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { SHOT_PACKS } from '@/lib/images/types';
+import type { CurationState } from '@/lib/images/types';
 import type { LookBookData } from '@/lib/lookbook/types';
+import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPanel';
 
 const SECTIONS = [
   { key: 'world' as const, label: 'World / Setting', icon: Globe, description: 'Establishing shots, atmospheric details, and environmental storytelling', packSize: SHOT_PACKS.world.length },
@@ -31,24 +35,25 @@ const SECTIONS = [
   { key: 'visual_language' as const, label: 'Visual Language', icon: Palette, description: 'Lighting, texture, composition, and color references', packSize: SHOT_PACKS.visual_language.length },
 ] as const;
 
+type CurationFilter = 'active' | 'candidate' | 'archived' | 'all';
+
 function SectionImagePanel({ projectId, section }: { projectId: string; section: typeof SECTIONS[number] }) {
   const { sectionImages, generating, generate } = useLookbookSectionImages(projectId, section.key);
-  const decision = useVisualDecision(projectId, 'lookbook_section_image', 'section', section.key);
   const [open, setOpen] = useState(sectionImages.length > 0);
+  const [filter, setFilter] = useState<CurationFilter>('all');
+  const [visibleCount, setVisibleCount] = useState(12);
+
+  const filtered = useMemo(() => {
+    if (filter === 'all') return sectionImages.filter(i => i.curation_state !== 'rejected');
+    return sectionImages.filter(i => i.curation_state === filter);
+  }, [sectionImages, filter]);
+
+  const visible = filtered.slice(0, visibleCount);
+  const hasMore = filtered.length > visibleCount;
 
   const activeCount = sectionImages.filter(i => i.curation_state === 'active' || i.is_primary).length;
   const candidateCount = sectionImages.filter(i => i.curation_state === 'candidate' && !i.is_primary).length;
-
-  // Auto-seed recommendation when images exist but no decision yet
-  useEffect(() => {
-    if (sectionImages.length > 0 && !decision.recommended && !decision.isLoading) {
-      recommendLookbookSectionImage(projectId, section.key).then(result => {
-        if (result) {
-          decision.select(result.value);
-        }
-      }).catch(() => {});
-    }
-  }, [sectionImages.length, decision.recommended, decision.isLoading, projectId, section.key]);
+  const archivedCount = sectionImages.filter(i => i.curation_state === 'archived').length;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -63,17 +68,12 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
             {candidateCount > 0 && (
               <span className="text-[10px] text-muted-foreground">{candidateCount} candidates</span>
             )}
+            {archivedCount > 0 && (
+              <span className="text-[10px] text-muted-foreground/50">{archivedCount} archived</span>
+            )}
             {sectionImages.length === 0 && (
               <span className="text-[10px] text-muted-foreground/60">empty</span>
             )}
-            <DecisionBadge
-              recommended={decision.recommended}
-              selected={decision.selected}
-              effective={decision.effective}
-              isUserSelected={decision.isUserSelected}
-              onClearSelection={decision.isUserSelected ? decision.clearSelection : undefined}
-              compact
-            />
           </div>
         </div>
         <ChevronRight className={cn(
@@ -83,9 +83,33 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
       </CollapsibleTrigger>
       <CollapsibleContent className="px-3 pb-3">
         <p className="text-xs text-muted-foreground mb-2">{section.description}</p>
+
+        {/* Filter bar */}
+        {sectionImages.length > 0 && (
+          <div className="flex items-center gap-1 mb-2 flex-wrap">
+            {(['all', 'active', 'candidate', 'archived'] as CurationFilter[]).map(f => (
+              <button
+                key={f}
+                onClick={() => { setFilter(f); setVisibleCount(12); }}
+                className={cn(
+                  'text-[10px] px-2 py-0.5 rounded-full border transition-colors capitalize',
+                  filter === f
+                    ? 'bg-primary/10 border-primary/30 text-primary'
+                    : 'bg-muted/30 border-border/50 text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {f}
+                {f === 'active' && activeCount > 0 && ` (${activeCount})`}
+                {f === 'candidate' && candidateCount > 0 && ` (${candidateCount})`}
+                {f === 'archived' && archivedCount > 0 && ` (${archivedCount})`}
+              </button>
+            ))}
+          </div>
+        )}
+
         <ImageSelectorGrid
           projectId={projectId}
-          images={sectionImages}
+          images={visible}
           onGenerate={() => generate(section.packSize)}
           isGenerating={generating}
           generateLabel={`Generate Pack (${section.packSize} shots)`}
@@ -93,7 +117,20 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
           showShotTypes
           showCurationControls
           enableCompare
+          showProvenance
         />
+
+        {/* Load more */}
+        {hasMore && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full mt-2 text-xs text-muted-foreground"
+            onClick={() => setVisibleCount(prev => prev + 12)}
+          >
+            Load More ({filtered.length - visibleCount} remaining)
+          </Button>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
@@ -106,6 +143,17 @@ export default function LookBookPage() {
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Check if ANY section has images
+  const worldImages = useLookbookSectionImages(projectId, 'world');
+  const charImages = useLookbookSectionImages(projectId, 'character');
+  const momentImages = useLookbookSectionImages(projectId, 'key_moment');
+  const vlImages = useLookbookSectionImages(projectId, 'visual_language');
+  const totalImages = (worldImages.sectionImages?.length || 0) +
+    (charImages.sectionImages?.length || 0) +
+    (momentImages.sectionImages?.length || 0) +
+    (vlImages.sectionImages?.length || 0);
+  const hasAnyImages = totalImages > 0;
 
   const handleGenerate = useCallback(async () => {
     if (!projectId) return;
@@ -151,57 +199,64 @@ export default function LookBookPage() {
     );
   }
 
+  // ── STATE 1: EMPTY — no images at all, show large CTA ──
+  if (!hasAnyImages && !lookBookData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
+        <div className="flex flex-col items-center gap-3 text-center max-w-md">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-2">
+            <BookOpen className="h-8 w-8 text-primary" />
+          </div>
+          <h2 className="text-2xl font-display font-semibold text-foreground">Look Book</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Generate a studio-quality visual pitch deck from your project's canon,
+            characters, world, and creative vision.
+          </p>
+        </div>
+        <Button onClick={handleGenerate} disabled={generating} className="gap-2" size="lg">
+          {generating ? (
+            <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
+          ) : (
+            <><BookOpen className="h-4 w-4" /> Generate Look Book</>
+          )}
+        </Button>
+      </div>
+    );
+  }
+
+  // ── STATE 2: ACTIVE — compact toolbar + full workspace ──
   if (!lookBookData) {
     return (
-      <div className="flex flex-col h-full">
-        {/* Visual Asset System panel */}
-        {projectId && (
-          <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-[55vh]">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Visual Asset System</h3>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Generate multi-shot packs per section. Select, compare, and curate before building.
-                </p>
-              </div>
-            </div>
-            <div className="space-y-0.5">
-              {SECTIONS.map(section => (
-                <SectionImagePanel key={section.key} projectId={projectId} section={section} />
-              ))}
-            </div>
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Compact toolbar */}
+        <div className="px-4 py-2 border-b border-border bg-card/50 shrink-0 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold text-foreground">Visual Assets</span>
+            <Badge variant="secondary" className="text-[10px]">{totalImages} images</Badge>
           </div>
-        )}
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleGenerate} disabled={generating}>
+              {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
+              Build Look Book
+            </Button>
+          </div>
+        </div>
 
-        <div className="flex flex-col items-center justify-center flex-1 gap-6 p-8">
-          <div className="flex flex-col items-center gap-3 text-center max-w-md">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-2">
-              <BookOpen className="h-8 w-8 text-primary" />
-            </div>
-            <h2 className="text-2xl font-display font-semibold text-foreground">Look Book</h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Generate a studio-quality visual pitch deck from your project's canon, 
-              characters, world, and creative vision. Curate images above, then build.
-            </p>
+        {/* Scrollable workspace */}
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="space-y-0.5">
+            {SECTIONS.map(section => (
+              <SectionImagePanel key={section.key} projectId={projectId!} section={section} />
+            ))}
           </div>
-          <Button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="gap-2"
-            size="lg"
-          >
-            {generating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <BookOpen className="h-4 w-4" />
-                Generate Look Book
-              </>
-            )}
-          </Button>
+
+          {/* Character Base Look System */}
+          {projectId && (
+            <div className="mt-6 border-t border-border pt-4">
+              <CharacterBaseLookPanel projectId={projectId} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -210,13 +265,7 @@ export default function LookBookPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="absolute top-2 right-2 z-20 flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={handleGenerate}
-          disabled={generating}
-        >
+        <Button variant="ghost" size="sm" className="gap-1.5 text-xs" onClick={handleGenerate} disabled={generating}>
           {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Regenerate
         </Button>
@@ -237,4 +286,3 @@ export default function LookBookPage() {
     </div>
   );
 }
-
