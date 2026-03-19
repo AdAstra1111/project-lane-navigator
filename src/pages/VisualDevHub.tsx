@@ -2,7 +2,7 @@
  * Visual Production Hub — Primary operational workspace for all image work.
  * Cast photos, character identity, world references, visual canon, approval, and archive.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
