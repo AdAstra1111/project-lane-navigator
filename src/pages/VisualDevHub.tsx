@@ -2,12 +2,12 @@
  * Visual Production Hub — Primary operational workspace for all image work.
  * Cast photos, character identity, world references, visual canon, approval, and archive.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
-  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw,
+  Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPanel';
 import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPanel';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
+import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
+import { supabase } from '@/integrations/supabase/client';
 
 const PRODUCTION_TOOLS = [
   {
@@ -107,6 +109,31 @@ function WorkSection({
 
 export default function VisualDevHub() {
   const { id: projectId } = useParams<{ id: string }>();
+  const [characters, setCharacters] = useState<string[]>([]);
+  const [locations, setLocations] = useState<string[]>([]);
+
+  // Load canon data for Change Studio targets
+  useEffect(() => {
+    if (!projectId) return;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('project_canon')
+        .select('canon_json')
+        .eq('project_id', projectId)
+        .maybeSingle();
+      if (data?.canon_json) {
+        const canon = data.canon_json;
+        if (Array.isArray(canon.characters)) {
+          setCharacters(canon.characters.map((c: any) =>
+            typeof c === 'string' ? c : (c.name || c.character_name || '')).filter(Boolean));
+        }
+        if (Array.isArray(canon.locations)) {
+          setLocations(canon.locations.map((l: any) =>
+            typeof l === 'string' ? l : (l.name || l.location_name || '')).filter(Boolean));
+        }
+      }
+    })();
+  }, [projectId]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -158,6 +185,22 @@ export default function VisualDevHub() {
             defaultOpen={false}
           >
             {projectId && <VisualCanonResetPanel projectId={projectId} />}
+          </WorkSection>
+
+          {/* ═══ Visual Change Studio ═══ */}
+          <WorkSection
+            icon={<Palette className="h-4 w-4" />}
+            title="Visual Change Studio"
+            subtitle="What-if scenarios — explore visual changes without mutating canon"
+            defaultOpen={false}
+          >
+            {projectId && (
+              <VisualChangeStudio
+                projectId={projectId}
+                characters={characters}
+                locations={locations}
+              />
+            )}
           </WorkSection>
 
           {/* ═══ Production Tools ═══ */}
