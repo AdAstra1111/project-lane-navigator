@@ -25,7 +25,9 @@ export type TitleTypographyMode =
 
 export type TitleCaseMode = "uppercase" | "mixed" | "small_caps";
 
-export type TitlePositionMode = "center" | "lower_center" | "lower_third" | "lower_left";
+export type TitlePositionMode = "center" | "lower_center" | "lower_third" | "lower_left" | "auto";
+
+export type TitleBalanceMode = "compact" | "balanced" | "airy";
 
 export interface TitleStyleConfig {
   typographyMode?: TitleTypographyMode;
@@ -33,6 +35,7 @@ export interface TitleStyleConfig {
   colorHex?: string;
   opacity?: number;
   positionMode?: TitlePositionMode;
+  balanceMode?: TitleBalanceMode;
   /** Override weight (100-900) */
   weightOverride?: number;
   /** Override tracking multiplier */
