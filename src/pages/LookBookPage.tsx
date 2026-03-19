@@ -38,21 +38,15 @@ const SECTIONS = [
 type CurationFilter = 'active' | 'candidate' | 'archived' | 'all';
 
 function SectionImagePanel({ projectId, section }: { projectId: string; section: typeof SECTIONS[number] }) {
-  const { sectionImages, generating, generate } = useLookbookSectionImages(projectId, section.key);
-  const [open, setOpen] = useState(sectionImages.length > 0);
   const [filter, setFilter] = useState<CurationFilter>('all');
-  const [visibleCount, setVisibleCount] = useState(12);
+  const { sectionImages, generating, generate, total, hasMore, loadMore } = useLookbookSectionImages(
+    projectId, section.key, undefined,
+    { curationFilter: filter === 'all' ? 'all' : filter, pageSize: 12 },
+  );
+  const [open, setOpen] = useState(sectionImages.length > 0);
 
-  const filtered = useMemo(() => {
-    if (filter === 'all') return sectionImages.filter(i => i.curation_state !== 'rejected');
-    return sectionImages.filter(i => i.curation_state === filter);
-  }, [sectionImages, filter]);
-
-  const visible = filtered.slice(0, visibleCount);
-  const hasMore = filtered.length > visibleCount;
-
-  const activeCount = sectionImages.filter(i => i.curation_state === 'active' || i.is_primary).length;
-  const candidateCount = sectionImages.filter(i => i.curation_state === 'candidate' && !i.is_primary).length;
+  const activeCount = sectionImages.filter(i => i.curation_state === 'active').length;
+  const candidateCount = sectionImages.filter(i => i.curation_state === 'candidate').length;
   const archivedCount = sectionImages.filter(i => i.curation_state === 'archived').length;
 
   return (
@@ -74,6 +68,9 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
             {sectionImages.length === 0 && (
               <span className="text-[10px] text-muted-foreground/60">empty</span>
             )}
+            {total > 0 && (
+              <span className="text-[10px] text-muted-foreground/40">({total} total)</span>
+            )}
           </div>
         </div>
         <ChevronRight className={cn(
@@ -90,7 +87,7 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
             {(['all', 'active', 'candidate', 'archived'] as CurationFilter[]).map(f => (
               <button
                 key={f}
-                onClick={() => { setFilter(f); setVisibleCount(12); }}
+                onClick={() => setFilter(f)}
                 className={cn(
                   'text-[10px] px-2 py-0.5 rounded-full border transition-colors capitalize',
                   filter === f
@@ -109,7 +106,7 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
 
         <ImageSelectorGrid
           projectId={projectId}
-          images={visible}
+          images={sectionImages}
           onGenerate={() => generate(section.packSize)}
           isGenerating={generating}
           generateLabel={`Generate Pack (${section.packSize} shots)`}
@@ -120,15 +117,15 @@ function SectionImagePanel({ projectId, section }: { projectId: string; section:
           showProvenance
         />
 
-        {/* Load more */}
+        {/* Load more — true DB pagination */}
         {hasMore && (
           <Button
             variant="ghost"
             size="sm"
             className="w-full mt-2 text-xs text-muted-foreground"
-            onClick={() => setVisibleCount(prev => prev + 12)}
+            onClick={loadMore}
           >
-            Load More ({filtered.length - visibleCount} remaining)
+            Load More
           </Button>
         )}
       </CollapsibleContent>
