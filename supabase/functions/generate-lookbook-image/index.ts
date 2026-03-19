@@ -486,7 +486,12 @@ serve(async (req) => {
         prompt += `\n\nCANON CHARACTER FACTS: ${identity_canon_facts}`;
       }
 
-      // Inject identity notes AFTER canon (subordinate)
+      // Inject structured traits block (source-tagged, prioritized)
+      if (identity_traits_block) {
+        prompt += `\n\n${identity_traits_block}`;
+      }
+
+      // Inject identity notes AFTER canon and traits (subordinate)
       if (identity_notes && identity_mode) {
         prompt += `\n\nUSER IDENTITY GUIDANCE (subordinate to canon): ${identity_notes}`;
       }
