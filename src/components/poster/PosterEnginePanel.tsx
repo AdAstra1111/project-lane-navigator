@@ -385,8 +385,8 @@ export default function PosterEnginePanel() {
                   onCanvasReady={(c) => { activePosterCanvasRef.current = c; }}
                 />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
                   <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
                   <span className="text-sm font-medium text-foreground">Active Poster</span>
                   <Badge variant="outline" className="text-[9px]">v{activePoster.version_number}</Badge>
@@ -398,6 +398,7 @@ export default function PosterEnginePanel() {
                   {(activePoster.prompt_inputs as any)?.poster_mode === 'edit' && (
                     <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-500">edited</Badge>
                   )}
+                  <FreshnessBadge freshness={freshnessMap?.[activePoster.id]} posterId={activePoster.id} onRefresh={() => refreshStale.mutate(activePoster.id)} isRefreshing={refreshStale.isPending} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {activePoster.source_type === "generated" ? "AI Key Art" : activePoster.source_type === "edited" ? "Edited" : "Uploaded"} • {POSTER_TEMPLATES[selectedTemplate]?.label || selectedTemplate}
