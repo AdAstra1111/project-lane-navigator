@@ -500,6 +500,7 @@ async function resolveCompanyBranding(
 }
 
 // ── Visual Truth Snapshot — captures upstream dependencies at generation time ──
+// Dependency-precise: captures only actual resolved inputs, including cast bindings
 
 interface TruthRef { id: string; name: string; version_id?: string; updated_at?: string; }
 interface VisualTruthSnapshot {
@@ -507,41 +508,91 @@ interface VisualTruthSnapshot {
   locations: TruthRef[];
   visual_states: TruthRef[];
   dna_versions: TruthRef[];
+  cast_bindings: TruthRef[];
+  costume_looks: TruthRef[];
   canon_hash: string;
   captured_at: string;
+  precise: boolean;
 }
 
+/**
+ * Capture dependency-precise truth snapshot.
+ * Only captures entities actually used in this poster's prompt context.
+ */
 async function captureVisualTruthSnapshot(
   sb: ReturnType<typeof createClient>,
   projectId: string,
+  usedCharacterNames?: string[],
+  usedLocationNames?: string[],
 ): Promise<VisualTruthSnapshot> {
-  const [charRes, locRes, dnaRes, stateRes] = await Promise.all([
-    sb.from("narrative_entities").select("id, canonical_name, updated_at")
-      .eq("project_id", projectId).eq("entity_type", "character").eq("active", true).limit(50),
+  // Characters — scope to used names if provided
+  let charQuery = sb.from("narrative_entities").select("id, canonical_name, updated_at")
+    .eq("project_id", projectId).eq("entity_type", "character").eq("active", true).limit(50);
+  
+  const charRes = await charQuery;
+  let allChars = (charRes.data || []) as any[];
+  
+  // If we know which characters were used, filter to those
+  if (usedCharacterNames?.length) {
+    const usedNamesLower = usedCharacterNames.map(n => n.toLowerCase());
+    allChars = allChars.filter((c: any) => 
+      usedNamesLower.some(n => (c.canonical_name || '').toLowerCase().includes(n) || n.includes((c.canonical_name || '').toLowerCase()))
+    );
+  }
+
+  const [locRes, dnaRes, stateRes, castRes] = await Promise.all([
     sb.from("canon_locations").select("id, canonical_name, updated_at")
       .eq("project_id", projectId).eq("active", true).limit(50),
-    sb.from("character_visual_dna").select("id, character_name, created_at")
+    sb.from("character_visual_dna").select("id, character_name, version_number, created_at")
       .eq("project_id", projectId).eq("is_current", true).limit(50),
-    sb.from("entity_visual_states").select("id, state_label, updated_at")
+    sb.from("entity_visual_states").select("id, state_label, entity_id, updated_at")
       .eq("project_id", projectId).limit(100),
+    sb.from("visual_sets").select("id, subject_ref, status, current_dna_version_id, updated_at")
+      .eq("project_id", projectId).eq("domain", "character_identity")
+      .in("status", ["active", "locked"]).limit(50),
   ]);
 
-  const characters = (charRes.data || []).map((c: any) => ({ id: c.id, name: c.canonical_name, updated_at: c.updated_at }));
+  const characters = allChars.map((c: any) => ({ id: c.id, name: c.canonical_name, updated_at: c.updated_at }));
   const locations = (locRes.data || []).map((l: any) => ({ id: l.id, name: l.canonical_name, updated_at: l.updated_at }));
-  const dna_versions = (dnaRes.data || []).map((d: any) => ({ id: d.id, name: d.character_name, version_id: d.id, updated_at: d.created_at }));
+  
+  // DNA — scope to used character names if available
+  let dnaAll = (dnaRes.data || []) as any[];
+  if (usedCharacterNames?.length) {
+    const usedNamesLower = usedCharacterNames.map(n => n.toLowerCase());
+    dnaAll = dnaAll.filter((d: any) =>
+      usedNamesLower.some(n => (d.character_name || '').toLowerCase().includes(n) || n.includes((d.character_name || '').toLowerCase()))
+    );
+  }
+  const dna_versions = dnaAll.map((d: any) => ({ id: d.id, name: d.character_name, version_id: d.id, updated_at: d.created_at }));
+  
   const visual_states = (stateRes.data || []).map((s: any) => ({ id: s.id, name: s.state_label || "unnamed", updated_at: s.updated_at }));
+  
+  // Cast bindings — first-class dependency
+  const cast_bindings = (castRes.data || []).map((cb: any) => ({
+    id: cb.id,
+    name: cb.subject_ref || "unknown",
+    version_id: cb.current_dna_version_id || undefined,
+    updated_at: cb.updated_at,
+  }));
 
+  // Version-based hash — uses version_ids not timestamps
   const parts = [
-    ...characters.map((c: TruthRef) => `char:${c.id}:${c.updated_at || ""}`),
-    ...locations.map((l: TruthRef) => `loc:${l.id}:${l.updated_at || ""}`),
+    ...characters.map((c: TruthRef) => `char:${c.id}`),
+    ...locations.map((l: TruthRef) => `loc:${l.id}`),
     ...dna_versions.map((d: TruthRef) => `dna:${d.id}:${d.version_id || ""}`),
-    ...visual_states.map((s: TruthRef) => `state:${s.id}:${s.updated_at || ""}`),
+    ...visual_states.map((s: TruthRef) => `state:${s.id}`),
+    ...cast_bindings.map((cb: TruthRef) => `cast:${cb.id}:${cb.version_id || ""}`),
   ].sort().join("|");
   let hash = 0;
   for (let i = 0; i < parts.length; i++) { hash = ((hash << 5) - hash) + parts.charCodeAt(i); hash |= 0; }
   const canon_hash = Math.abs(hash).toString(36);
 
-  return { characters, locations, visual_states, dna_versions, canon_hash, captured_at: new Date().toISOString() };
+  return {
+    characters, locations, visual_states, dna_versions, cast_bindings,
+    costume_looks: [], canon_hash,
+    captured_at: new Date().toISOString(),
+    precise: !!usedCharacterNames,
+  };
 }
 
 async function persistDependencyLinks(
@@ -553,6 +604,7 @@ async function persistDependencyLinks(
   for (const l of snapshot.locations) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "canon_location", dependency_id: l.id, dependency_version_id: null });
   for (const d of snapshot.dna_versions) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "dna_version", dependency_id: d.id, dependency_version_id: d.version_id || null });
   for (const s of snapshot.visual_states) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "visual_state", dependency_id: s.id, dependency_version_id: null });
+  for (const cb of snapshot.cast_bindings) links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: "cast_binding", dependency_id: cb.id, dependency_version_id: cb.version_id || null });
   if (links.length > 0) await sb.from("visual_dependency_links").insert(links);
 }
 
