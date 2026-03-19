@@ -251,6 +251,8 @@ serve(async (req) => {
       project_id, section, count = 4, entity_id, character_name,
       asset_group: requestedAssetGroup, pack_mode = false,
       base_look_mode = false,
+      location_name, location_description,
+      location_ref_mode = false,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -260,6 +262,9 @@ serve(async (req) => {
       asset_group?: AssetGroup;
       pack_mode?: boolean;
       base_look_mode?: boolean;
+      location_name?: string;
+      location_description?: string;
+      location_ref_mode?: boolean;
     };
 
     if (!project_id || !section) {
