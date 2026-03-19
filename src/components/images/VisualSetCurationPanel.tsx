@@ -172,9 +172,14 @@ function VisualSetCard({
       >
         <StatusIcon className={cn('h-4 w-4 shrink-0', statusCfg.color)} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground truncate">{set.target_name}</span>
             <Badge variant="outline" className="text-[8px] px-1 py-0">{set.domain}</Badge>
+            {set.entity_state_key && (
+              <Badge variant="secondary" className="text-[7px] px-1 py-0 bg-purple-500/10 text-purple-600 border-purple-500/20">
+                {set.entity_state_key}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className={cn('text-[10px] font-medium', statusCfg.color)}>{statusCfg.label}</span>
