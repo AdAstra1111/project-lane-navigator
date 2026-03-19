@@ -218,6 +218,8 @@ export function useVisualSets(projectId: string | undefined) {
       targetName: string;
       sourceRunId?: string;
       dnaVersionId?: string | null;
+      entityStateId?: string | null;
+      entityStateKey?: string | null;
     }) => {
       if (!projectId) throw new Error('No project');
       const slots = getSlotsForDomain(params.domain);
