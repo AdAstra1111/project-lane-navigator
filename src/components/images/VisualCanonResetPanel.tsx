@@ -68,9 +68,17 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
-  const [populateProgress, setPopulateProgress] = useState<{ generated: number; total: number; failed: number } | null>(null);
+  const [populateProgress, setPopulateProgress] = useState<{
+    generated: number;
+    total: number;
+    failed: number;
+    currentSlot: string | null;
+    currentPhase: string | null;
+    completedSlots: Array<{ key: string; status: 'generated' | 'failed'; label: string }>;
+  } | null>(null);
   const [useCanonDescriptions, setUseCanonDescriptions] = useState(true);
   const [useApprovedAnchors, setUseApprovedAnchors] = useState(true);
+  const abortRef = useRef(false);
 
   const {
     resetActiveCanon, restoreFromArchive, markForReusePool,
@@ -115,47 +123,183 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const pendingSlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length > 0), [requiredSet]);
   const emptySlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0), [requiredSet]);
 
-  // Auto-populate handler
-  const handleAutoPopulate = useCallback(async (identityOnly: boolean) => {
-    setPopulating(true);
-    setPopulateProgress(null);
-    toast.info(identityOnly ? 'Generating identity images…' : 'Auto-populating visual set…', { duration: 3000 });
+  // Phase labels
+  const PHASE_LABELS: Record<number, string> = {
+    1: 'Identity',
+    2: 'Character References',
+    3: 'World & Locations',
+    4: 'Visual Language & Key Moments',
+  };
 
-    try {
-      const { data, error } = await supabase.functions.invoke('auto-populate-visual-set', {
-        body: {
-          project_id: projectId,
-          identity_only: identityOnly,
-          use_canon_descriptions: useCanonDescriptions,
-          use_approved_anchors: useApprovedAnchors,
-        },
-      });
+  // Build slot manifest from required visual set (mirrors edge function logic)
+  const buildSlotManifest = useCallback((identityOnly: boolean) => {
+    const IDENTITY_PACK = ['identity_headshot', 'identity_profile', 'identity_full_body'];
+    const CHAR_REF_PACK = ['close_up', 'medium', 'full_body', 'profile', 'emotional_variant'];
+    const WORLD_PACK = ['wide', 'atmospheric', 'detail', 'time_variant'];
+    const VIS_LANG_PACK = ['lighting_ref', 'texture_ref', 'composition_ref', 'color_ref'];
+    const KEY_MOMENT_PACK = ['tableau', 'medium', 'close_up', 'wide'];
 
-      if (error) throw new Error(error.message || 'Generation failed');
+    type SlotSpec = {
+      assetGroup: string; subject: string | null; shotType: string;
+      isIdentity: boolean; phase: number; label: string; section: string;
+    };
 
-      const result = data as any;
-      setPopulateProgress({
-        generated: result.generated || 0,
-        total: result.total_slots || 0,
-        failed: result.failed || 0,
-      });
+    const slots: SlotSpec[] = [];
+    const empty = requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0);
 
-      if (result.generated > 0) {
-        toast.success(`Generated ${result.generated} candidate image${result.generated !== 1 ? 's' : ''}${result.failed > 0 ? ` (${result.failed} failed)` : ''}`);
-        // Refresh images
-        refetchImages();
-      } else if (result.status === 'complete') {
-        toast.info('All slots already have candidates');
-      } else {
-        toast.error(`Generation failed: ${result.failed} slot${result.failed !== 1 ? 's' : ''} had errors`);
+    // Phase 1: Identity
+    for (const s of empty) {
+      if (s.assetGroup === 'character' && s.isIdentity && s.shotType && IDENTITY_PACK.includes(s.shotType)) {
+        slots.push({ assetGroup: 'character', subject: s.subject, shotType: s.shotType, isIdentity: true, phase: 1, label: s.label, section: 'character' });
       }
-    } catch (err: any) {
-      console.error('[auto-populate] error:', err);
-      toast.error(`Auto-populate failed: ${err.message || 'Unknown error'}`);
-    } finally {
-      setPopulating(false);
     }
-  }, [projectId, useCanonDescriptions, useApprovedAnchors, refetchImages]);
+    if (!identityOnly) {
+      // Phase 2: Character refs
+      for (const s of empty) {
+        if (s.assetGroup === 'character' && !s.isIdentity && s.shotType && CHAR_REF_PACK.includes(s.shotType)) {
+          slots.push({ assetGroup: 'character', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 2, label: s.label, section: 'character' });
+        }
+      }
+      // Phase 3: World
+      for (const s of empty) {
+        if (s.assetGroup === 'world' && s.shotType && WORLD_PACK.includes(s.shotType)) {
+          slots.push({ assetGroup: 'world', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 3, label: s.label, section: 'world' });
+        }
+      }
+      // Phase 4: Visual Language + Key Moments
+      for (const s of empty) {
+        if (s.assetGroup === 'visual_language' && s.shotType && VIS_LANG_PACK.includes(s.shotType)) {
+          slots.push({ assetGroup: 'visual_language', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 4, label: s.label, section: 'visual_language' });
+        }
+      }
+      for (const s of empty) {
+        if (s.assetGroup === 'key_moment' && s.shotType && KEY_MOMENT_PACK.includes(s.shotType)) {
+          slots.push({ assetGroup: 'key_moment', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 4, label: s.label, section: 'key_moment' });
+        }
+      }
+    }
+
+    slots.sort((a, b) => a.phase - b.phase);
+    return slots;
+  }, [requiredSet]);
+
+  // Extract character/location descriptions from canon
+  const getCanonDescription = useCallback((subject: string | null, assetGroup: string) => {
+    if (!subject || !canonJson) return undefined;
+    if (assetGroup === 'character' && Array.isArray(canonJson.characters)) {
+      const c = canonJson.characters.find((ch: any) => {
+        const name = typeof ch === 'string' ? ch.trim() : (ch.name || ch.character_name || '').trim();
+        return name === subject;
+      });
+      if (c && typeof c === 'object') return c.description || c.physical_description || undefined;
+    }
+    if (assetGroup === 'world' && Array.isArray(canonJson.locations)) {
+      const l = canonJson.locations.find((loc: any) => {
+        const name = typeof loc === 'string' ? loc.trim() : (loc.name || loc.location_name || '').trim();
+        return name === subject;
+      });
+      if (l && typeof l === 'object') return l.description || undefined;
+    }
+    return undefined;
+  }, [canonJson]);
+
+  // Progressive auto-populate — slot by slot with live UI updates
+  const handleAutoPopulate = useCallback(async (identityOnly: boolean) => {
+    const slots = buildSlotManifest(identityOnly);
+    if (slots.length === 0) {
+      toast.info('All slots already have candidates');
+      return;
+    }
+
+    abortRef.current = false;
+    setPopulating(true);
+    setPopulateProgress({
+      generated: 0, total: slots.length, failed: 0,
+      currentSlot: slots[0]?.label || null,
+      currentPhase: PHASE_LABELS[slots[0]?.phase] || null,
+      completedSlots: [],
+    });
+
+    let generated = 0;
+    let failed = 0;
+    const completedSlots: Array<{ key: string; status: 'generated' | 'failed'; label: string }> = [];
+
+    for (let i = 0; i < slots.length; i++) {
+      if (abortRef.current) break;
+      const slot = slots[i];
+      const slotKey = `${slot.assetGroup}:${slot.subject || '_'}:${slot.shotType}`;
+
+      // Update current slot indicator
+      setPopulateProgress(prev => prev ? {
+        ...prev,
+        currentSlot: slot.label,
+        currentPhase: PHASE_LABELS[slot.phase] || null,
+      } : prev);
+
+      // Build request body
+      const genBody: Record<string, any> = {
+        project_id: projectId,
+        section: slot.section,
+        count: 1,
+        asset_group: slot.assetGroup,
+        pack_mode: false,
+        forced_shot_type: slot.shotType,
+      };
+
+      if (slot.assetGroup === 'character') {
+        genBody.character_name = slot.subject;
+      } else if (slot.assetGroup === 'world') {
+        genBody.location_name = slot.subject;
+      }
+
+      if (useCanonDescriptions && slot.subject) {
+        const desc = getCanonDescription(slot.subject, slot.assetGroup);
+        if (desc) {
+          if (slot.assetGroup === 'character') genBody.identity_canon_facts = desc;
+          if (slot.assetGroup === 'world') genBody.location_description = desc;
+        }
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
+          body: genBody,
+        });
+
+        if (error) throw new Error(error.message);
+        const firstResult = (data as any)?.results?.[0];
+        if (firstResult?.status === 'ready') {
+          generated++;
+          completedSlots.push({ key: slotKey, status: 'generated', label: slot.label });
+        } else {
+          failed++;
+          completedSlots.push({ key: slotKey, status: 'failed', label: slot.label });
+        }
+      } catch (err: any) {
+        console.error(`[auto-populate] Slot ${slotKey} error:`, err);
+        failed++;
+        completedSlots.push({ key: slotKey, status: 'failed', label: slot.label });
+      }
+
+      // Progressive update — refresh images and update counts after each slot
+      setPopulateProgress({
+        generated, total: slots.length, failed,
+        currentSlot: i < slots.length - 1 ? slots[i + 1]?.label || null : null,
+        currentPhase: i < slots.length - 1 ? PHASE_LABELS[slots[i + 1]?.phase] || null : null,
+        completedSlots: [...completedSlots],
+      });
+
+      // Refresh image queries so Approval Queue / Required Visual Set update live
+      refetchImages();
+    }
+
+    setPopulating(false);
+
+    if (generated > 0) {
+      toast.success(`Generated ${generated} candidate image${generated !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`);
+    } else {
+      toast.error(`Generation failed for all ${failed} slots`);
+    }
+  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages]);
 
   if (loading || imagesLoading) {
     return (
