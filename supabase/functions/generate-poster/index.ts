@@ -1455,7 +1455,7 @@ serve(async (req) => {
     const primaryGenConfig = resolveImageGenerationConfig(primaryInput);
     const primaryRepoMeta = buildImageRepositoryMeta(primaryGenConfig, primaryInput);
 
-    const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx);
+    const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx, vsalResolution.promptBlock);
 
     const { data: existingPosters } = await supabase
       .from("project_posters")
