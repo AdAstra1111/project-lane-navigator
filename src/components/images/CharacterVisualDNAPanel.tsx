@@ -515,7 +515,39 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
           </div>
         )}
 
-        {/* Auto-fill prompt when no evidence and missing clarifications */}
+        {/* Transient Visual States — scene-bound, NOT permanent identity */}
+        {hasTransient && (
+          <div className="border border-muted-foreground/20 rounded-md p-2 bg-muted/30">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Eye className="h-3 w-3 text-muted-foreground" />
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                Transient States (Scene-Bound)
+              </span>
+              <Badge variant="secondary" className="text-[9px] h-4 px-1">{dna.transientStates.length}</Badge>
+            </div>
+            <p className="text-[9px] text-muted-foreground mb-1.5">
+              Temporary/situational appearance cues. NOT enforced as permanent identity.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {dna.transientStates.map((t, i) => (
+                <TooltipProvider key={`tr-${i}`}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border border-muted-foreground/20 bg-muted text-muted-foreground cursor-help">
+                        {t.label}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-[10px]">Source: {t.evidenceSource}</p>
+                      <p className="text-[9px] text-muted-foreground">Scene-bound — will not be enforced across images</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!hasEvidence && hasMissing && activeMarkers.length === 0 && (
           <div className="border border-dashed border-cyan-500/30 rounded-md p-2 bg-cyan-500/5">
             <div className="flex items-center justify-between">
