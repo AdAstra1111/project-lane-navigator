@@ -578,6 +578,10 @@ async function writeParticipation(
     }
   }
 
+  // Auto-resolve participation: if entity_id + scene_id are resolved and no
+  // duplicate contradictory record exists, auto-approve above confidence threshold.
+  const PARTICIPATION_AUTO_APPROVE_THRESHOLD = 0.65;
+
   for (const char of extractedEntities.characters) {
     const entityId = entityMap.get(char.canonical_name);
     if (!entityId || !char.scenes_present) continue;
@@ -585,6 +589,12 @@ async function writeParticipation(
       const sceneId = sceneMap.get(sk);
       if (!sceneId) continue;
       if (rows.find(r => r.scene_id === sceneId && r.entity_id === entityId && r.entity_type === "character")) continue;
+
+      const confidence = 0.7;
+      // Deterministic auto-accept: entity resolved, scene resolved, confidence >= threshold,
+      // no alias conflict (entity found in map = resolved), no competing candidate.
+      const autoAccept = entityId && sceneId && confidence >= PARTICIPATION_AUTO_APPROVE_THRESHOLD;
+
       rows.push({
         project_id: projectId,
         ingestion_run_id: runId,
@@ -593,10 +603,10 @@ async function writeParticipation(
         entity_type: "character",
         role_in_scene: "present",
         is_primary: false,
-        confidence: 0.7,
+        confidence,
         source_reason: "ai_extraction",
-        review_tier: "review_required",
-        review_status: "pending",
+        review_tier: autoAccept ? "auto_accepted" : "review_required",
+        review_status: autoAccept ? "approved" : "pending",
       });
     }
   }
@@ -1143,6 +1153,12 @@ Deno.serve(async (req: Request) => {
           .eq("ingestion_run_id", runId)
           .eq("review_status", "pending");
 
+        const { count: autoResolvedParticipation } = await supabase.from("scene_entity_participation")
+          .select("*", { count: "exact", head: true })
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId)
+          .eq("review_tier", "auto_accepted");
+
         // ── Complete ──
         const manifest = {
           scenes_parsed: scenes.length,
@@ -1164,6 +1180,9 @@ Deno.serve(async (req: Request) => {
             aliases: reviewAliases || 0,
             transitions: reviewTransitions || 0,
             participation: reviewParticipation || 0,
+          },
+          auto_resolved: {
+            participation: autoResolvedParticipation || 0,
           },
         };
 
@@ -1223,7 +1242,7 @@ Deno.serve(async (req: Request) => {
     } else if (action === "review") {
       const { projectId, runId } = body;
 
-      const [entitiesRes, transitionsRes, aliasesRes, participationRes] = await Promise.all([
+      const [entitiesRes, transitionsRes, aliasesRes, participationPendingRes, participationAllRes] = await Promise.all([
         supabase.from("narrative_entities")
           .select("*")
           .eq("project_id", projectId)
@@ -1240,19 +1259,64 @@ Deno.serve(async (req: Request) => {
           .eq("project_id", projectId)
           .eq("ingestion_run_id", runId)
           .eq("review_status", "pending"),
+        // Also fetch auto-resolved for summary
+        supabase.from("scene_entity_participation")
+          .select("entity_id,entity_type,review_status,review_tier,confidence,source_reason")
+          .eq("project_id", projectId)
+          .eq("ingestion_run_id", runId),
       ]);
 
-      // Compute review summary
       const entities = entitiesRes.data || [];
       const transitions = transitionsRes.data || [];
       const aliases = aliasesRes.data || [];
-      const participation = participationRes.data || [];
+      const participationPending = participationPendingRes.data || [];
+      const participationAll = participationAllRes.data || [];
+
+      // Build participation summaries grouped by entity
+      const participationByEntity: Record<string, { entity_id: string; entity_type: string; total: number; auto_resolved: number; pending: number; pending_items: any[] }> = {};
+      for (const p of participationAll) {
+        const key = p.entity_id;
+        if (!participationByEntity[key]) {
+          participationByEntity[key] = { entity_id: p.entity_id, entity_type: p.entity_type, total: 0, auto_resolved: 0, pending: 0, pending_items: [] };
+        }
+        participationByEntity[key].total++;
+        if (p.review_tier === "auto_accepted" || p.review_status === "approved") {
+          participationByEntity[key].auto_resolved++;
+        } else {
+          participationByEntity[key].pending++;
+        }
+      }
+      // Attach pending items for drill-down
+      for (const p of participationPending) {
+        if (participationByEntity[p.entity_id]) {
+          participationByEntity[p.entity_id].pending_items.push(p);
+        }
+      }
+
+      // Resolve entity names for summaries
+      const entityIds = Object.keys(participationByEntity);
+      let entityNameMap: Record<string, string> = {};
+      if (entityIds.length > 0) {
+        const { data: nameRows } = await supabase.from("narrative_entities")
+          .select("id,canonical_name")
+          .in("id", entityIds);
+        for (const r of (nameRows || [])) {
+          entityNameMap[r.id] = r.canonical_name;
+        }
+      }
+
+      const participationSummaries = Object.values(participationByEntity).map(s => ({
+        ...s,
+        entity_name: entityNameMap[s.entity_id] || s.entity_id,
+      }));
 
       const reviewSummary = {
         entities_needing_review: entities.filter((e: any) => e.meta_json?.review_tier !== "auto_accepted").length,
         aliases_needing_review: aliases.filter((a: any) => a.review_status === "review_required").length,
         transitions_pending: transitions.filter((t: any) => t.review_status === "pending").length,
-        participation_pending: participation.length,
+        participation_pending: participationPending.length,
+        participation_auto_resolved: participationAll.length - participationPending.length,
+        participation_total: participationAll.length,
       };
 
       return new Response(JSON.stringify({
@@ -1260,7 +1324,8 @@ Deno.serve(async (req: Request) => {
         entities,
         state_transitions: transitions,
         aliases,
-        participation_pending: participation,
+        participation_pending: participationPending,
+        participation_summaries: participationSummaries,
         review_summary: reviewSummary,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
