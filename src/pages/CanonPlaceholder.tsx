@@ -126,7 +126,7 @@ function WorldContent({ canon, locations }: { canon: any; locations: any[] }) {
       {hasWorldRules && (
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">World Rules</h4>
-          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{canon.world_rules}</p>
+          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{hasWorldRules}</p>
         </div>
       )}
       {hasTimeline && (
