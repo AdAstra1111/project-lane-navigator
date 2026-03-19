@@ -706,7 +706,7 @@ serve(async (req) => {
     }
 
     const body = await req.json();
-    const { project_id, mode, strategy_key } = body;
+    const { project_id, mode, strategy_key, source_poster_id, edit_prompt, poster_template } = body;
     if (!project_id) {
       return new Response(JSON.stringify({ error: "project_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -722,6 +722,191 @@ serve(async (req) => {
 
     // Resolve image generation config via shared API resolver
     const styleMode = strategyCtx.stylePolicy.mode as ImageStyleMode;
+
+    // ── Mode: edit_poster — prompt-based poster editing / branching ──
+    if (mode === "edit_poster" && source_poster_id && edit_prompt) {
+      // Fetch source poster
+      const { data: sourcePoster, error: srcErr } = await supabase
+        .from("project_posters")
+        .select("*")
+        .eq("id", source_poster_id)
+        .single();
+      if (srcErr || !sourcePoster) {
+        return new Response(JSON.stringify({ error: "Source poster not found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Get source image for edit
+      let sourceImageUrl: string | null = null;
+      const storagePath = sourcePoster.key_art_storage_path;
+      if (storagePath) {
+        const { data: signedData } = await supabase.storage
+          .from("project-posters")
+          .createSignedUrl(storagePath, 600);
+        sourceImageUrl = signedData?.signedUrl || null;
+      }
+
+      // Build edit prompt that preserves composition lineage
+      const editFullPrompt = [
+        `Edit this existing movie poster key art with the following changes:`,
+        edit_prompt,
+        ``,
+        `CRITICAL RULES:`,
+        `- Preserve the overall cinematic composition and visual storytelling`,
+        `- DO NOT add any text, titles, names, credits, or billing blocks`,
+        `- Keep the image as pure visual key art — text is composited separately`,
+        `- Maintain the full edge-to-edge composition — no empty zones`,
+        `- The result must still feel like premium theatrical poster art`,
+        strategyCtx.stylePolicy.styleDirectives,
+      ].join("\n");
+
+      // Get next version number
+      const { data: existingPosters } = await supabase
+        .from("project_posters")
+        .select("version_number")
+        .eq("project_id", project_id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      const nextVersion = (existingPosters?.[0]?.version_number || 0) + 1;
+
+      const editGenConfig = resolveImageGenerationConfig({
+        role: 'poster_variant' as ImageRole,
+        styleMode,
+        strategyKey: sourcePoster.layout_variant || 'commercial',
+      });
+
+      // Create poster record
+      const { data: posterRecord, error: insertErr } = await supabase
+        .from("project_posters")
+        .insert({
+          project_id,
+          user_id: user.id,
+          version_number: nextVersion,
+          status: "generating",
+          source_type: "edited",
+          aspect_ratio: sourcePoster.aspect_ratio || "2:3",
+          layout_variant: sourcePoster.layout_variant || "cinematic-dark",
+          prompt_text: editFullPrompt,
+          prompt_inputs: {
+            ...inputs,
+            source_poster_id,
+            edit_prompt,
+            poster_template: poster_template || sourcePoster.layout_variant,
+            poster_mode: "edit",
+          },
+          provider: editGenConfig.provider,
+          model: editGenConfig.model,
+          render_status: "key_art_only",
+          is_active: false,
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw new Error(`Failed to create edit record: ${insertErr.message}`);
+
+      try {
+        let imageResult: ProviderImageResult;
+
+        if (sourceImageUrl) {
+          // Use image editing — send source image + edit prompt
+          const aiResponse = await fetch(editGenConfig.gatewayUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: editGenConfig.model,
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: editFullPrompt },
+                  { type: "image_url", image_url: { url: sourceImageUrl } },
+                ],
+              }],
+              modalities: ["image", "text"],
+            }),
+          });
+
+          if (!aiResponse.ok) {
+            const errText = await aiResponse.text();
+            if (aiResponse.status === 429) throw new Error("Rate limit exceeded");
+            if (aiResponse.status === 402) throw new Error("Payment required");
+            throw new Error(`AI gateway error [${aiResponse.status}]: ${errText}`);
+          }
+
+          const aiData = await aiResponse.json();
+          imageResult = extractImageFromResponse(aiData);
+        } else {
+          // No source image available — generate fresh with edit context
+          imageResult = await generateImage(LOVABLE_API_KEY, editFullPrompt, editGenConfig.model, editGenConfig.gatewayUrl);
+        }
+
+        const keyArtPath = `${project_id}/key-art/v${nextVersion}-edit.${imageResult.format}`;
+        const { error: uploadErr } = await supabase.storage
+          .from("project-posters")
+          .upload(keyArtPath, imageResult.rawBytes, {
+            contentType: `image/${imageResult.format}`,
+            upsert: true,
+          });
+
+        if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
+
+        await supabase.from("project_posters")
+          .update({
+            status: "ready",
+            key_art_storage_path: keyArtPath,
+            rendered_storage_path: keyArtPath,
+            render_status: "key_art_only",
+          })
+          .eq("id", posterRecord.id);
+
+        // Register into canonical project_images
+        const repoMeta = buildImageRepositoryMeta(editGenConfig, {
+          role: 'poster_variant' as ImageRole,
+          styleMode,
+          strategyKey: sourcePoster.layout_variant || 'commercial',
+        });
+
+        await supabase.from("project_images").insert({
+          project_id,
+          role: "poster_variant",
+          entity_id: null,
+          strategy_key: sourcePoster.layout_variant || "commercial",
+          prompt_used: editFullPrompt,
+          negative_prompt: strategyCtx.stylePolicy.negativeStyleConstraints || "",
+          canon_constraints: { world_lock: inputs.worldLock, edit_prompt, source_poster_id },
+          storage_path: keyArtPath,
+          storage_bucket: "project-posters",
+          is_primary: false,
+          is_active: true,
+          source_poster_id: posterRecord.id,
+          user_id: user.id,
+          created_by: user.id,
+          provider: editGenConfig.provider,
+          model: editGenConfig.model,
+          style_mode: styleMode,
+          generation_config: { ...repoMeta, poster_mode: "edit", source_poster_id },
+        });
+
+        return new Response(JSON.stringify({
+          poster_id: posterRecord.id,
+          status: "ready",
+          source_poster_id,
+          edit_prompt,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (genErr: unknown) {
+        const errMsg = genErr instanceof Error ? genErr.message : "Edit failed";
+        await supabase.from("project_posters").update({ status: "failed", error_message: errMsg }).eq("id", posterRecord.id);
+        return new Response(JSON.stringify({ error: errMsg, poster_id: posterRecord.id }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     // ── Mode: multi_concept — generate 6 strategy posters ──
     if (mode === "multi_concept") {
