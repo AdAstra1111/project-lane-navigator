@@ -944,12 +944,23 @@ serve(async (req) => {
       });
     }
 
+    // ── VSAL: Resolve Visual Style Authority ──
+    const vsalResolution = await resolveVisualStyleProfile(supabase, project_id);
+    const vsalCheck = validateStyleOrError(vsalResolution);
+    if (!vsalCheck.valid) {
+      console.warn(`[IEL:visual_style_authority_violation] Poster generation blocked: ${vsalResolution.error}`);
+      return new Response(JSON.stringify(vsalCheck.body), {
+        status: vsalCheck.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Resolve project truth + branding
     const inputs = await resolveProjectInputs(supabase, project_id);
     const branding = await resolveCompanyBranding(supabase, project_id);
     const strategyCtx = buildStrategyContext(inputs, branding);
 
     console.log("World lock:", JSON.stringify(inputs.worldLock, null, 2));
+    console.log("VSAL lock:", JSON.stringify(vsalResolution.lock, null, 2));
 
     // ── Capture dependency-precise truth snapshot ──
     // Extract character names from resolved prompt inputs for precise scoping
