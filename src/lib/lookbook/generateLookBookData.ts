@@ -94,6 +94,123 @@ function parseComparables(text?: string): Array<{ title: string; reason: string 
   });
 }
 
+/* ── Content-strengthening helpers ── */
+
+function buildVisualLanguageCopy(
+  canon: Record<string, unknown>,
+  genre: string,
+  tone: string,
+  imageStyle: string,
+): { body: string; bullets: string[] } {
+  const period = (canon.world_rules as string || '').match(/\b(19\d{2}|20\d{2}|18\d{2}|contemporary|modern|medieval|victorian|future|futuristic)\b/i)?.[0] || '';
+  const worldRules = (canon.world_rules as string) || '';
+  const toneStyle = (canon.tone_style as string) || tone || '';
+
+  // Build a project-specific visual thesis
+  const fragments: string[] = [];
+  if (period) fragments.push(`rooted in the texture and light of ${period.toLowerCase().includes('19') || period.toLowerCase().includes('18') ? `the ${period}s` : period.toLowerCase()}`);
+  if (toneStyle) fragments.push(`carrying the emotional weight of ${toneStyle.toLowerCase()}`);
+  if (genre) fragments.push(`filtered through the grammar of ${genre.toLowerCase()}`);
+
+  const body = fragments.length > 0
+    ? `A deliberate visual system ${fragments.join(', ')}. Every frame is designed to immerse the audience in the world before a single word is spoken — atmosphere, texture, and light do the storytelling.`
+    : 'A unified visual philosophy where atmosphere, colour, and composition serve the narrative. The image system is designed to be felt before it is understood — each frame functions as emotional evidence.';
+
+  // Build specific bullets from canon data
+  const bullets: string[] = [];
+  const styleLabel = imageStyle.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+  if (worldRules && worldRules.length > 20) {
+    const worldSnippet = worldRules.slice(0, 80).replace(/[.!]?\s*$/, '');
+    bullets.push(`World-grounded palette: ${worldSnippet}`);
+  } else {
+    bullets.push(`${styleLabel} tonality — naturalistic colour, controlled contrast, cinematic depth of field`);
+  }
+
+  if (toneStyle) {
+    bullets.push(`Emotional register: ${toneStyle} — every lighting choice and composition reinforces this`);
+  }
+
+  if (period) {
+    bullets.push(`Period authenticity in production design, costume texture, and environmental detail`);
+  } else {
+    bullets.push(`Consistent environmental design language across all locations and scenes`);
+  }
+
+  bullets.push('Visual continuity between marketing materials, key art, and in-narrative imagery');
+
+  return { body, bullets };
+}
+
+function buildStoryEngineCopy(
+  canon: Record<string, unknown>,
+  format: string,
+  genre: string,
+  logline: string,
+): { body: string; bodySecondary: string; bullets: string[] } {
+  const formatConstraints = (canon.format_constraints as string) || '';
+  const toneStyle = (canon.tone_style as string) || '';
+  const isSeries = format.includes('series') || format.includes('vertical') || format.includes('limited');
+
+  let body: string;
+  if (formatConstraints && formatConstraints.length > 30) {
+    body = formatConstraints.slice(0, 400);
+  } else if (isSeries) {
+    body = `A serialised narrative engineered for sustained emotional investment. The dramatic architecture is designed so that each episode compounds tension, deepens character, and raises the stakes — the audience is always leaning forward.`;
+  } else {
+    body = `A tightly structured narrative built around escalating dramatic pressure. The story is designed to sustain audience engagement from the opening image to the final frame through careful emotional calibration and narrative momentum.`;
+  }
+
+  let bodySecondary = '';
+  if (toneStyle) {
+    bodySecondary = `The tonal register — ${toneStyle.toLowerCase()} — governs pacing, revelation timing, and the balance between tension and release across the full narrative arc.`;
+  }
+
+  const bullets: string[] = [];
+  if (isSeries) {
+    bullets.push('Episode-end hooks create compulsive viewing momentum');
+    bullets.push('Character arcs calibrated across the full season trajectory');
+    bullets.push('Escalating dramatic stakes with controlled revelation pacing');
+    if (genre.toLowerCase().includes('thriller') || genre.toLowerCase().includes('crime')) {
+      bullets.push('Investigative or procedural spine sustains episodic structure');
+    } else {
+      bullets.push('Thematic deepening rewards sustained audience attention');
+    }
+  } else {
+    bullets.push('Three-act escalation with controlled tonal shifts');
+    bullets.push('Character transformation as the primary engine of dramatic momentum');
+    bullets.push('Audience alignment shifts create re-watch value');
+  }
+
+  return { body, bodySecondary, bullets };
+}
+
+function buildThemesCopy(
+  canon: Record<string, unknown>,
+  genre: string,
+  tone: string,
+): { body: string; bodySecondary: string } {
+  const toneStyle = (canon.tone_style as string) || tone || '';
+  const worldRules = (canon.world_rules as string) || '';
+  const logline = (canon.logline as string) || '';
+
+  let body = toneStyle;
+  if (typeof toneStyle === 'string' && toneStyle.length < 60) {
+    // Enrich thin tone descriptions
+    const enrichments: string[] = [];
+    if (genre) enrichments.push(`operating within the conventions of ${genre.toLowerCase()}`);
+    if (worldRules && worldRules.length > 20) enrichments.push(`shaped by the pressures and rules of its world`);
+    body = toneStyle + (enrichments.length ? ` — ${enrichments.join(', ')}.` : '.');
+  }
+
+  let bodySecondary = '';
+  if (logline) {
+    bodySecondary = `At its core, the project explores the tension between what characters want and what the world allows them to have. The thematic architecture operates beneath the surface of genre, giving the audience something to feel long after the credits.`;
+  }
+
+  return { body, bodySecondary };
+}
+
 export async function generateLookBookData(
   projectId: string,
   branding: { companyName: string | null; companyLogoUrl: string | null },
@@ -110,6 +227,8 @@ export async function generateLookBookData(
   console.log('[LookBook] ✓ project loaded:', (project as any).title);
 
   const genre = Array.isArray((project as any).genres) ? (project as any).genres.join(', ') : '';
+  const format = ((project as any).format || '').toLowerCase();
+  const tone = (project as any).tone || '';
 
   // 2. Load canonical state
   const canonicalState = await getCanonicalProjectState(projectId);
@@ -163,7 +282,6 @@ export async function generateLookBookData(
   // 4. Resolve canonical images per section — SAME logic as workspace
   const canonImages = await resolveAllCanonImages(projectId);
 
-  // Extract key URLs from resolved canon images
   const coverImageUrl =
     canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
     canonImages.poster_directions.images[0]?.signedUrl ||
@@ -171,12 +289,11 @@ export async function generateLookBookData(
 
   const worldImages = canonImages.world_locations.images;
   const worldImageUrl = worldImages[0]?.signedUrl || '';
-
   const atmosphereImages = canonImages.atmosphere_lighting.images;
   const textureImages = canonImages.texture_detail.images;
   const motifImages = canonImages.symbolic_motifs.images;
 
-  // Build character image map from resolved canon
+  // Build character image maps
   const charImages = canonImages.character_identity.images;
   const characterImageMap = new Map<string, string>();
   for (const img of charImages) {
@@ -184,8 +301,6 @@ export async function generateLookBookData(
       characterImageMap.set(img.entity_id, img.signedUrl);
     }
   }
-
-  // Also try matching by subject (character name)
   const characterNameImageMap = new Map<string, string>();
   for (const img of charImages) {
     if (img.subject && img.signedUrl && !characterNameImageMap.has(img.subject.toLowerCase())) {
@@ -198,17 +313,17 @@ export async function generateLookBookData(
   const stylePolicy = resolveImageStylePolicy({
     format: (project as any).format,
     genres: (project as any).genres || [],
-    tone: (project as any).tone,
+    tone,
   });
   const logline = (canon.logline as string) || '';
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
 
-  // 6. Build slides
+  // 6. Build slides with strengthened content
   const slides: SlideContent[] = [];
 
-  // COVER
+  // ── COVER ──
   slides.push({
     type: 'cover',
     title,
@@ -220,20 +335,26 @@ export async function generateLookBookData(
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
   });
 
-  // OVERVIEW
+  // ── OVERVIEW ──
+  const overviewBody = logline || (canon.premise as string) || synopsis.slice(0, 300);
+  const overviewSecondary = logline && ((canon.premise as string) || synopsis.slice(0, 500))
+    ? ((canon.premise as string) || synopsis.slice(0, 500))
+    : undefined;
   slides.push({
     type: 'overview',
     title: 'Project Overview',
-    body: logline,
-    bodySecondary: (canon.premise as string) || synopsis.slice(0, 500) || undefined,
+    body: overviewBody,
+    bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
     bullets: [
       genre ? `Genre: ${genre}` : '',
       (project as any).format ? `Format: ${(project as any).format}` : '',
       (canon.tone_style as string) ? `Tone: ${canon.tone_style}` : '',
+      (project as any).target_audience ? `Audience: ${(project as any).target_audience}` : '',
+      (project as any).assigned_lane ? `Lane: ${(project as any).assigned_lane}` : '',
     ].filter(Boolean),
   });
 
-  // WORLD & SETTING
+  // ── WORLD ──
   if (canon.world_rules || canon.locations || canon.timeline || worldImages.length > 0) {
     slides.push({
       type: 'world',
@@ -247,21 +368,24 @@ export async function generateLookBookData(
     });
   }
 
-  // CHARACTERS
+  // ── CHARACTERS ──
   const chars = canon.characters;
   if (Array.isArray(chars) && chars.length > 0) {
     slides.push({
       type: 'characters',
       title: 'Characters',
-      characters: chars.slice(0, 5).map((c: any) => {
+      characters: chars.slice(0, 6).map((c: any) => {
         const charImgUrl =
           (c.id && characterImageMap.get(c.id)) ||
           (c.name && characterNameImageMap.get(c.name?.toLowerCase())) ||
           '';
+        // Strengthen description — combine available fields
+        const descParts = [c.goals, c.traits, c.description].filter(Boolean);
+        const desc = descParts.join(' — ') || 'Role to be defined.';
         return {
           name: c.name || 'Unnamed',
-          role: c.role || '',
-          description: c.goals || c.traits || c.description || '',
+          role: c.role || c.archetype || '',
+          description: desc.slice(0, 200),
           imageUrl: charImgUrl || undefined,
         };
       }),
@@ -269,55 +393,47 @@ export async function generateLookBookData(
     });
   }
 
-  // THEMES & TONE
-  const themes = (canon.tone_style as string) || (project as any).tone || '';
-  if (themes) {
+  // ── THEMES ──
+  const themesRaw = (canon.tone_style as string) || tone || '';
+  if (themesRaw) {
+    const themesCopy = buildThemesCopy(canon, genre, tone);
     slides.push({
       type: 'themes',
       title: 'Themes & Tone',
-      body: typeof themes === 'string' ? themes : Array.isArray(themes) ? themes.join(' · ') : '',
-      bodySecondary: (canon.tone_style as string) || undefined,
+      body: themesCopy.body,
+      bodySecondary: themesCopy.bodySecondary || undefined,
     });
   }
 
-  // VISUAL LANGUAGE — with actual images from atmosphere + texture sections
+  // ── VISUAL LANGUAGE ──
   const visualImages = [...atmosphereImages, ...textureImages];
-  const visualApproach = stylePolicy.mode === 'photorealistic_cinematic'
-    ? 'Grounded in theatrical realism — every frame should feel like a still from a major motion picture.'
-    : `A deliberately stylised visual approach, drawing on ${stylePolicy.mode.replace(/_/g, ' ')} traditions.`;
+  const vlCopy = buildVisualLanguageCopy(canon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
     title: 'Visual Language',
-    body: visualApproach,
+    body: vlCopy.body,
     imageUrl: visualImages[0]?.signedUrl || undefined,
     imageUrls: visualImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
-    bullets: [
-      `${identity.imageStyle.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase())} palette`,
-      identity.typography.titleUppercase ? 'Bold, graphic title treatment' : 'Elegant, refined typography',
-      'Consistent visual identity across all presentation materials',
-    ],
+    bullets: vlCopy.bullets,
     _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
   });
 
-  // STORY ENGINE
-  const format = ((project as any).format || '').toLowerCase();
-  if (format.includes('series') || format.includes('vertical') || format.includes('limited')) {
+  // ── STORY ENGINE ──
+  if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
+    const seCopy = buildStoryEngineCopy(canon, format, genre, logline);
     slides.push({
       type: 'story_engine',
       title: 'Story Engine',
-      body: (canon.format_constraints as string) || 'A serialised narrative designed for sustained audience engagement.',
-      bullets: [
-        'Each episode ends on a dramatic question',
-        'Character arcs span the full season',
-        'Escalating stakes across the narrative',
-      ],
+      body: seCopy.body,
+      bodySecondary: seCopy.bodySecondary || undefined,
+      bullets: seCopy.bullets,
       imageUrl: motifImages[0]?.signedUrl || undefined,
       _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 1),
     });
   }
 
-  // COMPARABLES
-  const comps = parseComparables((canon as any).comparables);
+  // ── COMPARABLES ──
+  const comps = parseComparables((canon as any).comparables || (project as any).comparable_titles);
   if (comps.length > 0) {
     slides.push({
       type: 'comparables',
@@ -326,7 +442,7 @@ export async function generateLookBookData(
     });
   }
 
-  // CREATIVE STATEMENT
+  // ── CREATIVE STATEMENT ──
   if (creativeStatement) {
     slides.push({
       type: 'creative_statement',
@@ -336,7 +452,7 @@ export async function generateLookBookData(
     });
   }
 
-  // CLOSING
+  // ── CLOSING ──
   slides.push({
     type: 'closing',
     title,
@@ -346,7 +462,7 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
   });
 
-  // Debug provenance summary
+  // Debug provenance
   const provenanceSummary = slides
     .filter(s => s._debug_image_ids?.length)
     .map(s => `${s.type}: ${s._debug_image_ids!.length} images`)
