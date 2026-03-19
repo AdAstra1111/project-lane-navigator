@@ -27,6 +27,7 @@ import type { CurationState } from '@/lib/images/types';
 import type { LookBookData } from '@/lib/lookbook/types';
 import { CharacterBaseLookPanel } from '@/components/images/CharacterBaseLookPanel';
 import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPanel';
+import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 
 const SECTIONS = [
   { key: 'world' as const, label: 'World / Setting', icon: Globe, description: 'Establishing shots, atmospheric details, and environmental storytelling', packSize: SHOT_PACKS.world.length },
@@ -242,6 +243,13 @@ export default function LookBookPage() {
 
         {/* Scrollable workspace */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
+          {/* Visual Canon Reset + Rebuild */}
+          {projectId && (
+            <div className="mb-4">
+              <VisualCanonResetPanel projectId={projectId} />
+            </div>
+          )}
+
           <div className="space-y-0.5">
             {SECTIONS.map(section => (
               <SectionImagePanel key={section.key} projectId={projectId!} section={section} />

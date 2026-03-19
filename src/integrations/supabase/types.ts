@@ -12804,8 +12804,10 @@ export type Database = {
       }
       project_images: {
         Row: {
+          archived_from_active_at: string | null
           asset_group: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints: Json
+          canon_reset_batch_id: string | null
           created_at: string
           created_by: string | null
           curation_state: Database["public"]["Enums"]["curation_state"]
@@ -12823,6 +12825,7 @@ export type Database = {
           project_id: string
           prompt_used: string
           provider: string
+          reuse_pool_eligible: boolean
           role: Database["public"]["Enums"]["project_image_role"]
           shot_type: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id: string | null
@@ -12839,8 +12842,10 @@ export type Database = {
           width: number | null
         }
         Insert: {
+          archived_from_active_at?: string | null
           asset_group?: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints?: Json
+          canon_reset_batch_id?: string | null
           created_at?: string
           created_by?: string | null
           curation_state?: Database["public"]["Enums"]["curation_state"]
@@ -12858,6 +12863,7 @@ export type Database = {
           project_id: string
           prompt_used?: string
           provider?: string
+          reuse_pool_eligible?: boolean
           role: Database["public"]["Enums"]["project_image_role"]
           shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
@@ -12874,8 +12880,10 @@ export type Database = {
           width?: number | null
         }
         Update: {
+          archived_from_active_at?: string | null
           asset_group?: Database["public"]["Enums"]["asset_group"] | null
           canon_constraints?: Json
+          canon_reset_batch_id?: string | null
           created_at?: string
           created_by?: string | null
           curation_state?: Database["public"]["Enums"]["curation_state"]
@@ -12893,6 +12901,7 @@ export type Database = {
           project_id?: string
           prompt_used?: string
           provider?: string
+          reuse_pool_eligible?: boolean
           role?: Database["public"]["Enums"]["project_image_role"]
           shot_type?: Database["public"]["Enums"]["shot_type"] | null
           source_poster_id?: string | null
