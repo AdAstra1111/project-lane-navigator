@@ -252,15 +252,32 @@ export function resolveCharacterVisualDNA(
 }
 
 /**
+ * Build a composite merge key for binding markers.
+ * Includes laterality to prevent collapsing distinct left/right markers.
+ * Includes a normalized label fragment for markers in the same region with different descriptions.
+ */
+function markerMergeKey(m: BindingMarker): string {
+  const lat = m.laterality !== 'unknown' ? m.laterality : '_';
+  const labelNorm = m.label.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+  return `${m.markerType}:${m.bodyRegion}:${lat}:${labelNorm}`;
+}
+
+/**
  * Merge existing markers (with approval state) with newly detected ones.
  * Existing approved/rejected markers are preserved. New detections are added only if novel.
+ * 
+ * APPROVAL PERSISTENCE NOTE:
+ * Marker approval state lives in-memory until `serializeDNAForStorage` is called
+ * and the result is written to the database via `useVisualDNA.resolveDNA`.
+ * Approving a marker in the UI panel updates local state only.
+ * The approval becomes canonical ONLY after Save DNA persists it.
  */
 function mergeMarkers(existing: BindingMarker[], detected: BindingMarker[]): BindingMarker[] {
   const merged = [...existing];
-  const existingKeys = new Set(existing.map(m => `${m.markerType}:${m.bodyRegion}`));
+  const existingKeys = new Set(existing.map(markerMergeKey));
   
   for (const d of detected) {
-    const key = `${d.markerType}:${d.bodyRegion}`;
+    const key = markerMergeKey(d);
     if (!existingKeys.has(key)) {
       merged.push(d);
       existingKeys.add(key);
