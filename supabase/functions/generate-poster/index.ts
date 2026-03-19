@@ -239,22 +239,22 @@ const toneVisuals: Record<string, string> = {
 };
 
 const genreMotifs: Record<string, string> = {
-  drama: "emotional portraiture, dramatic lighting",
-  thriller: "shadowy figures, tension, urban nightscape",
-  horror: "darkness, isolation, dread",
-  comedy: "vibrant colors, expressive characters",
-  "sci-fi": "futuristic elements, technological atmosphere",
-  romance: "intimate composition, warm tones",
-  action: "dynamic movement, explosive energy",
-  crime: "noir aesthetics, urban grit",
-  mystery: "obscured faces, fog, enigmatic composition",
-  fantasy: "otherworldly landscapes, magical atmosphere",
-  war: "epic scale, visceral intensity, smoke and earth",
-  western: "vast landscapes, dusty atmosphere, golden light",
-  musical: "vibrant stage lighting, performance energy",
-  animation: "stylized artistic rendering, bold shapes",
-  documentary: "authentic textures, photographic realism",
-  "true-crime": "evidence board aesthetic, cold case atmosphere",
+  drama: "emotional portraiture, dramatic lighting, photorealistic",
+  thriller: "shadowy figures, tension, urban nightscape, photorealistic",
+  horror: "darkness, isolation, dread, photorealistic",
+  comedy: "vibrant colors, expressive characters, photorealistic",
+  "sci-fi": "futuristic elements, technological atmosphere, photorealistic",
+  romance: "intimate composition, warm tones, photorealistic",
+  action: "dynamic movement, explosive energy, photorealistic",
+  crime: "noir aesthetics, urban grit, photorealistic",
+  mystery: "obscured faces, fog, enigmatic composition, photorealistic",
+  fantasy: "otherworldly landscapes, atmospheric, photorealistic",
+  war: "epic scale, visceral intensity, smoke and earth, photorealistic",
+  western: "vast landscapes, dusty atmosphere, golden light, photorealistic",
+  musical: "vibrant stage lighting, performance energy, photorealistic",
+  animation: "stylized artistic rendering, bold shapes, professional animation quality",
+  documentary: "authentic textures, photographic realism, photorealistic",
+  "true-crime": "evidence board aesthetic, cold case atmosphere, photorealistic",
 };
 
 // ── Strategy Definitions ─────────────────────────────────────────────────────
