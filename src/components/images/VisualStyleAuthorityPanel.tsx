@@ -1,6 +1,6 @@
 /**
  * Visual Style Authority Panel — Edit and display the project's visual style profile.
- * Compact editor for all VSAL fields + forbidden traits.
+ * Auto-hydrates from canon/project data; supports user overrides.
  */
 import { useState, useEffect } from 'react';
 import { useVisualStyleProfile, type VisualStyleProfile } from '@/hooks/useVisualStyleProfile';
@@ -9,13 +9,13 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, CheckCircle2, Plus, X, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Plus, X, Loader2, Sparkles } from 'lucide-react';
 
 interface Props {
   projectId: string;
 }
 
-const FIELDS: { key: keyof VisualStyleProfile; label: string; placeholder: string; rows?: number }[] = [
+const FIELDS: { key: keyof VisualStyleProfile; label: string; placeholder: string }[] = [
   { key: 'period', label: 'Period / Era', placeholder: 'e.g. feudal Japan, 1940s wartime, contemporary urban' },
   { key: 'cultural_context', label: 'Cultural Context', placeholder: 'e.g. Japanese, West African, post-industrial British' },
   { key: 'lighting_philosophy', label: 'Lighting Philosophy', placeholder: 'e.g. natural light, firelight, no artificial cinematic fill' },
@@ -27,7 +27,7 @@ const FIELDS: { key: keyof VisualStyleProfile; label: string; placeholder: strin
 ];
 
 export function VisualStyleAuthorityPanel({ projectId }: Props) {
-  const { profile, loading, saving, save } = useVisualStyleProfile(projectId);
+  const { profile, isAutoFilled, loading, saving, save } = useVisualStyleProfile(projectId);
   const [draft, setDraft] = useState<Partial<VisualStyleProfile>>({});
   const [newForbid, setNewForbid] = useState('');
 
@@ -65,7 +65,7 @@ export function VisualStyleAuthorityPanel({ projectId }: Props) {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-xs text-muted-foreground p-4">
-        <Loader2 className="h-3 w-3 animate-spin" /> Loading visual style…
+        <Loader2 className="h-3 w-3 animate-spin" /> Resolving visual style…
       </div>
     );
   }
@@ -78,14 +78,18 @@ export function VisualStyleAuthorityPanel({ projectId }: Props) {
   return (
     <div className="space-y-4">
       {/* Status bar */}
-      <div className="flex items-center gap-2">
-        {isComplete ? (
+      <div className="flex items-center gap-2 flex-wrap">
+        {isAutoFilled ? (
+          <Badge variant="outline" className="text-[10px] gap-1 border-primary/30 text-primary/80">
+            <Sparkles className="h-3 w-3" /> Auto-derived from project canon — refine for more control
+          </Badge>
+        ) : isComplete ? (
           <Badge variant="outline" className="text-[10px] gap-1 border-emerald-500/30 text-emerald-400">
             <CheckCircle2 className="h-3 w-3" /> Style Profile Complete
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/30 text-amber-400">
-            <AlertCircle className="h-3 w-3" /> Incomplete — fill all fields to enable generation
+            <AlertCircle className="h-3 w-3" /> Using inferred style profile — refine for more control
           </Badge>
         )}
       </div>
@@ -134,10 +138,16 @@ export function VisualStyleAuthorityPanel({ projectId }: Props) {
       </div>
 
       {/* Save */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {isAutoFilled && (
+          <Button onClick={handleSave} variant="secondary" size="sm" className="text-xs gap-1.5">
+            <Sparkles className="h-3 w-3" />
+            Accept & Save Inferred Profile
+          </Button>
+        )}
         <Button onClick={handleSave} disabled={saving} size="sm" className="text-xs gap-1.5">
           {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-          Save Style Profile
+          {isAutoFilled ? 'Save with Edits' : 'Save Style Profile'}
         </Button>
       </div>
     </div>
@@ -146,7 +156,7 @@ export function VisualStyleAuthorityPanel({ projectId }: Props) {
 
 /** Compact style chip for display in headers */
 export function VisualStyleChip({ projectId }: { projectId: string }) {
-  const { profile, loading } = useVisualStyleProfile(projectId);
+  const { profile, loading, isAutoFilled } = useVisualStyleProfile(projectId);
 
   if (loading || !profile) return null;
 
@@ -160,7 +170,9 @@ export function VisualStyleChip({ projectId }: { projectId: string }) {
 
   return (
     <Badge variant="outline" className="text-[9px] gap-1 font-normal border-primary/20 text-primary/70">
-      {profile.is_complete ? (
+      {isAutoFilled ? (
+        <Sparkles className="h-2.5 w-2.5 text-primary/60" />
+      ) : profile.is_complete ? (
         <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
       ) : (
         <AlertCircle className="h-2.5 w-2.5 text-amber-500" />

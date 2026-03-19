@@ -53,7 +53,8 @@ export interface VisualStyleResolution {
  * Resolve the visual style profile for a project from the database.
  * Returns a structured lock for injection into generation prompts.
  *
- * If profile is missing or incomplete, returns error — NO fallback.
+ * If profile is missing or incomplete, returns error info — callers decide enforcement.
+ * Soft enforcement recommended: warn + proceed rather than blocking generation.
  */
 export async function resolveVisualStyleProfile(
   supabase: { from: (table: string) => any },

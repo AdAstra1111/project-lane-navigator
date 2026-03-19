@@ -951,14 +951,10 @@ serve(async (req) => {
       });
     }
 
-    // ── VSAL: Resolve Visual Style Authority ──
+    // ── VSAL: Resolve Visual Style Authority (soft — warns but does not block) ──
     const vsalResolution = await resolveVisualStyleProfile(supabase, project_id);
-    const vsalCheck = validateStyleOrError(vsalResolution);
-    if (!vsalCheck.valid) {
-      console.warn(`[IEL:visual_style_authority_violation] Poster generation blocked: ${vsalResolution.error}`);
-      return new Response(JSON.stringify(vsalCheck.body), {
-        status: vsalCheck.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!vsalResolution.found || !vsalResolution.complete) {
+      console.warn(`[VSAL:soft] Poster generation proceeding without complete style authority: ${vsalResolution.error}. vsal_fallback_used`);
     }
 
     // Resolve project truth + branding
