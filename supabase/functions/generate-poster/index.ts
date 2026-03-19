@@ -822,6 +822,10 @@ serve(async (req) => {
     }
 
     // ── Mode: generate (legacy single poster) ──
+    const primaryInput = { role: 'poster_primary' as ImageRole, styleMode, strategyKey: 'commercial' };
+    const primaryGenConfig = resolveImageGenerationConfig(primaryInput);
+    const primaryRepoMeta = buildImageRepositoryMeta(primaryGenConfig, primaryInput);
+
     const prompt = buildStrategyPrompt(POSTER_STRATEGIES[4], strategyCtx);
 
     const { data: existingPosters } = await supabase
@@ -844,8 +848,8 @@ serve(async (req) => {
         layout_variant: "cinematic-dark",
         prompt_text: prompt,
         prompt_inputs: inputs,
-        provider: "lovable-ai",
-        model: "google/gemini-3-pro-image-preview",
+        provider: primaryGenConfig.provider,
+        model: primaryGenConfig.model,
         render_status: "composed_final",
       })
       .select()
@@ -854,7 +858,7 @@ serve(async (req) => {
     if (insertErr) throw new Error(`Failed to create poster record: ${insertErr.message}`);
 
     try {
-      const imageResult = await generateImage(LOVABLE_API_KEY, prompt);
+      const imageResult = await generateImage(LOVABLE_API_KEY, prompt, primaryGenConfig.model, primaryGenConfig.gatewayUrl);
 
       const keyArtPath = `${project_id}/key-art/v${nextVersion}.${imageResult.format}`;
       const { error: uploadErr } = await supabase.storage
@@ -887,7 +891,6 @@ serve(async (req) => {
       if (updateErr) throw new Error(`Failed to update poster: ${updateErr.message}`);
 
       // Register into canonical project_images repository
-      // Deactivate existing poster_primary entries first
       await supabase.from("project_images")
         .update({ is_primary: false, is_active: false })
         .eq("project_id", project_id)
@@ -909,6 +912,10 @@ serve(async (req) => {
         source_poster_id: posterRecord.id,
         user_id: user.id,
         created_by: user.id,
+        provider: primaryGenConfig.provider,
+        model: primaryGenConfig.model,
+        style_mode: styleMode,
+        generation_config: primaryRepoMeta,
       });
 
       return new Response(JSON.stringify({ poster: updatedPoster }), {
