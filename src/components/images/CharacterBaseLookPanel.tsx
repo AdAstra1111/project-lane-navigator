@@ -633,7 +633,7 @@ function CharacterReferenceSection({
     } finally {
       setGenerating(false);
     }
-  }, [projectId, character.name, generating, qc]);
+  }, [projectId, character.name, generating, qc, identityAnchors]);
 
   return (
     <div className="mb-3 border-t border-border/50 pt-3">
@@ -642,9 +642,14 @@ function CharacterReferenceSection({
         <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
           Cinematic References
         </span>
+        {identityLocked && (
+          <Badge className="text-[7px] px-1 py-0 bg-emerald-500/15 text-emerald-600 border-emerald-500/30 gap-0.5">
+            <Lock className="h-1.5 w-1.5" /> Identity-derived
+          </Badge>
+        )}
         {!identityLocked && referenceImages.length === 0 && (
           <span className="text-[9px] text-amber-600">
-            (generate identity first for best results)
+            ⚠ No locked identity — continuity will be weaker
           </span>
         )}
       </div>
