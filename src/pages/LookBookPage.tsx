@@ -180,6 +180,7 @@ export default function LookBookPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
+        {structureStatus === 'invalid_structure' && (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
             <div>
