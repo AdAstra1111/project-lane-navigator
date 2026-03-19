@@ -15,7 +15,7 @@ export function useStageResolve(projectId: string | undefined) {
   const [resolvedQuals, setResolvedQuals] = useState<any>(null);
 
   const resolveOnEntry = useCallback(async () => {
-    if (!projectId) return null;
+    if (!projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) return null;
     try {
       const { data, error } = await supabase.functions.invoke('resolve-qualifications', {
         body: { projectId },
