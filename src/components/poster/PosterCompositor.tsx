@@ -412,23 +412,109 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
   },
 };
 
-// ── Title Position Resolver ──────────────────────────────────────────────────
+// ── Luminance Analysis — detect bright (face/subject) zones ──────────────────
+
+interface CompositionHint {
+  /** Brightest vertical zone: 'top' | 'upper_mid' | 'center' | 'lower_mid' | 'bottom' */
+  brightZone: string;
+  /** Average luminance of central upper area (face region proxy) */
+  centralUpperLum: number;
+  /** Average luminance of lower third */
+  lowerThirdLum: number;
+  /** Whether central upper area is significantly brighter (likely face) */
+  hasCentralSubject: boolean;
+}
+
+function analyzeComposition(
+  ctx: CanvasRenderingContext2D,
+  dims: { w: number; h: number },
+): CompositionHint {
+  // Sample the image in horizontal bands
+  const bandCount = 5;
+  const bandH = Math.floor(dims.h / bandCount);
+  const sampleW = Math.min(dims.w, 200); // downsample for speed
+  const sampleScale = sampleW / dims.w;
+  const bandLums: number[] = [];
+
+  for (let band = 0; band < bandCount; band++) {
+    const y = band * bandH;
+    const sH = Math.min(bandH, dims.h - y);
+    try {
+      const imageData = ctx.getImageData(
+        Math.floor((dims.w - sampleW) / 2), y,
+        sampleW, Math.min(sH, 40)
+      );
+      const pixels = imageData.data;
+      let totalLum = 0;
+      const pixelCount = pixels.length / 4;
+      for (let i = 0; i < pixels.length; i += 4) {
+        totalLum += (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114);
+      }
+      bandLums.push(pixelCount > 0 ? totalLum / pixelCount : 128);
+    } catch {
+      bandLums.push(128);
+    }
+  }
+
+  const zones = ['top', 'upper_mid', 'center', 'lower_mid', 'bottom'];
+  let maxLum = 0;
+  let brightZone = 'center';
+  bandLums.forEach((lum, i) => {
+    if (lum > maxLum) { maxLum = lum; brightZone = zones[i]; }
+  });
+
+  const centralUpperLum = (bandLums[0] + bandLums[1]) / 2;
+  const lowerThirdLum = (bandLums[3] + bandLums[4]) / 2;
+  const hasCentralSubject = centralUpperLum > lowerThirdLum * 1.3 && centralUpperLum > 100;
+
+  return { brightZone, centralUpperLum, lowerThirdLum, hasCentralSubject };
+}
+
+// ── Title Position Resolver (composition-aware) ─────────────────────────────
 
 function resolveTitlePosition(
   positionMode: TitlePositionMode,
   dims: { w: number; h: number },
   cfg: LayoutConfig,
+  layoutVariant: PosterLayoutVariant,
+  compositionHint?: CompositionHint,
 ): { titleY: number; textAlign: CanvasTextAlign; titleX: number } {
-  switch (positionMode) {
+  // Explicit modes
+  if (positionMode !== "auto") {
+    switch (positionMode) {
+      case "lower_third":
+        return { titleY: dims.h * 0.85, textAlign: "center", titleX: dims.w / 2 };
+      case "lower_center":
+        return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
+      case "lower_left":
+        return { titleY: dims.h * 0.82, textAlign: "left", titleX: dims.w * 0.08 };
+      case "center":
+        return { titleY: dims.h * cfg.titleZoneY, textAlign: "center", titleX: dims.w / 2 };
+    }
+  }
+
+  // ── Auto mode: use composition analysis + template bias ──
+  const templateBias = TEMPLATE_AUTO_POSITION_BIAS[layoutVariant] || "lower_center";
+
+  if (compositionHint?.hasCentralSubject) {
+    // Face/subject detected in upper-center — push title low
+    return { titleY: dims.h * 0.86, textAlign: "center", titleX: dims.w / 2 };
+  }
+
+  if (compositionHint?.brightZone === 'center' || compositionHint?.brightZone === 'upper_mid') {
+    // Bright subject in center — use lower third
+    return { titleY: dims.h * 0.85, textAlign: "center", titleX: dims.w / 2 };
+  }
+
+  // Fall back to template bias
+  switch (templateBias) {
     case "lower_third":
-      return { titleY: dims.h * 0.84, textAlign: "center", titleX: dims.w / 2 };
-    case "lower_center":
-      return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
+      return { titleY: dims.h * 0.85, textAlign: "center", titleX: dims.w / 2 };
     case "lower_left":
-      return { titleY: dims.h * 0.80, textAlign: "left", titleX: dims.w * 0.08 };
-    case "center":
+      return { titleY: dims.h * 0.82, textAlign: "left", titleX: dims.w * 0.08 };
+    case "lower_center":
     default:
-      return { titleY: dims.h * cfg.titleZoneY, textAlign: "center", titleX: dims.w / 2 };
+      return { titleY: dims.h * 0.80, textAlign: "center", titleX: dims.w / 2 };
   }
 }
 
