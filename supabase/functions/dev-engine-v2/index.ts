@@ -20929,12 +20929,14 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       }).select().single();
       if (sErr) throw sErr;
 
+      const canonLocId = await sgResolveCanonLocationId(supabase, projectId, sceneDraft?.slugline || '');
       const { data: version, error: vErr } = await supabase.from("scene_graph_versions").insert({
         scene_id: scene.id, project_id: projectId, version_number: 1, status: 'draft',
         created_by: user.id,
         slugline: sceneDraft?.slugline || null,
         content: sceneDraft?.content || '',
         summary: sceneDraft?.summary || null,
+        canon_location_id: canonLocId,
       }).select().single();
       if (vErr) throw vErr;
 
