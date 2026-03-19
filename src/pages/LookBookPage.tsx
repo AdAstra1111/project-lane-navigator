@@ -6,6 +6,7 @@
 import { useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader2, BookOpen, RefreshCw, Globe, User, Zap, Palette, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
