@@ -11146,6 +11146,42 @@ Return ONLY valid JSON:
       return { slugline: sl, location: '', time_of_day: '' };
     }
 
+    // --- Resolve canon_location_id from location text ---
+    // Cache per-project to avoid repeated queries within the same request
+    const _canonLocCache = new Map<string, Map<string, string | null>>();
+    async function sgResolveCanonLocationId(
+      _supabase: any, projectId: string, locationText: string
+    ): Promise<string | null> {
+      const loc = (locationText || '').trim();
+      if (!loc) return null;
+      const norm = loc.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      if (!norm) return null;
+
+      // Load/cache all canon locations for this project
+      if (!_canonLocCache.has(projectId)) {
+        const { data } = await _supabase
+          .from("canon_locations")
+          .select("id, normalized_name")
+          .eq("project_id", projectId)
+          .eq("active", true);
+        const m = new Map<string, string | null>();
+        if (data) {
+          const counts = new Map<string, string[]>();
+          for (const r of data) {
+            if (!counts.has(r.normalized_name)) counts.set(r.normalized_name, []);
+            counts.get(r.normalized_name)!.push(r.id);
+          }
+          for (const [n, ids] of counts) {
+            m.set(n, ids.length === 1 ? ids[0] : null); // null = ambiguous
+          }
+        }
+        _canonLocCache.set(projectId, m);
+      }
+
+      const cache = _canonLocCache.get(projectId)!;
+      return cache.get(norm) ?? null; // undefined (no match) → null
+    }
+
     if (action === "scene_graph_extract") {
       const { projectId, sourceDocumentId, sourceVersionId, mode, text: rawText, force } = body;
       if (!projectId) throw new Error("projectId required");
@@ -20893,12 +20929,14 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       }).select().single();
       if (sErr) throw sErr;
 
+      const canonLocId = await sgResolveCanonLocationId(supabase, projectId, sceneDraft?.slugline || '');
       const { data: version, error: vErr } = await supabase.from("scene_graph_versions").insert({
         scene_id: scene.id, project_id: projectId, version_number: 1, status: 'draft',
         created_by: user.id,
         slugline: sceneDraft?.slugline || null,
         content: sceneDraft?.content || '',
         summary: sceneDraft?.summary || null,
+        canon_location_id: canonLocId,
       }).select().single();
       if (vErr) throw vErr;
 
@@ -21054,10 +21092,12 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
         }).select().single();
         if (!sc) throw new Error("Failed to create split scene");
         const parsed = sgParseSlugline(content.split('\n')[0] || '');
+        const splitCanonLocId = await sgResolveCanonLocationId(supabase, projectId, parsed.location);
         const { data: ver } = await supabase.from("scene_graph_versions").insert({
           scene_id: sc.id, project_id: projectId, version_number: 1, status: 'draft',
           created_by: user.id, slugline: parsed.slugline, location: parsed.location,
           time_of_day: parsed.time_of_day, content,
+          canon_location_id: splitCanonLocId,
         }).select().single();
         await supabase.from("scene_graph_order").insert({
           project_id: projectId, scene_id: sc.id, order_key: key, is_active: true,
@@ -21128,10 +21168,12 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
       if (!newScene) throw new Error("Failed to create merged scene");
 
       const parsed = mergedSlugline ? sgParseSlugline(mergedSlugline) : sgParseSlugline(mergedContent.split('\n')[0] || '');
+      const mergeCanonLocId = await sgResolveCanonLocationId(supabase, projectId, parsed.location);
       const { data: ver } = await supabase.from("scene_graph_versions").insert({
         scene_id: newScene.id, project_id: projectId, version_number: 1, status: 'draft',
         created_by: user.id, slugline: parsed.slugline || mergedSlugline, location: parsed.location,
         time_of_day: parsed.time_of_day, content: mergedContent,
+        canon_location_id: mergeCanonLocId,
       }).select().single();
 
       await supabase.from("scene_graph_order").insert({
@@ -21195,6 +21237,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
           setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
           setup_payoff_required: curVer?.setup_payoff_required ?? [],
           metadata: curVer?.metadata ?? {},
+          canon_location_id: curVer?.canon_location_id ?? null,
         }).select().single();
         if (vErr) throw vErr;
         const action_id = await sgLogAction(supabase, projectId, user.id, 'update', {
@@ -21560,6 +21603,7 @@ Preserve continuity. Output ONLY the rewritten scene in screenplay format.`;
           setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
           setup_payoff_required: curVer?.setup_payoff_required ?? [],
           metadata: curVer?.metadata ?? {},
+          canon_location_id: curVer?.canon_location_id ?? null,
         }).select().single();
         newVer = fallbackVer;
       }
@@ -24072,12 +24116,14 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
             });
 
             const parsed = sgParseSlugline(draft.slugline || '');
+            const csCanonLocId = await sgResolveCanonLocationId(supabase, projectId, parsed.location);
             await supabase.from("scene_graph_versions").insert({
               scene_id: scene.id, project_id: projectId, version_number: 1,
               status: applyMode === 'propose' ? 'proposed' : 'draft',
               created_by: user.id,
               slugline: parsed.slugline, location: parsed.location, time_of_day: parsed.time_of_day,
               content: draft.content || '', summary: draft.summary || '',
+              canon_location_id: csCanonLocId,
             });
 
             realInverse = { op_type: 'remove', sceneId: scene.id, order_key: newKey };
