@@ -494,9 +494,13 @@ function RepairCard({ repair, projectId, onExecute, isExecuting, execResult, noA
                 {repair.scope_key ? `${repair.scope_type}: ${repair.scope_key}` : repair.scope_type}
               </Badge>
             </div>
-            {/* Skipped reason */}
+            {/* Skipped/blocked reason */}
             {repair.skipped_reason && (
-              <p className="text-xs text-amber-600 dark:text-amber-400">Skipped: {repair.skipped_reason}</p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                {repair.skipped_reason.startsWith('blocked:')
+                  ? `Blocked: ${repair.skipped_reason.replace('blocked:', '').replace(/_/g, ' ')}`
+                  : `Skipped: ${repair.skipped_reason.replace(/_/g, ' ')}`}
+              </p>
             )}
             {/* Created */}
             <p className="text-[10px] text-muted-foreground">{new Date(repair.created_at).toLocaleString()}</p>
