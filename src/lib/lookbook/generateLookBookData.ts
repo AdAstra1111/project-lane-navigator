@@ -224,8 +224,13 @@ export async function generateLookBookData(
     .filter(i => i.role === 'character_primary' && i.entity_id && i.signedUrl)
     .forEach(i => characterImageMap.set(i.entity_id!, i.signedUrl!));
 
-  // 5. Build identity from canonical state
+  // 5. Build identity + resolve style policy
   const identity = resolveIdentity(canon, genre);
+  const stylePolicy = resolveImageStylePolicy({
+    format: (project as any).format,
+    genres: (project as any).genres || [],
+    tone: (project as any).tone,
+  });
   const logline = (canon.logline as string) || '';
   const title = (project as any).title || 'Untitled Project';
   const writerCredit = 'Written by Sebastian Street';
