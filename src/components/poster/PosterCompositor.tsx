@@ -559,7 +559,8 @@ function applyLayout(
   const effectiveOpacity = titleStyle?.opacity ?? typo.defaultOpacity;
   const effectiveWeight = titleStyle?.weightOverride ?? typo.weight;
   const effectiveTracking = titleStyle?.trackingOverride ?? typo.tracking;
-  const positionMode = titleStyle?.positionMode || "center";
+  const positionMode = titleStyle?.positionMode || "auto";
+  const balanceMode = titleStyle?.balanceMode || "balanced";
   const enableDepth = titleStyle?.enableDepth ?? false;
 
   // ── Bottom gradient overlay ──
