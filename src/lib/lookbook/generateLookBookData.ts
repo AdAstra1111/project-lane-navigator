@@ -169,7 +169,7 @@ export async function generateLookBookData(
     }
   }
 
-  // 4. Load canonical images for Look Book roles
+  // 4. Load canonical images for Look Book roles — including lookbook-specific strategy keys
   const lookbookRoles = DOCUMENT_IMAGE_MAP.lookbook || [];
   let canonicalImages: ProjectImage[] = [];
   try {
@@ -178,7 +178,6 @@ export async function generateLookBookData(
       .select('*')
       .eq('project_id', projectId)
       .eq('is_active', true)
-      .in('role', lookbookRoles)
       .order('is_primary', { ascending: false })
       .order('created_at', { ascending: false });
     if (imgs?.length) {
@@ -215,14 +214,39 @@ export async function generateLookBookData(
     } catch { /* poster table may not exist yet */ }
   }
 
-  // Resolve world establishing images for world slide
-  const worldImageUrl = canonicalImages.find(i => i.role === 'world_establishing')?.signedUrl || '';
+  // Resolve world images — prefer lookbook-specific, fallback to any world_establishing
+  const worldImageUrl =
+    canonicalImages.find(i => i.strategy_key === 'lookbook_world' && i.is_primary)?.signedUrl ||
+    canonicalImages.find(i => i.strategy_key === 'lookbook_world')?.signedUrl ||
+    canonicalImages.find(i => i.role === 'world_establishing')?.signedUrl ||
+    '';
+
+  // Resolve key moment image
+  const keyMomentImageUrl =
+    canonicalImages.find(i => i.strategy_key === 'lookbook_key_moment' && i.is_primary)?.signedUrl ||
+    canonicalImages.find(i => i.strategy_key === 'lookbook_key_moment')?.signedUrl ||
+    '';
+
+  // Resolve visual language image
+  const visualLanguageImageUrl =
+    canonicalImages.find(i => i.strategy_key === 'lookbook_visual_language' && i.is_primary)?.signedUrl ||
+    canonicalImages.find(i => i.strategy_key === 'lookbook_visual_language')?.signedUrl ||
+    '';
 
   // Resolve character images
   const characterImageMap = new Map<string, string>();
+  // First try lookbook-specific character images
+  canonicalImages
+    .filter(i => i.strategy_key === 'lookbook_character' && i.signedUrl)
+    .forEach(i => {
+      if (i.entity_id && !characterImageMap.has(i.entity_id)) characterImageMap.set(i.entity_id, i.signedUrl!);
+    });
+  // Then fallback to any character_primary
   canonicalImages
     .filter(i => i.role === 'character_primary' && i.entity_id && i.signedUrl)
-    .forEach(i => characterImageMap.set(i.entity_id!, i.signedUrl!));
+    .forEach(i => {
+      if (!characterImageMap.has(i.entity_id!)) characterImageMap.set(i.entity_id!, i.signedUrl!);
+    });
 
   // 5. Build identity + resolve style policy
   const identity = resolveIdentity(canon, genre);
