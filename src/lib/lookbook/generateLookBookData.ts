@@ -337,9 +337,9 @@ export async function generateLookBookData(
   });
 
   // ── OVERVIEW ──
-  const overviewBody = logline || (canon.premise as string) || synopsis.slice(0, 300);
-  const overviewSecondary = logline && ((canon.premise as string) || synopsis.slice(0, 500))
-    ? ((canon.premise as string) || synopsis.slice(0, 500))
+  const overviewBody = logline || normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 300);
+  const overviewSecondary = logline && (normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 500))
+    ? (normalizeCanonText(canon.premise, 'premise') || synopsis.slice(0, 500))
     : undefined;
   slides.push({
     type: 'overview',
