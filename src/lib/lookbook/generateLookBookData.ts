@@ -149,8 +149,8 @@ function buildStoryEngineCopy(
   genre: string,
   logline: string,
 ): { body: string; bodySecondary: string; bullets: string[] } {
-  const formatConstraints = (canon.format_constraints as string) || '';
-  const toneStyle = (canon.tone_style as string) || '';
+  const formatConstraints = normalizeCanonText(canon.format_constraints, 'format_constraints');
+  const toneStyle = normalizeCanonText(canon.tone_style, 'tone_style');
   const isSeries = format.includes('series') || format.includes('vertical') || format.includes('limited');
 
   let body: string;
