@@ -113,44 +113,31 @@ export function useVisualSets(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  // ── Query: Slots for a specific set ──
-  const useSlotsForSet = (setId: string | null) =>
-    useQuery({
-      queryKey: ['visual-set-slots', setId],
-      queryFn: async () => {
-        if (!setId) return [];
-        const { data } = await (supabase as any)
-          .from('visual_set_slots')
-          .select('*')
-          .eq('visual_set_id', setId)
-          .order('created_at', { ascending: true });
-        return (data || []) as VisualSetSlot[];
-      },
-      enabled: !!setId,
-    });
+  // ── Fetch slots for a set (non-hook helper) ──
+  const fetchSlotsForSet = useCallback(async (setId: string): Promise<VisualSetSlot[]> => {
+    const { data } = await (supabase as any)
+      .from('visual_set_slots')
+      .select('*')
+      .eq('visual_set_id', setId)
+      .order('created_at', { ascending: true });
+    return (data || []) as VisualSetSlot[];
+  }, []);
 
-  // ── Query: Candidates for a set (all slots) ──
-  const useCandidatesForSet = (setId: string | null) =>
-    useQuery({
-      queryKey: ['visual-set-candidates', setId],
-      queryFn: async () => {
-        if (!setId) return [];
-        // Get slot IDs first
-        const { data: slots } = await (supabase as any)
-          .from('visual_set_slots')
-          .select('id')
-          .eq('visual_set_id', setId);
-        if (!slots?.length) return [];
-        const slotIds = slots.map((s: any) => s.id);
-        const { data } = await (supabase as any)
-          .from('visual_set_candidates')
-          .select('*')
-          .in('visual_set_slot_id', slotIds)
-          .order('created_at', { ascending: true });
-        return (data || []) as VisualSetCandidate[];
-      },
-      enabled: !!setId,
-    });
+  // ── Fetch candidates for a set (non-hook helper) ──
+  const fetchCandidatesForSet = useCallback(async (setId: string): Promise<VisualSetCandidate[]> => {
+    const { data: slots } = await (supabase as any)
+      .from('visual_set_slots')
+      .select('id')
+      .eq('visual_set_id', setId);
+    if (!slots?.length) return [];
+    const slotIds = slots.map((s: any) => s.id);
+    const { data } = await (supabase as any)
+      .from('visual_set_candidates')
+      .select('*')
+      .in('visual_set_slot_id', slotIds)
+      .order('created_at', { ascending: true });
+    return (data || []) as VisualSetCandidate[];
+  }, []);
 
   // ── Mutation: Create set with slots ──
   const createSetMutation = useMutation({
