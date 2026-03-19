@@ -900,7 +900,7 @@ serve(async (req) => {
         .eq("role", "poster_primary")
         .eq("is_primary", true);
 
-      await supabase.from("project_images").insert({
+      const { error: repoErr } = await supabase.from("project_images").insert({
         project_id,
         role: "poster_primary",
         entity_id: null,
@@ -920,6 +920,9 @@ serve(async (req) => {
         style_mode: styleMode,
         generation_config: primaryRepoMeta,
       });
+      if (repoErr) {
+        console.error(`[project_images] legacy insert failed:`, repoErr.message);
+      }
 
       return new Response(JSON.stringify({ poster: updatedPoster }), {
         status: 200,
