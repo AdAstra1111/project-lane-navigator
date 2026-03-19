@@ -321,11 +321,20 @@ function CharacterLookSection({ projectId, character }: { projectId: string; cha
           </div>
         )}
 
+        {/* Phase 3: State Variants */}
+        {charImages.length > 0 && (
+          <EntityStateVariantsPanel
+            projectId={projectId}
+            entityType="character"
+            entityName={character.name}
+          />
+        )}
+
         {/* Generate button */}
         <Button
           size="sm"
           variant="outline"
-          className="gap-1.5 text-xs h-7 w-full mt-1"
+          className="gap-1.5 text-xs h-7 w-full mt-2"
           onClick={generateBaseLook}
           disabled={generating}
         >

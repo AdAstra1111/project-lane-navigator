@@ -335,11 +335,21 @@ function LocationLookSection({ projectId, location }: { projectId: string; locat
           </div>
         )}
 
+        {/* Phase 3: State Variants */}
+        {locImages.length > 0 && (
+          <EntityStateVariantsPanel
+            projectId={projectId}
+            entityType="location"
+            entityName={location.name}
+            entityDescription={location.description}
+          />
+        )}
+
         {/* Generate button */}
         <Button
           size="sm"
           variant="outline"
-          className="gap-1.5 text-xs h-7 w-full mt-1"
+          className="gap-1.5 text-xs h-7 w-full mt-2"
           onClick={generateLocationRef}
           disabled={generating}
         >
