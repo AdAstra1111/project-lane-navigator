@@ -456,6 +456,28 @@ function HydratedLocationRow({
               <Badge variant="outline" className="text-[7px] px-1 py-0">{location.interior_or_exterior}</Badge>
             )}
 
+            {/* Binding status badge */}
+            {(() => {
+              const bcfg = BINDING_STATUS_CONFIG[location.binding_status];
+              const BIcon = bcfg.icon;
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className={cn('text-[7px] px-1 py-0 gap-0.5 cursor-help', bcfg.color)}>
+                      <BIcon className="h-1.5 w-1.5" /> {bcfg.label}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-[10px] max-w-[220px]">
+                    {location.binding_status === 'canon_bound'
+                      ? 'All downstream data linked by canonical ID'
+                      : location.binding_status === 'partially_bound'
+                        ? `${location.unresolved_scene_count} scene(s) and ${location.unresolved_image_count} image(s) matched by text only`
+                        : 'No ID-based links — using text matching fallback'}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })()}
+
             {location.suggested_primary && (
               <Badge variant="secondary" className="text-[7px] px-1 py-0 gap-0.5 text-amber-600 bg-amber-500/10 border-amber-500/20">
                 <Sparkles className="h-1.5 w-1.5" /> Suggested Primary
