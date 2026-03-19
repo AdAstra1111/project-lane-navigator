@@ -209,6 +209,13 @@ export function serializeDNAForStorage(dna: CharacterVisualDNA) {
     missing_clarifications: JSON.parse(JSON.stringify(dna.missingClarifications)),
     identity_signature: dna.identitySignature ? JSON.parse(JSON.stringify(dna.identitySignature)) : null,
     identity_strength: dna.identityStrength,
+    // Evidence traits persisted separately — never promoted to locked/protected
+    recipe_json: dna.evidenceTraits.length > 0
+      ? JSON.parse(JSON.stringify({
+          evidence_traits: dna.evidenceTraits,
+          evidence_status: 'draft',
+        }))
+      : {},
   };
 }
 
