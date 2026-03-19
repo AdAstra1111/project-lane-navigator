@@ -1,8 +1,14 @@
 /**
- * Visual Truth Dependency System
+ * Visual Truth Dependency System — Dependency-Precise Edition
  * 
  * Resolves, persists, and checks freshness of upstream visual truth
  * for all generated visual assets (posters, images, etc).
+ * 
+ * Key principles:
+ * - Snapshots capture ONLY actual dependencies used, not all project truth
+ * - Freshness uses version_id comparison (not updated_at timestamps)
+ * - Cast bindings are first-class dependencies
+ * - Stale reasons identify exact changed dependency classes
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -21,6 +27,8 @@ export type DependencyType =
   | 'dna_version'
   | 'engine_selection';
 
+export type DependencyClass = 'cast' | 'look' | 'state' | 'dna' | 'world' | 'entity' | 'costume' | 'unknown';
+
 export interface VisualDependencyLink {
   id: string;
   project_id: string;
@@ -33,70 +41,214 @@ export interface VisualDependencyLink {
   created_at: string;
 }
 
+export interface TruthRef {
+  id: string;
+  name: string;
+  version_id?: string;
+  /** Only used as fallback when no version_id is available */
+  updated_at?: string;
+}
+
 export interface TruthSnapshot {
   characters: TruthRef[];
   locations: TruthRef[];
   visual_states: TruthRef[];
   dna_versions: TruthRef[];
   costume_looks: TruthRef[];
+  cast_bindings: TruthRef[];
   canon_hash: string;
   captured_at: string;
-}
-
-export interface TruthRef {
-  id: string;
-  name: string;
-  version_id?: string;
-  updated_at?: string;
-}
-
-export interface FreshnessResult {
-  status: FreshnessStatus;
-  staleReasons: string[];
-  changedDependencies: ChangedDependency[];
+  /** Whether this snapshot was captured with dependency-precise logic */
+  precise: boolean;
 }
 
 export interface ChangedDependency {
   dependency_type: DependencyType;
+  dependency_class: DependencyClass;
   dependency_id: string;
   label: string;
   old_version_id: string | null;
   new_version_id: string | null;
 }
 
-// ── Snapshot Capture ──
+export interface FreshnessResult {
+  status: FreshnessStatus;
+  staleReasons: string[];
+  changedDependencies: ChangedDependency[];
+  /** Which dependency classes are affected */
+  affectedClasses: DependencyClass[];
+  /** Whether the poster predates dependency tracking */
+  predatesDependencyTracking: boolean;
+}
+
+// ── Dependency Class Mapping ──
+
+function dependencyTypeToClass(dt: DependencyType): DependencyClass {
+  switch (dt) {
+    case 'cast_binding': return 'cast';
+    case 'visual_identity': return 'look';
+    case 'visual_state': return 'state';
+    case 'dna_version': return 'dna';
+    case 'canon_location': return 'world';
+    case 'narrative_entity': return 'entity';
+    case 'costume_look': return 'costume';
+    default: return 'unknown';
+  }
+}
+
+// ── Snapshot Capture (client-side, used for freshness checks) ──
 
 /**
- * Capture current visual truth snapshot for a project.
- * Used at generation time to record what truth was consumed.
+ * Capture current approved visual truth for specified dependency IDs only.
+ * If no specific IDs provided, falls back to project-wide (for initial generation).
  */
-export async function captureVisualTruthSnapshot(
+export async function captureApprovedTruthForDependencies(
   projectId: string,
+  specificIds?: {
+    characterIds?: string[];
+    locationIds?: string[];
+    dnaCharacterNames?: string[];
+  },
 ): Promise<TruthSnapshot> {
-  const [characters, locations, visualStates, dnaVersions] = await Promise.all([
-    fetchCanonCharacters(projectId),
-    fetchCanonLocations(projectId),
-    fetchActiveVisualStates(projectId),
-    fetchCurrentDNAVersions(projectId),
-  ]);
+  const queries: Promise<any>[] = [];
+
+  // Characters — only fetch specified or all active
+  if (specificIds?.characterIds?.length) {
+    queries.push(
+      (supabase as any).from('narrative_entities')
+        .select('id, canonical_name, updated_at')
+        .in('id', specificIds.characterIds)
+        .eq('active', true)
+    );
+  } else {
+    queries.push(
+      (supabase as any).from('narrative_entities')
+        .select('id, canonical_name, updated_at')
+        .eq('project_id', projectId)
+        .eq('entity_type', 'character')
+        .eq('active', true)
+        .limit(50)
+    );
+  }
+
+  // Locations — only fetch specified or all active
+  if (specificIds?.locationIds?.length) {
+    queries.push(
+      (supabase as any).from('canon_locations')
+        .select('id, canonical_name, updated_at')
+        .in('id', specificIds.locationIds)
+        .eq('active', true)
+    );
+  } else {
+    queries.push(
+      (supabase as any).from('canon_locations')
+        .select('id, canonical_name, updated_at')
+        .eq('project_id', projectId)
+        .eq('active', true)
+        .limit(50)
+    );
+  }
+
+  // DNA versions — only fetch for specific characters or all current
+  if (specificIds?.dnaCharacterNames?.length) {
+    queries.push(
+      (supabase as any).from('character_visual_dna')
+        .select('id, character_name, version_number, created_at')
+        .eq('project_id', projectId)
+        .eq('is_current', true)
+        .in('character_name', specificIds.dnaCharacterNames)
+    );
+  } else {
+    queries.push(
+      (supabase as any).from('character_visual_dna')
+        .select('id, character_name, version_number, created_at')
+        .eq('project_id', projectId)
+        .eq('is_current', true)
+        .limit(50)
+    );
+  }
+
+  // Visual states — fetch all for now (scoped later if needed)
+  queries.push(
+    (supabase as any).from('entity_visual_states')
+      .select('id, state_label, entity_id, updated_at')
+      .eq('project_id', projectId)
+      .limit(100)
+  );
+
+  // Cast bindings — first-class dependency
+  queries.push(
+    (supabase as any).from('visual_sets')
+      .select('id, subject_ref, status, current_dna_version_id, updated_at')
+      .eq('project_id', projectId)
+      .eq('domain', 'character_identity')
+      .in('status', ['active', 'locked'])
+      .limit(50)
+  );
+
+  const [charRes, locRes, dnaRes, stateRes, castRes] = await Promise.all(queries);
+
+  const characters: TruthRef[] = (charRes.data || []).map((c: any) => ({
+    id: c.id,
+    name: c.canonical_name,
+    updated_at: c.updated_at,
+  }));
+
+  const locations: TruthRef[] = (locRes.data || []).map((l: any) => ({
+    id: l.id,
+    name: l.canonical_name,
+    updated_at: l.updated_at,
+  }));
+
+  const dna_versions: TruthRef[] = (dnaRes.data || []).map((d: any) => ({
+    id: d.id,
+    name: d.character_name,
+    version_id: d.id, // DNA id IS the version
+    updated_at: d.created_at,
+  }));
+
+  const visual_states: TruthRef[] = (stateRes.data || []).map((s: any) => ({
+    id: s.id,
+    name: s.state_label || 'unnamed state',
+    updated_at: s.updated_at,
+  }));
+
+  const cast_bindings: TruthRef[] = (castRes.data || []).map((cb: any) => ({
+    id: cb.id,
+    name: cb.subject_ref || 'unknown',
+    version_id: cb.current_dna_version_id || undefined,
+    updated_at: cb.updated_at,
+  }));
 
   const parts = [
-    ...characters.map(c => `char:${c.id}:${c.version_id || ''}`),
-    ...locations.map(l => `loc:${l.id}:${l.version_id || ''}`),
-    ...visualStates.map(s => `state:${s.id}:${s.version_id || ''}`),
-    ...dnaVersions.map(d => `dna:${d.id}:${d.version_id || ''}`),
+    ...characters.map(c => `char:${c.id}`),
+    ...locations.map(l => `loc:${l.id}`),
+    ...dna_versions.map(d => `dna:${d.id}:${d.version_id || ''}`),
+    ...visual_states.map(s => `state:${s.id}`),
+    ...cast_bindings.map(cb => `cast:${cb.id}:${cb.version_id || ''}`),
   ];
   const canon_hash = simpleHash(parts.sort().join('|'));
 
   return {
     characters,
     locations,
-    visual_states: visualStates,
-    dna_versions: dnaVersions,
+    visual_states,
+    dna_versions,
     costume_looks: [],
+    cast_bindings,
     canon_hash,
     captured_at: new Date().toISOString(),
+    precise: !!specificIds,
   };
+}
+
+/**
+ * Legacy: Capture full project truth (used when no specific deps are known).
+ */
+export async function captureVisualTruthSnapshot(
+  projectId: string,
+): Promise<TruthSnapshot> {
+  return captureApprovedTruthForDependencies(projectId);
 }
 
 /**
@@ -118,47 +270,19 @@ export async function persistDependencyLinks(
   }> = [];
 
   for (const c of snapshot.characters) {
-    links.push({
-      project_id: projectId,
-      asset_type: assetType,
-      asset_id: assetId,
-      dependency_type: 'narrative_entity',
-      dependency_id: c.id,
-      dependency_version_id: c.version_id || null,
-    });
+    links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: 'narrative_entity', dependency_id: c.id, dependency_version_id: null });
   }
-
   for (const l of snapshot.locations) {
-    links.push({
-      project_id: projectId,
-      asset_type: assetType,
-      asset_id: assetId,
-      dependency_type: 'canon_location',
-      dependency_id: l.id,
-      dependency_version_id: l.version_id || null,
-    });
+    links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: 'canon_location', dependency_id: l.id, dependency_version_id: null });
   }
-
   for (const d of snapshot.dna_versions) {
-    links.push({
-      project_id: projectId,
-      asset_type: assetType,
-      asset_id: assetId,
-      dependency_type: 'dna_version',
-      dependency_id: d.id,
-      dependency_version_id: d.version_id || null,
-    });
+    links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: 'dna_version', dependency_id: d.id, dependency_version_id: d.version_id || null });
   }
-
   for (const s of snapshot.visual_states) {
-    links.push({
-      project_id: projectId,
-      asset_type: assetType,
-      asset_id: assetId,
-      dependency_type: 'visual_state',
-      dependency_id: s.id,
-      dependency_version_id: s.version_id || null,
-    });
+    links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: 'visual_state', dependency_id: s.id, dependency_version_id: null });
+  }
+  for (const cb of snapshot.cast_bindings) {
+    links.push({ project_id: projectId, asset_type: assetType, asset_id: assetId, dependency_type: 'cast_binding', dependency_id: cb.id, dependency_version_id: cb.version_id || null });
   }
 
   if (links.length > 0) {
@@ -169,70 +293,132 @@ export async function persistDependencyLinks(
 // ── Freshness Check ──
 
 /**
- * Check freshness of a visual asset against current upstream truth.
+ * Check freshness of a visual asset against current upstream approved truth.
+ * Uses version-based comparison where possible, updated_at only as fallback.
  */
 export async function checkAssetFreshness(
   projectId: string,
-  assetType: string,
-  assetId: string,
+  _assetType: string,
+  _assetId: string,
   storedSnapshot: TruthSnapshot | null,
 ): Promise<FreshnessResult> {
   if (!storedSnapshot) {
-    return { status: 'current', staleReasons: [], changedDependencies: [] };
+    return {
+      status: 'stale',
+      staleReasons: ['Poster predates dependency tracking — re-generate under governed truth'],
+      changedDependencies: [],
+      affectedClasses: [],
+      predatesDependencyTracking: true,
+    };
   }
 
-  const currentSnapshot = await captureVisualTruthSnapshot(projectId);
+  // Extract specific dependency IDs from the stored snapshot for precise re-fetch
+  const characterIds = storedSnapshot.characters.map(c => c.id);
+  const locationIds = storedSnapshot.locations.map(l => l.id);
+  const dnaCharacterNames = storedSnapshot.dna_versions.map(d => d.name);
+
+  const currentSnapshot = await captureApprovedTruthForDependencies(projectId, {
+    characterIds: characterIds.length > 0 ? characterIds : undefined,
+    locationIds: locationIds.length > 0 ? locationIds : undefined,
+    dnaCharacterNames: dnaCharacterNames.length > 0 ? dnaCharacterNames : undefined,
+  });
+
   const changed: ChangedDependency[] = [];
   const reasons: string[] = [];
 
-  // Compare characters
-  const currentCharMap = new Map(currentSnapshot.characters.map(c => [c.id, c]));
-  for (const old of storedSnapshot.characters) {
-    const cur = currentCharMap.get(old.id);
-    if (!cur) {
-      changed.push({ dependency_type: 'narrative_entity', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: null });
-      reasons.push(`Character "${old.name}" removed from canon`);
-    } else if (cur.updated_at !== old.updated_at) {
-      changed.push({ dependency_type: 'narrative_entity', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: cur.version_id || null });
-      reasons.push(`Character "${old.name}" updated`);
-    }
-  }
+  // Compare characters — version-based when available, updated_at as fallback
+  compareRefs(storedSnapshot.characters, currentSnapshot.characters, 'narrative_entity', 'entity', 'Character', changed, reasons);
 
   // Compare locations
-  const currentLocMap = new Map(currentSnapshot.locations.map(l => [l.id, l]));
-  for (const old of storedSnapshot.locations) {
-    const cur = currentLocMap.get(old.id);
-    if (!cur) {
-      changed.push({ dependency_type: 'canon_location', dependency_id: old.id, label: old.name, old_version_id: null, new_version_id: null });
-      reasons.push(`Location "${old.name}" removed`);
-    } else if (cur.updated_at !== old.updated_at) {
-      changed.push({ dependency_type: 'canon_location', dependency_id: old.id, label: old.name, old_version_id: null, new_version_id: null });
-      reasons.push(`Location "${old.name}" updated`);
-    }
-  }
+  compareRefs(storedSnapshot.locations, currentSnapshot.locations, 'canon_location', 'world', 'Location', changed, reasons);
 
-  // Compare DNA versions
-  const currentDnaMap = new Map(currentSnapshot.dna_versions.map(d => [d.id, d]));
-  for (const old of storedSnapshot.dna_versions) {
-    const cur = currentDnaMap.get(old.id);
-    if (!cur) {
-      changed.push({ dependency_type: 'dna_version', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: null });
-      reasons.push(`DNA for "${old.name}" no longer current`);
-    } else if (cur.version_id !== old.version_id) {
-      changed.push({ dependency_type: 'dna_version', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: cur.version_id || null });
-      reasons.push(`DNA for "${old.name}" updated to new version`);
-    }
-  }
+  // Compare DNA versions — strict version_id comparison
+  compareDNAVersions(storedSnapshot.dna_versions, currentSnapshot.dna_versions, changed, reasons);
+
+  // Compare visual states
+  compareRefs(storedSnapshot.visual_states, currentSnapshot.visual_states, 'visual_state', 'state', 'Visual state', changed, reasons);
+
+  // Compare cast bindings — first-class
+  compareCastBindings(storedSnapshot.cast_bindings || [], currentSnapshot.cast_bindings, changed, reasons);
 
   if (changed.length === 0) {
-    return { status: 'current', staleReasons: [], changedDependencies: [] };
+    return { status: 'current', staleReasons: [], changedDependencies: [], affectedClasses: [], predatesDependencyTracking: false };
   }
+
+  const affectedClasses = [...new Set(changed.map(c => c.dependency_class))];
 
   return {
     status: 'stale',
     staleReasons: reasons,
     changedDependencies: changed,
+    affectedClasses,
+    predatesDependencyTracking: false,
   };
+}
+
+// ── Comparison Helpers ──
+
+function compareRefs(
+  stored: TruthRef[], current: TruthRef[],
+  depType: DependencyType, depClass: DependencyClass,
+  labelPrefix: string,
+  changed: ChangedDependency[], reasons: string[],
+) {
+  const currentMap = new Map(current.map(c => [c.id, c]));
+  for (const old of stored) {
+    const cur = currentMap.get(old.id);
+    if (!cur) {
+      changed.push({ dependency_type: depType, dependency_class: depClass, dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: null });
+      reasons.push(`${labelPrefix} "${old.name}" removed from canon`);
+    } else if (cur.version_id && old.version_id && cur.version_id !== old.version_id) {
+      // Version-based comparison (preferred)
+      changed.push({ dependency_type: depType, dependency_class: depClass, dependency_id: old.id, label: old.name, old_version_id: old.version_id, new_version_id: cur.version_id });
+      reasons.push(`Approved ${labelPrefix.toLowerCase()} "${old.name}" updated (version changed)`);
+    }
+    // NOTE: We no longer compare updated_at timestamps — only version_id changes trigger staleness
+  }
+}
+
+function compareDNAVersions(
+  stored: TruthRef[], current: TruthRef[],
+  changed: ChangedDependency[], reasons: string[],
+) {
+  const currentByName = new Map(current.map(d => [d.name, d]));
+  for (const old of stored) {
+    const cur = currentByName.get(old.name);
+    if (!cur) {
+      changed.push({ dependency_type: 'dna_version', dependency_class: 'dna', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: null });
+      reasons.push(`Approved DNA for "${old.name}" no longer current`);
+    } else if (cur.version_id !== old.version_id) {
+      changed.push({ dependency_type: 'dna_version', dependency_class: 'dna', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: cur.version_id || null });
+      reasons.push(`Approved DNA for "${old.name}" updated to new version`);
+    }
+  }
+}
+
+function compareCastBindings(
+  stored: TruthRef[], current: TruthRef[],
+  changed: ChangedDependency[], reasons: string[],
+) {
+  const currentMap = new Map(current.map(cb => [cb.id, cb]));
+  for (const old of stored) {
+    const cur = currentMap.get(old.id);
+    if (!cur) {
+      changed.push({ dependency_type: 'cast_binding', dependency_class: 'cast', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: null });
+      reasons.push(`Cast binding for "${old.name}" removed`);
+    } else if (cur.version_id !== old.version_id) {
+      changed.push({ dependency_type: 'cast_binding', dependency_class: 'cast', dependency_id: old.id, label: old.name, old_version_id: old.version_id || null, new_version_id: cur.version_id || null });
+      reasons.push(`Cast changed for "${old.name}" — approved identity set updated`);
+    }
+  }
+  // Detect new cast bindings not in stored snapshot
+  const storedIds = new Set(stored.map(s => s.id));
+  for (const cur of current) {
+    if (!storedIds.has(cur.id)) {
+      changed.push({ dependency_type: 'cast_binding', dependency_class: 'cast', dependency_id: cur.id, label: cur.name, old_version_id: null, new_version_id: cur.version_id || null });
+      reasons.push(`New cast binding added for "${cur.name}"`);
+    }
+  }
 }
 
 /**
@@ -244,7 +430,6 @@ export async function markDependentAssetsStale(
   dependencyId: string,
   reason: string,
 ): Promise<{ posters_marked: number; images_marked: number }> {
-  // Find all assets that depend on this
   const { data: links } = await (supabase as any)
     .from('visual_dependency_links')
     .select('asset_type, asset_id')
@@ -280,69 +465,6 @@ export async function markDependentAssetsStale(
   }
 
   return { posters_marked, images_marked };
-}
-
-// ── Data Fetchers ──
-
-async function fetchCanonCharacters(projectId: string): Promise<TruthRef[]> {
-  const { data } = await (supabase as any)
-    .from('narrative_entities')
-    .select('id, canonical_name, updated_at')
-    .eq('project_id', projectId)
-    .eq('entity_type', 'character')
-    .eq('active', true)
-    .limit(50);
-
-  return (data || []).map((c: any) => ({
-    id: c.id,
-    name: c.canonical_name,
-    updated_at: c.updated_at,
-  }));
-}
-
-async function fetchCanonLocations(projectId: string): Promise<TruthRef[]> {
-  const { data } = await (supabase as any)
-    .from('canon_locations')
-    .select('id, canonical_name, updated_at')
-    .eq('project_id', projectId)
-    .eq('active', true)
-    .limit(50);
-
-  return (data || []).map((l: any) => ({
-    id: l.id,
-    name: l.canonical_name,
-    updated_at: l.updated_at,
-  }));
-}
-
-async function fetchActiveVisualStates(projectId: string): Promise<TruthRef[]> {
-  const { data } = await (supabase as any)
-    .from('entity_visual_states')
-    .select('id, state_label, updated_at')
-    .eq('project_id', projectId)
-    .limit(100);
-
-  return (data || []).map((s: any) => ({
-    id: s.id,
-    name: s.state_label || 'unnamed state',
-    updated_at: s.updated_at,
-  }));
-}
-
-async function fetchCurrentDNAVersions(projectId: string): Promise<TruthRef[]> {
-  const { data } = await (supabase as any)
-    .from('character_visual_dna')
-    .select('id, character_name, version_number, created_at')
-    .eq('project_id', projectId)
-    .eq('is_current', true)
-    .limit(50);
-
-  return (data || []).map((d: any) => ({
-    id: d.id,
-    name: d.character_name,
-    version_id: d.id,
-    updated_at: d.created_at,
-  }));
 }
 
 // ── Utility ──

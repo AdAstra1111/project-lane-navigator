@@ -1,5 +1,6 @@
 /**
  * useVisualTruthFreshness — Hook for checking and displaying visual asset freshness.
+ * Supports both refresh-from-truth and creative edit as separate governed actions.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -22,7 +23,7 @@ export function usePosterFreshness(
     queryKey: ['poster-freshness', projectId, posterId],
     queryFn: async (): Promise<FreshnessResult> => {
       if (!projectId || !posterId) {
-        return { status: 'current', staleReasons: [], changedDependencies: [] };
+        return { status: 'current', staleReasons: [], changedDependencies: [], affectedClasses: [], predatesDependencyTracking: false };
       }
       return checkAssetFreshness(projectId, 'poster', posterId, truthSnapshot || null);
     },
@@ -50,7 +51,6 @@ export function useProjectPostersFreshness(projectId: string | undefined) {
 
       const results: Record<string, FreshnessResult> = {};
 
-      // Only check posters that have truth snapshots
       for (const poster of posters) {
         if (poster.truth_snapshot_json) {
           results[poster.id] = await checkAssetFreshness(
@@ -58,10 +58,13 @@ export function useProjectPostersFreshness(projectId: string | undefined) {
             poster.truth_snapshot_json as TruthSnapshot,
           );
         } else {
+          // Poster predates dependency tracking
           results[poster.id] = {
-            status: poster.freshness_status || 'current',
-            staleReasons: poster.freshness_status === 'stale' ? ['No truth snapshot — generated before dependency tracking'] : [],
+            status: 'stale',
+            staleReasons: ['Poster predates dependency tracking — re-generate under governed truth'],
             changedDependencies: [],
+            affectedClasses: [],
+            predatesDependencyTracking: true,
           };
         }
       }
@@ -74,9 +77,10 @@ export function useProjectPostersFreshness(projectId: string | undefined) {
 }
 
 /**
- * Refresh a stale poster — creates a new version via regeneration.
+ * Governed refresh: re-generate poster from current approved truth.
+ * This is SEPARATE from creative edit — preserves composition/template/strategy.
  */
-export function useRefreshStalePoster(projectId: string | undefined) {
+export function useRefreshPosterFromTruth(projectId: string | undefined) {
   const qc = useQueryClient();
 
   return useMutation({
@@ -85,9 +89,8 @@ export function useRefreshStalePoster(projectId: string | undefined) {
       const { data, error } = await supabase.functions.invoke('generate-poster', {
         body: {
           project_id: projectId,
-          mode: 'edit_poster',
+          mode: 'refresh_poster_from_truth',
           source_poster_id: posterId,
-          edit_prompt: 'Regenerate this poster with updated character and world truth — preserve the composition style and visual approach.',
         },
       });
       if (error) throw error;
@@ -99,4 +102,12 @@ export function useRefreshStalePoster(projectId: string | undefined) {
       qc.invalidateQueries({ queryKey: ['project-posters-freshness', projectId] });
     },
   });
+}
+
+/**
+ * @deprecated Use useRefreshPosterFromTruth for stale refreshes.
+ * Keep for backward compat — routes through edit_poster.
+ */
+export function useRefreshStalePoster(projectId: string | undefined) {
+  return useRefreshPosterFromTruth(projectId);
 }

@@ -13,8 +13,8 @@ import {
   Swords, Award, Megaphone, Drama, PenLine, Plus, X,
   Download, Layout, Maximize2, Edit3, Wand2, Send, ShieldAlert,
 } from "lucide-react";
-import { useProjectPostersFreshness, useRefreshStalePoster } from "@/hooks/useVisualTruthFreshness";
-import type { FreshnessResult } from "@/lib/visual-truth-dependencies";
+import { useProjectPostersFreshness, useRefreshPosterFromTruth } from "@/hooks/useVisualTruthFreshness";
+import type { FreshnessResult, DependencyClass } from "@/lib/visual-truth-dependencies";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -109,17 +109,31 @@ function PosterImage({
   );
 }
 
-// ── Freshness Badge ──
-function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
+// ── Freshness Badge ── Shows dependency classes and separate CTAs
+const DEPENDENCY_CLASS_LABELS: Record<DependencyClass, string> = {
+  cast: 'Cast',
+  look: 'Look',
+  state: 'State',
+  dna: 'DNA',
+  world: 'World',
+  entity: 'Character',
+  costume: 'Costume',
+  unknown: 'Unknown',
+};
+
+function FreshnessBadge({ freshness, posterId, onRefreshFromTruth, onEdit, isRefreshing }: {
   freshness?: FreshnessResult;
   posterId: string;
-  onRefresh: () => void;
+  onRefreshFromTruth: () => void;
+  onEdit?: () => void;
   isRefreshing: boolean;
 }) {
   if (!freshness || freshness.status === 'current') return null;
 
+  const classLabels = freshness.affectedClasses?.map(c => DEPENDENCY_CLASS_LABELS[c] || c).join(', ');
+
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5 flex-wrap">
       <Badge
         variant="outline"
         className={cn(
@@ -129,9 +143,14 @@ function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
         )}
       >
         <ShieldAlert className="w-2.5 h-2.5" />
-        {freshness.status === 'stale' ? 'Stale' : 'Needs Refresh'}
+        {freshness.predatesDependencyTracking ? 'Pre-tracking' : 'Stale'}
       </Badge>
-      {freshness.staleReasons.length > 0 && (
+      {classLabels && (
+        <span className="text-[9px] text-muted-foreground" title={freshness.staleReasons.join('; ')}>
+          {classLabels}
+        </span>
+      )}
+      {!freshness.predatesDependencyTracking && freshness.staleReasons.length > 0 && !classLabels && (
         <span className="text-[9px] text-muted-foreground max-w-[200px] truncate" title={freshness.staleReasons.join('; ')}>
           {freshness.staleReasons[0]}
         </span>
@@ -140,11 +159,11 @@ function FreshnessBadge({ freshness, posterId, onRefresh, isRefreshing }: {
         size="sm"
         variant="outline"
         className="h-5 text-[9px] px-2 gap-1"
-        onClick={onRefresh}
+        onClick={onRefreshFromTruth}
         disabled={isRefreshing}
       >
         {isRefreshing ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-        Refresh
+        Refresh Truth
       </Button>
     </div>
   );
@@ -163,7 +182,7 @@ export default function PosterEnginePanel() {
   const setActivePoster = useSetActivePoster(projectId);
   const deletePoster = useDeletePoster(projectId);
   const { data: freshnessMap } = useProjectPostersFreshness(projectId);
-  const refreshStale = useRefreshStalePoster(projectId);
+  const refreshFromTruth = useRefreshPosterFromTruth(projectId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activePosterCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -439,7 +458,7 @@ export default function PosterEnginePanel() {
                   {(activePoster.prompt_inputs as any)?.poster_mode === 'edit' && (
                     <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-500">edited</Badge>
                   )}
-                  <FreshnessBadge freshness={freshnessMap?.[activePoster.id]} posterId={activePoster.id} onRefresh={() => refreshStale.mutate(activePoster.id)} isRefreshing={refreshStale.isPending} />
+                  <FreshnessBadge freshness={freshnessMap?.[activePoster.id]} posterId={activePoster.id} onRefreshFromTruth={() => refreshFromTruth.mutate(activePoster.id)} isRefreshing={refreshFromTruth.isPending} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {activePoster.source_type === "generated" ? "AI Key Art" : activePoster.source_type === "edited" ? "Edited" : "Uploaded"} • {POSTER_TEMPLATES[selectedTemplate]?.label || selectedTemplate}
@@ -745,21 +764,43 @@ export default function PosterEnginePanel() {
                     <div className="p-2 rounded-md bg-destructive/10 border border-destructive/20 space-y-1.5">
                       <div className="flex items-center gap-1.5 text-[10px] font-medium text-destructive">
                         <ShieldAlert className="w-3 h-3" />
-                        Upstream Truth Changed
+                        {freshnessMap[expandedPoster.id].predatesDependencyTracking
+                          ? 'Pre-Tracking Poster'
+                          : 'Upstream Truth Changed'}
                       </div>
+                      {freshnessMap[expandedPoster.id].affectedClasses?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {freshnessMap[expandedPoster.id].affectedClasses.map((cls) => (
+                            <Badge key={cls} variant="outline" className="text-[8px] h-4 border-destructive/30 text-destructive">
+                              {DEPENDENCY_CLASS_LABELS[cls] || cls}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                       {freshnessMap[expandedPoster.id].staleReasons.map((r, i) => (
                         <p key={i} className="text-[9px] text-muted-foreground">• {r}</p>
                       ))}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[9px] w-full gap-1"
-                        onClick={() => refreshStale.mutate(expandedPoster.id)}
-                        disabled={refreshStale.isPending}
-                      >
-                        {refreshStale.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-                        Refresh with Updated Truth
-                      </Button>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 text-[9px] flex-1 gap-1"
+                          onClick={() => refreshFromTruth.mutate(expandedPoster.id)}
+                          disabled={refreshFromTruth.isPending}
+                        >
+                          {refreshFromTruth.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+                          Refresh from Truth
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 text-[9px] gap-1"
+                          onClick={() => { /* scroll to edit section */ }}
+                        >
+                          <Edit3 className="w-2.5 h-2.5" />
+                          Edit Creatively
+                        </Button>
+                      </div>
                     </div>
                   )}
 
