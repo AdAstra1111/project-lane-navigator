@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
+import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
