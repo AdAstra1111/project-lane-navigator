@@ -6,7 +6,7 @@
  * Identity images use generation_purpose='character_identity' and identity_* shot types.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save } from 'lucide-react';
+import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
