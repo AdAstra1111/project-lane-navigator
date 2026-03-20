@@ -532,7 +532,7 @@ export async function generateLookBookData(
   slides.push({
     type: 'overview',
     slide_id: makeSemanticSlideId('overview'),
-    title: 'Project Overview',
+    title,
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
     bullets: [
@@ -540,7 +540,6 @@ export async function generateLookBookData(
       formatLabel ? `Format: ${formatLabel}` : '',
       normalizedCanon.tone_style ? `Tone: ${normalizedCanon.tone_style}` : '',
       targetAudience ? `Audience: ${targetAudience}` : '',
-      assignedLane ? `Lane: ${assignedLane}` : '',
     ].filter(Boolean),
   });
 
@@ -575,22 +574,21 @@ export async function generateLookBookData(
     });
   }
 
-  // ── THEMES ── (now with atmospheric imagery)
+  // ── THEMES ── (atmosphere imagery only — no texture overlap)
   const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
-    const themesImages = [...atmosphereImages, ...textureImages];
-    const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
+    const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
-      imageUrl: themesImages[0]?.signedUrl || undefined,
-      imageUrls: themesImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
-      _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds].slice(0, 4),
-      _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)].slice(0, 4),
+      imageUrl: atmosphereImages[0]?.signedUrl || undefined,
+      imageUrls: atmosphereImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.atmosphere_lighting.imageIds.slice(0, 4),
+      _debug_provenance: toSlideProvenance(canonImages.atmosphere_lighting).slice(0, 4),
       _has_unresolved: themesUnresolved > 0,
     });
   }
