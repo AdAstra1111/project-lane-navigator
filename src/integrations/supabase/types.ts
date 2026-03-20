@@ -17079,6 +17079,67 @@ export type Database = {
           },
         ]
       }
+      round_promotions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          gating_snapshot_json: Json
+          group_id: string
+          id: string
+          promoted_candidate_version_id: string | null
+          promotion_mode: string
+          promotion_status: string
+          rationale: string | null
+          round_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          gating_snapshot_json?: Json
+          group_id: string
+          id?: string
+          promoted_candidate_version_id?: string | null
+          promotion_mode?: string
+          promotion_status?: string
+          rationale?: string | null
+          round_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          gating_snapshot_json?: Json
+          group_id?: string
+          id?: string
+          promoted_candidate_version_id?: string | null
+          promotion_mode?: string
+          promotion_status?: string
+          rationale?: string | null
+          round_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_promotions_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_promotions_promoted_candidate_version_id_fkey"
+            columns: ["promoted_candidate_version_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_promotions_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scenario_decision_events: {
         Row: {
           created_at: string

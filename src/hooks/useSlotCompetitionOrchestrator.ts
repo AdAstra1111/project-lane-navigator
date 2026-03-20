@@ -40,6 +40,15 @@ import {
   loadRepairHistory,
   type RepairRun,
 } from '@/lib/competition/repairLoopService';
+import {
+  autoPromoteRound,
+  evaluateRoundPromotion,
+  loadPromotionForRound,
+  resolveEffectiveWinner,
+  type RoundPromotion,
+  type EffectiveWinner,
+  type PromotionGatePolicy,
+} from '@/lib/competition/autoPromotionService';
 
 interface SlotInfo {
   key: string;
@@ -301,6 +310,51 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Finalize repair failed: ${e.message}`),
   });
 
+  // ── Explicit action: auto-promote current round ──
+  const autoPromote = useMutation({
+    mutationFn: async (params: {
+      groupId: string;
+      roundId: string;
+      policy?: PromotionGatePolicy;
+    }) => {
+      return autoPromoteRound({
+        groupId: params.groupId,
+        roundId: params.roundId,
+        policy: params.policy,
+      });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: competitionKeys.groupDetail(vars.groupId) });
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: competitionKeys.groups(projectId) });
+      }
+      if (_data.promotion_status === 'promoted') {
+        toast.success('Candidate auto-promoted');
+      } else {
+        toast.info(`No candidate qualified for promotion: ${_data.rationale || 'threshold not met'}`);
+      }
+    },
+    onError: (e: Error) => toast.error(`Auto-promotion failed: ${e.message}`),
+  });
+
+  // ── Explicit action: evaluate promotion (dry run, no persist) ──
+  const evaluatePromotion = useCallback(async (params: {
+    groupId: string;
+    roundId: string;
+    policy?: PromotionGatePolicy;
+  }) => {
+    return evaluateRoundPromotion({
+      groupId: params.groupId,
+      roundId: params.roundId,
+      policy: params.policy,
+    });
+  }, []);
+
+  // ── Explicit action: resolve effective winner for a group ──
+  const getEffectiveWinner = useCallback(async (groupId: string): Promise<EffectiveWinner | null> => {
+    return resolveEffectiveWinner(groupId);
+  }, []);
+
   return {
     /** DB-backed group list (query state) */
     groups: groupsQuery.data || [],
@@ -315,7 +369,7 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     initializeAllSlots,
     /** Explicit: persist ranking snapshot (round-aware) */
     persistRanking,
-    /** Explicit: select winner (round-aware) */
+    /** Explicit: select winner (round-aware, manual) */
     selectCompetitionWinner,
     /** Explicit: create rerun round for existing group */
     createRerun,
@@ -325,5 +379,11 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     registerRepaired,
     /** Explicit: finalize a completed repair run */
     finalizeRepair,
+    /** Explicit: auto-promote current round (persists decision) */
+    autoPromote,
+    /** Explicit: evaluate promotion eligibility (dry run) */
+    evaluatePromotion,
+    /** Explicit: resolve effective winner for a group */
+    getEffectiveWinner,
   };
 }
