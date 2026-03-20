@@ -70,11 +70,13 @@ export default function LookBookPage() {
     if (!projectId) return;
     setGenerating(true);
     try {
+      // Always re-resolve from DB — no stale snapshot reuse
       const data = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
       setLookBookData(data);
+      setLookbookBuildEpoch(Date.now());
       toast.success('Look Book generated — open Viewer to preview slides');
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
@@ -82,6 +84,13 @@ export default function LookBookPage() {
       setGenerating(false);
     }
   }, [projectId, branding]);
+
+  // Auto-rebuild when switching to viewer if no data exists yet
+  useEffect(() => {
+    if (viewMode === 'viewer' && !lookBookData && !generating && projectId) {
+      handleGenerate();
+    }
+  }, [viewMode, lookBookData, generating, projectId, handleGenerate]);
 
   const handleExportPDF = useCallback(async () => {
     if (!lookBookData || !projectId) return;
