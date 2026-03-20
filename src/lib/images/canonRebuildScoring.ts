@@ -138,7 +138,13 @@ function scoreSlotMatch(imageShotType: string | null, targetShotType: string): {
 function scoreAspectFit(image: ProjectImage, expectedAR: AspectRatio): { score: number; reason: string } {
   const w = (image as any).width as number | null;
   const h = (image as any).height as number | null;
-  if (!w || !h) return { score: 50, reason: 'No dimensions — neutral aspect score' };
+  if (!w || !h) {
+    // Infer from shot_type: if the image's shot_type has a known canonical AR that matches expected, score higher
+    const shotAR = SHOT_ASPECT_RATIO[(image.shot_type || '') as string];
+    if (shotAR === expectedAR) return { score: 80, reason: `No dims but shot_type "${image.shot_type}" matches expected AR ${expectedAR}` };
+    if (shotAR) return { score: 40, reason: `No dims; shot_type AR ${shotAR} ≠ expected ${expectedAR}` };
+    return { score: 50, reason: 'No dimensions — neutral aspect score' };
+  }
 
   const imageRatio = w / h;
   const [arW, arH] = expectedAR.split(':').map(Number);
