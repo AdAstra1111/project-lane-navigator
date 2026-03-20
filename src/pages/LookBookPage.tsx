@@ -393,8 +393,13 @@ export default function LookBookPage() {
           className="flex-1 min-h-0 flex flex-col px-4 pt-3"
         >
           <TabsList className="mb-3 shrink-0">
-            <TabsTrigger value="workspace">Workspace</TabsTrigger>
-            <TabsTrigger value="viewer">Viewer</TabsTrigger>
+            <TabsTrigger value="workspace">Sections</TabsTrigger>
+            <TabsTrigger value="viewer" className="relative">
+              Viewer
+              {staleness.isStale && (
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500" />
+              )}
+            </TabsTrigger>
           </TabsList>
 
           {/* ── Workspace: scrollable content ── */}
