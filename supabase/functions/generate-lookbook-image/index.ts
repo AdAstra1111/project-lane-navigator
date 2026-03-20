@@ -172,9 +172,28 @@ async function resolveCharacterBindings(
 }
 
 async function resolveLocationBindings(
-  sb: any, projectId: string, sectionKey: string, explicitLocationId?: string | null, explicitLocationName?: string,
+  sb: any, projectId: string, sectionKey: string,
+  explicitLocationId?: string | null, explicitLocationName?: string,
+  explicitLocationIds?: string[],
 ): Promise<LocationBinding[]> {
   if (!SECTION_BINDING_RELEVANCE[sectionKey]?.locations) return [];
+
+  // If exact IDs provided, query those specifically
+  if (explicitLocationIds?.length) {
+    const { data: exactRows } = await sb.from("canon_locations")
+      .select("id, canonical_name, description, location_type, geography, interior_or_exterior, era_relevance, story_importance")
+      .eq("project_id", projectId).eq("active", true)
+      .in("id", explicitLocationIds);
+    if (exactRows?.length) {
+      return exactRows.map((loc: any) => ({
+        location_id: loc.id, canonical_name: loc.canonical_name, description: loc.description,
+        location_type: loc.location_type || 'unspecified', geography: loc.geography,
+        interior_or_exterior: loc.interior_or_exterior, era_relevance: loc.era_relevance,
+        story_importance: loc.story_importance || 'secondary',
+      }));
+    }
+  }
+
   let q = sb.from("canon_locations")
     .select("id, canonical_name, description, location_type, geography, interior_or_exterior, era_relevance, story_importance")
     .eq("project_id", projectId).eq("active", true);
