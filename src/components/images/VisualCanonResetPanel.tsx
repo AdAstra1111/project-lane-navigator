@@ -456,7 +456,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama]);
 
   // ── Full Canon Rebuild — score-based end-to-end pipeline ──
-  const REBUILD_STAGES = [
+  const REBUILD_STAGES_RESET = [
     'Resetting canon',
     'Archiving images',
     'Generating images',
@@ -468,37 +468,99 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     'Complete',
   ] as const;
 
+  const REBUILD_STAGES_PRESERVE = [
+    'Analysing incumbents',
+    'Generating missing slots',
+    'Scoring candidates',
+    'Evaluating replacements',
+    'Attaching winners',
+    'Building lookbook',
+    'Preparing download',
+    'Complete',
+  ] as const;
+
+  const currentStages = rebuildMode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD'
+    ? REBUILD_STAGES_PRESERVE
+    : REBUILD_STAGES_RESET;
+
   const handleFullCanonRebuild = useCallback(async () => {
     if (fullRebuilding) return;
     setFullRebuilding(true);
+    setLastRebuildResult(null);
+
+    const mode = rebuildMode;
+    const isPreserve = mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
 
     try {
-      // Stage 1: Reset canon
-      setRebuildStage('Resetting canon');
-      await resetScopedCanon({
-        sections: [],
-        clearPrimary: true,
-        targetState: 'archived',
-        regenerateAfter: false,
-      });
-      await refetchImages();
+      let preGenImages: ProjectImage[] = [];
 
-      // Stage 2: Archive confirmation
-      setRebuildStage('Archiving images');
-      await new Promise(r => setTimeout(r, 500));
-      await refetchImages();
+      if (isPreserve) {
+        // ── PRESERVE MODE: Analyse incumbents, generate only weak/missing ──
+        setRebuildStage('Analysing incumbents');
+        const preResult = await refetchImages();
+        preGenImages = (preResult?.data || []) as ProjectImage[];
 
-      // Stage 3: Generate full visual set
-      setRebuildStage('Generating images');
-      await handleAutoPopulate(false);
-      await new Promise(r => setTimeout(r, 500));
+        const freshEntities = extractEntities(canonJson);
+        const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, preGenImages, isVerticalDrama);
+
+        // Classify slot weakness
+        const slotTargets: SlotTarget[] = freshRequired.slots.map(s => ({
+          key: s.key,
+          assetGroup: s.assetGroup,
+          subject: s.subject,
+          shotType: s.shotType || '',
+          expectedAspectRatio: s.aspectRatio,
+          isIdentity: s.isIdentity,
+        }));
+
+        const weakSlotKeys = new Set<string>();
+        for (const slot of freshRequired.slots) {
+          const target = slotTargets.find(t => t.key === slot.key);
+          if (!target) continue;
+          const weakness = classifySlotWeakness(
+            slot.primaryImage, target, isVerticalDrama, projectFormat, projectLane,
+          );
+          if (weakness.isWeak) {
+            weakSlotKeys.add(slot.key);
+            console.log(`[preserve-rebuild] Weak slot: ${slot.key} — reasons: ${weakness.reasons.join(', ')}`);
+          }
+        }
+
+        console.log(`[preserve-rebuild] ${weakSlotKeys.size} of ${freshRequired.slots.length} slots targeted for regeneration`);
+
+        // Generate only weak/missing slots
+        if (weakSlotKeys.size > 0) {
+          setRebuildStage('Generating missing slots');
+          await handleAutoPopulate(false);
+          await new Promise(r => setTimeout(r, 500));
+        }
+      } else {
+        // ── RESET MODE: Clear everything first ──
+        setRebuildStage('Resetting canon');
+        await resetScopedCanon({
+          sections: [],
+          clearPrimary: true,
+          targetState: 'archived',
+          regenerateAfter: false,
+        });
+        await refetchImages();
+
+        setRebuildStage('Archiving images');
+        await new Promise(r => setTimeout(r, 500));
+        await refetchImages();
+
+        // Generate full visual set
+        setRebuildStage('Generating images');
+        await handleAutoPopulate(false);
+        await new Promise(r => setTimeout(r, 500));
+      }
+
       const postGenResult = await refetchImages();
       const postGenImages: ProjectImage[] = (postGenResult?.data || []) as ProjectImage[];
 
-      // Stage 4: Score all candidates per slot
+      // ── Common: Score all candidates per slot ──
       setRebuildStage('Scoring candidates');
 
-      // Build slot targets from the required visual set
       const freshEntities = extractEntities(canonJson);
       const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, postGenImages, isVerticalDrama);
 
@@ -511,37 +573,53 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         isIdentity: s.isIdentity,
       }));
 
-      // Group candidate images by slot key
       const imagesBySlotKey = new Map<string, ProjectImage[]>();
       for (const slot of freshRequired.slots) {
         imagesBySlotKey.set(slot.key, slot.candidates);
       }
 
-      // Run deterministic scoring with project context for vertical compliance
-      const slotResults = scoreAndSelectAllSlots(slotTargets, imagesBySlotKey, isVerticalDrama, projectFormat, projectLane);
-      const winners = slotResults.filter(r => r.winner !== null);
-      const winnerIds = new Set(winners.map(r => r.winner!.imageId));
-      const unresolvedSlots = slotResults.filter(r => !r.winner);
+      // Build preserve-mode context
+      const incumbentsBySlotKey = new Map<string, ProjectImage | null>();
+      let anchors = undefined as ReturnType<typeof buildAlignmentAnchors> | undefined;
 
-      console.log('[full-canon-rebuild] Scoring complete:', {
-        totalSlots: slotTargets.length,
-        slotsWithWinners: winners.length,
-        slotsUnresolved: unresolvedSlots.length,
-        unresolvedReasons: unresolvedSlots.map(r => `${r.slotKey}: ${r.noWinnerReason}`),
+      if (isPreserve) {
+        setRebuildStage('Evaluating replacements');
+        const primaryImages = postGenImages.filter(i => i.is_primary && i.curation_state === 'active');
+        anchors = buildAlignmentAnchors(primaryImages);
+
+        for (const slot of freshRequired.slots) {
+          incumbentsBySlotKey.set(slot.key, slot.primaryImage);
+        }
+      }
+
+      // Run deterministic scoring
+      const slotResults = scoreAndSelectAllSlots(
+        slotTargets, imagesBySlotKey, isVerticalDrama, projectFormat, projectLane,
+        { mode, anchors, incumbentsBySlotKey: isPreserve ? incumbentsBySlotKey : undefined },
+      );
+
+      const rebuildResult = buildRebuildResult(mode, slotResults, postGenImages.length);
+      setLastRebuildResult(rebuildResult);
+
+      const winnerIds = new Set(rebuildResult.winnerIds);
+
+      console.log(`[${mode}] Scoring complete:`, {
+        ...rebuildResult,
         isVerticalDrama,
-        complianceGateBlocked: slotResults.filter(r => r.complianceGate && !r.complianceGate.allowed).length,
-        nonCompliantFiltered: isVerticalDrama ? slotResults.filter(r => r.allScored.some(s => !s.eligibleForSelection)).length : 0,
       });
 
-      // Stage 5: Select winners — attach ONLY scored, compliance-gated winners
+      // ── Attach winners ──
       setRebuildStage('Attaching winners');
 
       for (const result of slotResults) {
         if (!result.winner) continue;
-
-        // COMPLIANCE GATE: Skip if gate blocked (VD enforcement)
         if (result.complianceGate && !result.complianceGate.allowed) {
-          console.warn(`[full-canon-rebuild] Compliance gate BLOCKED attachment for ${result.slotKey}: ${result.complianceGate.reason}`);
+          console.warn(`[${mode}] Compliance gate BLOCKED attachment for ${result.slotKey}: ${result.complianceGate.reason}`);
+          continue;
+        }
+
+        // In preserve mode, skip if incumbent preserved (no DB change needed)
+        if (isPreserve && result.incumbentPreserved && result.incumbentId === result.winner.imageId) {
           continue;
         }
 
@@ -561,7 +639,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           await clearQ;
         }
 
-        // Promote winner to active + primary
+        // Promote winner
         await (supabase as any)
           .from('project_images')
           .update({
@@ -573,65 +651,68 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           .eq('id', winnerId);
       }
 
-      // Demote non-winners to candidate (not active)
-      const allCandidateIds = postGenImages
-        .filter(i => i.curation_state === 'candidate' || i.curation_state === 'active')
-        .map(i => i.id)
-        .filter(id => !winnerIds.has(id));
+      // Demote non-winners to candidate (not active) — only in reset mode
+      if (!isPreserve) {
+        const allCandidateIds = postGenImages
+          .filter(i => i.curation_state === 'candidate' || i.curation_state === 'active')
+          .map(i => i.id)
+          .filter(id => !winnerIds.has(id));
 
-      if (allCandidateIds.length > 0) {
-        for (let i = 0; i < allCandidateIds.length; i += 50) {
-          const chunk = allCandidateIds.slice(i, i + 50);
-          await (supabase as any)
-            .from('project_images')
-            .update({
-              curation_state: 'candidate',
-              is_active: false,
-              is_primary: false,
-            })
-            .in('id', chunk);
+        if (allCandidateIds.length > 0) {
+          for (let i = 0; i < allCandidateIds.length; i += 50) {
+            const chunk = allCandidateIds.slice(i, i + 50);
+            await (supabase as any)
+              .from('project_images')
+              .update({
+                curation_state: 'candidate',
+                is_active: false,
+                is_primary: false,
+              })
+              .in('id', chunk);
+          }
         }
       }
 
       await refetchImages();
 
       // ── Honest completion messaging ──
-      const gateBlocked = slotResults.filter(r => r.complianceGate && !r.complianceGate.allowed).length;
-      const actualAttached = winners.length - gateBlocked;
+      const { resolvedSlots, unresolvedSlots, attachedWinnerCount, preservedPrimaryCount, replacedPrimaryCount, totalSlots } = rebuildResult;
+      const modeLabel = isPreserve ? 'Preserve rebuild' : 'Reset rebuild';
 
-      if (unresolvedSlots.length > 0 || gateBlocked > 0) {
+      if (unresolvedSlots > 0) {
         toast.warning(
-          `Rebuild completed with ${unresolvedSlots.length + gateBlocked} unresolved slot${(unresolvedSlots.length + gateBlocked) !== 1 ? 's' : ''} — ` +
-          `${actualAttached} of ${slotTargets.length} winners attached` +
-          (isVerticalDrama ? ' (strict 9:16 compliance enforced)' : ''),
+          `${modeLabel}: ${unresolvedSlots} unresolved slot${unresolvedSlots !== 1 ? 's' : ''} — ` +
+          `${attachedWinnerCount} of ${totalSlots} attached` +
+          (isPreserve ? ` (${preservedPrimaryCount} preserved, ${replacedPrimaryCount} replaced)` : '') +
+          (isVerticalDrama ? ' — strict 9:16 enforced' : ''),
         );
       } else {
         toast.success(
-          `Canon attached: ${actualAttached} winner${actualAttached !== 1 ? 's' : ''} from ${slotTargets.length} slots` +
+          `${modeLabel}: ${attachedWinnerCount} winner${attachedWinnerCount !== 1 ? 's' : ''} from ${totalSlots} slots` +
+          (isPreserve ? ` (${preservedPrimaryCount} preserved, ${replacedPrimaryCount} replaced)` : '') +
           (isVerticalDrama ? ' — strict vertical compliance verified' : ''),
         );
       }
 
-      // Stage 7: Build lookbook
+      // Build lookbook
       setRebuildStage('Building lookbook');
       if (onLookbookRebuild) {
         await onLookbookRebuild();
       }
 
-      // Stage 8: Download winners only
+      // Download winners only
       setRebuildStage('Preparing download');
       await downloadWinnersOnly(winnerIds);
 
-      // Done
       setRebuildStage('Complete');
     } catch (err: any) {
-      console.error('[full-canon-rebuild] Error:', err);
+      console.error(`[${rebuildMode}] Error:`, err);
       toast.error('Rebuild failed at stage: ' + (rebuildStage || 'unknown') + ' — ' + (err.message || 'Unknown error'));
     } finally {
       setFullRebuilding(false);
       setRebuildStage(null);
     }
-  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, rebuildStage, canonJson, projectId, isVerticalDrama, projectFormat, projectLane]);
+  }, [fullRebuilding, rebuildMode, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, rebuildStage, canonJson, projectId, isVerticalDrama, projectFormat, projectLane]);
 
   // ── Download winners only (not all active images) ──
   const downloadWinnersOnly = useCallback(async (winnerIds: Set<string>) => {
