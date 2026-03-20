@@ -1188,7 +1188,7 @@ serve(async (req) => {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
       } else {
         prompt = shotType
-          ? buildPackPrompt(assetGroup, shotType, ctx)
+          ? buildPackPrompt(assetGroup, shotType, ctx, i)
           : buildSectionPrompt(section, ctx, i);
       }
 
