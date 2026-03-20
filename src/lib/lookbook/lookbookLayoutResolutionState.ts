@@ -76,6 +76,11 @@ export function validateLayoutFamilyOverride(
  * Override wins if present and valid, otherwise resolved family, otherwise default.
  */
 export function getEffectiveLayoutFamily(slide: SlideContent): LayoutFamilyKey {
+  // Priority: user_decisions.layout_family > layoutFamilyOverride > layoutFamily > default
+  const userDecision = slide.user_decisions?.layout_family;
+  if (userDecision && userDecision in LAYOUT_FAMILIES) {
+    return userDecision as LayoutFamilyKey;
+  }
   const override = (slide as SlideContentWithOverride).layoutFamilyOverride;
   if (override && override in LAYOUT_FAMILIES) {
     return override as LayoutFamilyKey;
