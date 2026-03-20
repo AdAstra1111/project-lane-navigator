@@ -60,7 +60,9 @@ function CandidateRow({ candidate, rank }: { candidate: ScoredCandidate; rank: n
   return (
     <div className={cn(
       'rounded-md border px-2 py-1.5 text-[10px]',
-      rank === 0 && candidate.eligible ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border/50 bg-muted/10',
+      rank === 0 && candidate.canonPromotable ? 'border-emerald-500/40 bg-emerald-500/5' :
+      rank === 0 && candidate.eligible ? 'border-amber-500/40 bg-amber-500/5' :
+      'border-border/50 bg-muted/10',
     )}>
       <div className="flex items-center justify-between gap-1.5 cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-1.5 min-w-0">
@@ -70,6 +72,11 @@ function CandidateRow({ candidate, rank }: { candidate: ScoredCandidate; rank: n
           <span className={cn('text-[9px]', ACTION_COLORS[candidate.recommendedAction])}>
             {ACTION_LABELS[candidate.recommendedAction]}
           </span>
+          {candidate.canonPromotable ? (
+            <Badge variant="default" className="text-[7px] h-3.5 px-1 bg-emerald-600">Promotable</Badge>
+          ) : candidate.eligible ? (
+            <Badge variant="outline" className="text-[7px] h-3.5 px-1 text-amber-600 border-amber-400">Advisory</Badge>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           {candidate.warnings.length > 0 && (

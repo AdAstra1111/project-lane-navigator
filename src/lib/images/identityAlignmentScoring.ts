@@ -64,6 +64,8 @@ export interface ScoredCandidate {
   componentScores: ComponentScores;
   recommendedAction: RecommendedAction;
   eligible: boolean;
+  /** True only when shot_type exactly matches the target slot — safe for canonical primary promotion */
+  canonPromotable: boolean;
   reasons: string[];
   warnings: string[];
   confidence: 'high' | 'medium' | 'low';
@@ -104,11 +106,11 @@ const WEIGHTS = {
  * Returns 0–100. An exact match = 100. Related shots get partial credit.
  * Fundamentally wrong shots = 0 (ineligible).
  */
-function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot): { score: number; eligible: boolean; reason: string } {
+function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot): { score: number; eligible: boolean; exactMatch: boolean; reason: string } {
   const st = (imageShotType || '').toLowerCase();
 
   if (st === targetSlot) {
-    return { score: 100, eligible: true, reason: `Exact slot match: ${targetSlot}` };
+    return { score: 100, eligible: true, exactMatch: true, reason: `Exact slot match: ${targetSlot}` };
   }
 
   // Cross-slot partial credit rules
@@ -126,10 +128,10 @@ function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot):
 
   const partialScore = PARTIAL[targetSlot]?.[st];
   if (partialScore !== undefined) {
-    return { score: partialScore, eligible: partialScore >= 20, reason: `Partial slot fit: ${st} for ${targetSlot} (${partialScore}%)` };
+    return { score: partialScore, eligible: partialScore >= 20, exactMatch: false, reason: `Partial slot fit: ${st} for ${targetSlot} (${partialScore}%) — advisory only, not canon-promotable` };
   }
 
-  return { score: 0, eligible: false, reason: `Shot type "${st || 'unknown'}" incompatible with ${targetSlot}` };
+  return { score: 0, eligible: false, exactMatch: false, reason: `Shot type "${st || 'unknown'}" incompatible with ${targetSlot}` };
 }
 
 // ── Identity Signature Match ──
@@ -393,6 +395,7 @@ export function scoreCandidate(
       },
       recommendedAction: 'reject_for_slot',
       eligible: false,
+      canonPromotable: false,
       reasons,
       warnings: ['Ineligible: shot type does not match target slot'],
       confidence: 'high',
@@ -466,6 +469,15 @@ export function scoreCandidate(
     warnings.push('Markers exist but none approved — marker scoring neutral');
   }
 
+  // Canon-promotable: only exact slot match can be promoted to primary
+  const canonPromotable = slotResult.exactMatch;
+
+  // If not canon-promotable, action cannot be 'promote' — cap at retain
+  if (!canonPromotable && recommendedAction === 'promote') {
+    recommendedAction = 'retain_candidate';
+    warnings.push('Advisory only — related shot type, not canon-promotable for this slot');
+  }
+
   return {
     candidateId: image.id,
     slot: targetSlot,
@@ -482,6 +494,7 @@ export function scoreCandidate(
     },
     recommendedAction,
     eligible: slotResult.eligible,
+    canonPromotable,
     reasons,
     warnings,
     confidence,

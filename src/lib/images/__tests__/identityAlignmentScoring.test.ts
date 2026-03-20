@@ -77,18 +77,35 @@ function makeMarker(overrides: Partial<BindingMarker> = {}): BindingMarker {
 }
 
 describe('scoreCandidate', () => {
-  it('exact slot match scores high', () => {
+  it('exact slot match scores high and is canon-promotable', () => {
     const img = makeImage({ shot_type: 'identity_headshot' });
     const result = scoreCandidate(img, 'identity_headshot', null, null, [], null);
     expect(result.eligible).toBe(true);
+    expect(result.canonPromotable).toBe(true);
     expect(result.componentScores.slotMatch).toBe(100);
     expect(result.totalScore).toBeGreaterThan(0);
+  });
+
+  it('cross-shot candidate is eligible but NOT canon-promotable', () => {
+    const img = makeImage({ shot_type: 'close_up' });
+    const result = scoreCandidate(img, 'identity_headshot', null, null, [], null);
+    expect(result.eligible).toBe(true);
+    expect(result.canonPromotable).toBe(false);
+    expect(result.recommendedAction).not.toBe('promote');
+  });
+
+  it('cross-shot candidate cannot have promote action even with high score', () => {
+    const img = makeImage({ shot_type: 'close_up', generation_purpose: 'character_identity', curation_state: 'active' });
+    const result = scoreCandidate(img, 'identity_headshot', null, null, [], null);
+    expect(result.canonPromotable).toBe(false);
+    expect(result.recommendedAction).not.toBe('promote');
   });
 
   it('incompatible shot type is ineligible', () => {
     const img = makeImage({ shot_type: 'atmospheric' });
     const result = scoreCandidate(img, 'identity_headshot', null, null, [], null);
     expect(result.eligible).toBe(false);
+    expect(result.canonPromotable).toBe(false);
     expect(result.totalScore).toBe(0);
     expect(result.recommendedAction).toBe('reject_for_slot');
   });

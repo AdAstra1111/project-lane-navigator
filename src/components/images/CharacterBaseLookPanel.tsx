@@ -917,10 +917,11 @@ function CharacterIdentitySection({
       const existingPrimary = slotImages.find(i => i.is_primary);
       if (existingPrimary) continue;
 
-      // Use scoring engine recommendation
+      // Use scoring engine recommendation — only canon-promotable candidates
       const slotRec = alignment.slots.find(s => s.slot === slot);
       const best = slotRec?.bestCandidate;
-      if (!best || !best.eligible || best.confidence === 'low') continue;
+      if (!best || !best.eligible || !best.canonPromotable || best.confidence === 'low') continue;
+      if (best.recommendedAction !== 'promote') continue;
 
       // Clear existing primaries in this slot
       await (supabase as any)
