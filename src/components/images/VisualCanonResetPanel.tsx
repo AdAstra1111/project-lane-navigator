@@ -33,6 +33,12 @@ import {
   classifySlotWeakness,
   type SlotTarget, type SlotWinnerResult, type RebuildMode, type RebuildResult,
 } from '@/lib/images/canonRebuildScoring';
+import {
+  executeCanonRebuild,
+  getRebuildStatusSeverity,
+  getRebuildStatusLabel,
+  type RebuildExecutionResult,
+} from '@/lib/images/canonRebuildExecutor';
 import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
