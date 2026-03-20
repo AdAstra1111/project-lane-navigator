@@ -1180,15 +1180,7 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
               </div>
             )}
           </div>
-          {hasImages && (
-            <div style={{ width: 440, flexShrink: 0, display: 'grid', gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)', gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)', gap: 8 }}>
-              {imgs.slice(0, 4).map((url, i) => (
-                <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`, ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}) }}>
-                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.8) contrast(1.05)' }} />
-                </div>
-              ))}
-            </div>
-          )}
+          {hasImages && <LayoutAwareImageZone slide={slide} colors={colors} />}
         </div>
         {slide.quote && (
           <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: `1px solid ${colors.accentMuted}`, maxWidth: 700 }}>
