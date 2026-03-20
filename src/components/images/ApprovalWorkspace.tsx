@@ -371,7 +371,7 @@ export function ApprovalWorkspace({
 // ── Slot Approval Row ──
 
 function SlotApprovalRow({
-  slot, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap,
+  slot, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap, competitionGroup,
 }: {
   slot: RequiredSlot;
   onApprove: (img: ProjectImage) => void;
@@ -380,6 +380,7 @@ function SlotApprovalRow({
   onToggleCompare: (img: ProjectImage) => void;
   selectedForCompare: ProjectImage[];
   identityAnchorMap?: IdentityAnchorMap;
+  competitionGroup?: CompetitionGroupWithDetails;
 }) {
   const [expanded, setExpanded] = useState(slot.candidates.length <= 3);
 
