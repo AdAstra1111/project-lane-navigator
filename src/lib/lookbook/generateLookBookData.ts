@@ -5,8 +5,10 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
+import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
+import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { normalizeCanonText } from './normalizeCanonText';
 
 // ── Color palettes by tone/genre ──

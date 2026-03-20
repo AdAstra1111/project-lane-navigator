@@ -4,9 +4,15 @@
  * to ensure presentation and workspace share a single source of truth.
  *
  * CVBE Phase 2: Bound images are preferred over unbound images within each tier.
+ *
+ * STRICT DECK MODE (vertical-drama):
+ * When strictDeckMode=true, ONLY active primary winners are resolved.
+ * No candidate fallback, no role fallback, no asset_group-only fallback.
+ * Slots without a compliant primary winner remain UNRESOLVED.
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from '@/lib/images/types';
+import { classifyVerticalCompliance } from '@/lib/images/verticalCompliance';
 
 type CanonicalSectionKey =
   | 'character_identity'
@@ -63,10 +69,25 @@ const SECTION_SHOT_FILTER: Partial<Record<CanonicalSectionKey, string[]>> = {
   key_moments: ['tableau', 'medium', 'close_up', 'wide'],
 };
 
+/** Debug provenance per resolved image */
+export interface ResolvedImageProvenance {
+  imageId: string;
+  source: 'winner_primary' | 'active_non_primary' | 'candidate_fallback' | 'unresolved';
+  complianceClass: string;
+  actualWidth: number | null;
+  actualHeight: number | null;
+  isPrimary: boolean;
+  curationState: string;
+}
+
 export interface SectionImageResult {
   sectionKey: CanonicalSectionKey;
   images: ProjectImage[];
   imageIds: string[];
+  /** Per-image provenance for deck debug proof */
+  provenance: ResolvedImageProvenance[];
+  /** Count of unresolved slots (images needed but not found) */
+  unresolvedCount: number;
 }
 
 // ── Canonical Binding Preference ─────────────────────────────────────────────
@@ -95,141 +116,36 @@ function getTargetingRank(img: ProjectImage): number {
  */
 function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
   return [...images].sort((a, b) => {
-    // 1. Primary first
     const pa = a.is_primary ? 0 : 1;
     const pb = b.is_primary ? 0 : 1;
     if (pa !== pb) return pa - pb;
-    // 2. Binding status (bound > partially_bound > unbound)
     const ba = getBindingRank(a);
     const bb = getBindingRank(b);
     if (ba !== bb) return ba - bb;
-    // 3. Targeting precision (exact > derived > heuristic) within same binding tier
     const ta = getTargetingRank(a);
     const tb = getTargetingRank(b);
     if (ta !== tb) return ta - tb;
-    // 4. Recency
-    return (b.created_at || '').localeCompare(a.created_at || '');
-  });
-}
-
-// ── Lane-Aware Presentation Ranking ─────────────────────────────────────────
-
-/** Shot types that are emotionally dominant / hook-forward for vertical drama */
-const VERTICAL_DRAMA_PREFERRED_SHOTS = new Set([
-  'close_up', 'medium', 'emotional_variant', 'profile', 'identity_headshot',
-  'identity_profile', 'tableau',
-]);
-
-/** Shot types that are weaker for vertical drama (landscape-native) */
-const VERTICAL_DRAMA_DEPRIORITIZED_SHOTS = new Set([
-  'wide', 'establishing', 'atmospheric', 'detail',
-]);
-
-/**
- * Compute a presentation score for an image given the project lane and section context.
- * Higher score = better for this lane's presentation.
- * Only active for vertical_drama; other lanes get neutral (0) scores.
- */
-function computeLanePresentationScore(
-  img: ProjectImage,
-  laneKey: string | null,
-  sectionKey: CanonicalSectionKey,
-): number {
-  if (!laneKey || laneKey !== 'vertical_drama') return 0;
-
-  let score = 0;
-
-  // 1. Lane compliance score from generation (if available) — strongest signal
-  if (typeof img.lane_compliance_score === 'number') {
-    // Normalize: compliance is 0-100, map to 0-30 bonus
-    score += Math.round((img.lane_compliance_score / 100) * 30);
-  }
-
-  // 2. Portrait orientation bonus (h > w = portrait-friendly)
-  if (img.width && img.height) {
-    const ratio = img.height / img.width;
-    if (ratio >= 1.3) score += 25;       // strong portrait (9:16 or taller)
-    else if (ratio >= 1.0) score += 12;  // square-ish, still ok
-    else if (ratio < 0.75) score -= 15;  // wide landscape, penalize
-  }
-
-  // 3. Shot type affinity (section-aware)
-  const shotType = img.shot_type || '';
-  if (sectionKey === 'world_locations') {
-    // World slides SHOULD have establishing/wide — don't penalize landscape here
-    // But still mildly prefer atmospheric character-in-world over empty landscape
-    if (shotType === 'atmospheric') score += 5;
-  } else {
-    // For character, key_moments, poster, themes — prefer emotional/close shots
-    if (VERTICAL_DRAMA_PREFERRED_SHOTS.has(shotType)) score += 20;
-    if (VERTICAL_DRAMA_DEPRIORITIZED_SHOTS.has(shotType)) score -= 10;
-  }
-
-  // 4. Lane tag match bonus
-  if (img.lane_key === 'vertical_drama') score += 10;
-
-  return score;
-}
-
-/**
- * Apply lane-aware presentation ranking on top of binding-sorted images.
- * Within each binding tier, re-sort by presentation score.
- * This ensures bound images still rank above unbound, but within bound,
- * the most presentation-effective images surface first.
- */
-function applyLanePresentationRanking(
-  images: ProjectImage[],
-  laneKey: string | null,
-  sectionKey: CanonicalSectionKey,
-): ProjectImage[] {
-  if (!laneKey || laneKey !== 'vertical_drama' || images.length <= 1) return images;
-
-  return [...images].sort((a, b) => {
-    // Preserve primary-first
-    const pa = a.is_primary ? 0 : 1;
-    const pb = b.is_primary ? 0 : 1;
-    if (pa !== pb) return pa - pb;
-
-    // Preserve binding tier
-    const ba = getBindingRank(a);
-    const bb = getBindingRank(b);
-    if (ba !== bb) return ba - bb;
-
-    // Within same tier: presentation score (higher = better)
-    const sa = computeLanePresentationScore(a, laneKey, sectionKey);
-    const sb = computeLanePresentationScore(b, laneKey, sectionKey);
-    if (sa !== sb) return sb - sa;
-
-    // Tiebreak: recency
     return (b.created_at || '').localeCompare(a.created_at || '');
   });
 }
 
 /**
  * CVBE Phase 2+3 — Canonical exclusion gate.
- * If ANY bound images exist, exclude unbound entirely.
- * Within bound tier, exact-target images exclude heuristic-only when exact alternatives exist.
  */
 function applyCanonicalExclusionGate(images: ProjectImage[]): ProjectImage[] {
   if (images.length <= 1) return images;
   const hasBound = images.some(i => getBindingRank(i) === 0);
   const hasPartial = images.some(i => getBindingRank(i) === 1);
-
   let filtered = images;
-
-  // Exclude unbound when bound/partial exist
   if (hasBound || hasPartial) {
     const withoutUnbound = images.filter(i => getBindingRank(i) <= 1);
     if (withoutUnbound.length > 0) filtered = withoutUnbound;
   }
-
-  // Within bound tier, prefer exact over heuristic if exact alternatives exist
   const hasExact = filtered.some(i => getBindingRank(i) === 0 && getTargetingRank(i) === 0);
   if (hasExact) {
     const exactOrDerived = filtered.filter(i => getTargetingRank(i) <= 1);
     if (exactOrDerived.length > 0) filtered = exactOrDerived;
   }
-
   return filtered;
 }
 
@@ -260,16 +176,63 @@ async function hydrateSignedUrls(images: ProjectImage[]): Promise<void> {
   );
 }
 
+function buildProvenance(img: ProjectImage, isVDStrict: boolean, projectFormat: string, projectLane: string): ResolvedImageProvenance {
+  const isPrimary = !!(img as any).is_primary;
+  const curationState = (img as any).curation_state || 'unknown';
+  const source: ResolvedImageProvenance['source'] =
+    isPrimary && curationState === 'active' ? 'winner_primary'
+    : curationState === 'active' ? 'active_non_primary'
+    : curationState === 'candidate' ? 'candidate_fallback'
+    : 'unresolved';
+
+  let complianceClass = 'n/a';
+  if (isVDStrict) {
+    const result = classifyVerticalCompliance(
+      { width: img.width, height: img.height, shot_type: img.shot_type },
+      img.shot_type || '',
+      projectFormat,
+      projectLane,
+    );
+    complianceClass = result.level;
+  }
+
+  return {
+    imageId: img.id,
+    source,
+    complianceClass,
+    actualWidth: img.width || null,
+    actualHeight: img.height || null,
+    isPrimary,
+    curationState,
+  };
+}
+
+/**
+ * Fetch section images.
+ *
+ * strictDeckMode=true (vertical-drama final deck):
+ *   - ONLY active + is_primary images
+ *   - NO candidate fallback
+ *   - NO role/asset_group-only fallback
+ *   - Unresolved slots stay empty
+ *
+ * strictDeckMode=false (workspace, non-VD decks):
+ *   - Full fallback chain as before
+ */
 async function fetchSectionImages(
   projectId: string,
   sectionKey: CanonicalSectionKey,
   laneKey: string | null = null,
   limit = 12,
+  strictDeckMode = false,
+  projectFormat = '',
+  projectLane = '',
 ): Promise<SectionImageResult> {
   const mapping = SECTION_QUERY_MAP[sectionKey];
   const shotFilter = SECTION_SHOT_FILTER[sectionKey];
+  const isVDStrict = strictDeckMode;
 
-  // Primary query: active curation_state, matching strategy_key/asset_group
+  // ── Primary query: active curation_state ──
   let q = (supabase as any)
     .from('project_images')
     .select('*')
@@ -279,7 +242,6 @@ async function fetchSectionImages(
   if (mapping.strategy_keys.length > 0) {
     q = q.in('strategy_key', mapping.strategy_keys);
   }
-
   if (mapping.asset_groups.length > 0) {
     if (mapping.strategy_keys.length > 0) {
       q = q.in('asset_group', mapping.asset_groups);
@@ -293,11 +255,9 @@ async function fetchSectionImages(
   } else if (mapping.fallback_roles?.length) {
     q = q.in('role', mapping.fallback_roles);
   }
-
   if (shotFilter?.length) {
     q = q.in('shot_type', shotFilter);
   }
-
   q = q
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: false })
@@ -310,7 +270,45 @@ async function fetchSectionImages(
 
   let images = (rows || []) as ProjectImage[];
 
-  // Fallback: if no active images found with strategy_key, try fallback_roles with active curation
+  // ── STRICT DECK MODE: winners only ──
+  if (strictDeckMode) {
+    // Filter to primary winners only
+    const primaries = images.filter((img: any) => img.is_primary === true);
+    
+    // For VD, also filter to compliant images only
+    if (isVDStrict && primaries.length > 0) {
+      const compliant = primaries.filter(img => {
+        const result = classifyVerticalCompliance(
+          { width: img.width, height: img.height, shot_type: img.shot_type },
+          img.shot_type || '',
+          projectFormat,
+          projectLane,
+        );
+        return result.eligibleForWinnerSelection;
+      });
+      images = compliant;
+    } else {
+      images = primaries;
+    }
+
+    // NO fallback chain in strict mode
+    const provenance = images.map(img => buildProvenance(img, isVDStrict, projectFormat, projectLane));
+    await hydrateSignedUrls(images);
+
+    console.log(`[LookBook:resolveCanonImages:STRICT] ${sectionKey}: ${images.length} winners (${primaries.length} primaries found, ${images.length} compliant)`);
+
+    return {
+      sectionKey,
+      images,
+      imageIds: images.map(i => i.id),
+      provenance,
+      unresolvedCount: images.length === 0 ? 1 : 0,
+    };
+  }
+
+  // ── NON-STRICT MODE: full fallback chain (workspace, non-VD decks) ──
+  
+  // Fallback 1: fallback_roles with active curation
   if (images.length === 0 && mapping.fallback_roles?.length && mapping.strategy_keys.length > 0) {
     const { data: fallbackRows } = await (supabase as any)
       .from('project_images')
@@ -324,7 +322,7 @@ async function fetchSectionImages(
     images = (fallbackRows || []) as ProjectImage[];
   }
 
-  // Fallback 2: if still empty, try active asset_group without strategy_key filter
+  // Fallback 2: active asset_group without strategy_key filter
   if (images.length === 0 && mapping.asset_groups.length > 0) {
     let aq = (supabase as any)
       .from('project_images')
@@ -332,31 +330,26 @@ async function fetchSectionImages(
       .eq('project_id', projectId)
       .eq('curation_state', 'active')
       .in('asset_group', mapping.asset_groups);
-
     if (shotFilter?.length) {
       aq = aq.in('shot_type', shotFilter);
     }
-
     aq = aq
       .order('is_primary', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(limit);
-
     const { data: assetRows } = await aq;
     if (assetRows?.length) {
-      console.log(`[LookBook:resolveCanonImages] ${sectionKey}: using asset_group-only fallback (${assetRows.length} images)`);
       images = assetRows as ProjectImage[];
     }
   }
 
-  // Fallback 3: candidate images (user may not have promoted to active yet)
+  // Fallback 3: candidate images — ONLY in non-strict mode
   if (images.length === 0) {
     let cq = (supabase as any)
       .from('project_images')
       .select('*')
       .eq('project_id', projectId)
       .eq('curation_state', 'candidate');
-
     if (mapping.strategy_keys.length > 0) {
       cq = cq.in('strategy_key', mapping.strategy_keys);
     } else if (mapping.fallback_roles?.length) {
@@ -368,12 +361,10 @@ async function fetchSectionImages(
     if (shotFilter?.length) {
       cq = cq.in('shot_type', shotFilter);
     }
-
     cq = cq
       .order('is_primary', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(limit);
-
     const { data: candidateRows } = await cq;
     if (candidateRows?.length) {
       console.warn(`[LookBook:resolveCanonImages] ${sectionKey}: using candidate fallback (${candidateRows.length} images — promote to active for best results)`);
@@ -381,34 +372,22 @@ async function fetchSectionImages(
     }
   }
 
-  // NOTE: Legacy is_active fallback removed — archived/reset images must not
-  // re-enter canonical resolution. Only active and candidate curation states
-  // are eligible for lookbook builds.
-
-  // ── CVBE Phase 2: exclude unbound when bound alternatives exist, then sort ──
+  // ── Binding/sorting ──
   images = applyCanonicalExclusionGate(images);
   images = sortWithBindingPreference(images);
 
-  // ── Lane-aware presentation ranking (e.g. vertical_drama) ──
-  images = applyLanePresentationRanking(images, laneKey, sectionKey);
-
   await hydrateSignedUrls(images);
 
-  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images (lane=${laneKey || 'none'})`,
-    images.slice(0, 6).map(i => ({
-      id: i.id,
-      curation: (i as any).curation_state,
-      primary: (i as any).is_primary,
-      binding: (i.generation_config as any)?.canonical_binding_status || 'unknown',
-      shot_type: i.shot_type,
-      portrait: i.width && i.height ? i.height > i.width : null,
-      laneScore: computeLanePresentationScore(i, laneKey, sectionKey),
-    })));
+  const provenance = images.map(img => buildProvenance(img, false, projectFormat, projectLane));
+
+  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images (lane=${laneKey || 'none'})`);
 
   return {
     sectionKey,
     images,
     imageIds: images.map(i => i.id),
+    provenance,
+    unresolvedCount: images.length === 0 ? 1 : 0,
   };
 }
 
@@ -424,11 +403,17 @@ export interface ResolvedCanonImages {
 
 /**
  * Resolves all canonical lookbook section images in parallel.
- * Uses identical query logic to the workspace panels.
- * Bound images are sorted ahead of unbound within each curation tier.
- * When laneKey is provided, applies lane-aware presentation ranking.
+ *
+ * @param strictDeckMode — When true (vertical-drama final deck), resolves
+ *   ONLY active primary compliant winners. No candidate/fallback leakage.
  */
-export async function resolveAllCanonImages(projectId: string, laneKey: string | null = null): Promise<ResolvedCanonImages> {
+export async function resolveAllCanonImages(
+  projectId: string,
+  laneKey: string | null = null,
+  strictDeckMode = false,
+  projectFormat = '',
+  projectLane = '',
+): Promise<ResolvedCanonImages> {
   const sections: CanonicalSectionKey[] = [
     'character_identity',
     'world_locations',
@@ -440,13 +425,21 @@ export async function resolveAllCanonImages(projectId: string, laneKey: string |
   ];
 
   const results = await Promise.all(
-    sections.map(key => fetchSectionImages(projectId, key, laneKey)),
+    sections.map(key => fetchSectionImages(projectId, key, laneKey, 12, strictDeckMode, projectFormat, projectLane)),
   );
 
   const map: Record<string, SectionImageResult> = {};
-  for (const r of results) map[r.sectionKey] = r;
+  let totalUnresolved = 0;
+  for (const r of results) {
+    map[r.sectionKey] = r;
+    totalUnresolved += r.unresolvedCount;
+  }
 
-  console.log(`[LookBook:resolveCanonImages] summary (lane=${laneKey || 'generic'}):`, Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '));
+  const mode = strictDeckMode ? 'STRICT' : 'standard';
+  console.log(`[LookBook:resolveCanonImages] summary (mode=${mode}, lane=${laneKey || 'generic'}):`,
+    Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '),
+    strictDeckMode ? `| unresolved=${totalUnresolved}` : '',
+  );
 
   return map as unknown as ResolvedCanonImages;
 }

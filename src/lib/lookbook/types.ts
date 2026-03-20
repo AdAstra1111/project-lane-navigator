@@ -52,6 +52,15 @@ export interface LookBookVisualIdentity {
   imageStyle: 'cinematic-warm' | 'cinematic-cold' | 'desaturated' | 'high-contrast' | 'vintage';
 }
 
+/** Debug provenance for a single image displayed in the deck */
+export interface SlideImageProvenance {
+  imageId: string;
+  source: 'winner_primary' | 'active_non_primary' | 'candidate_fallback' | 'unresolved';
+  complianceClass: string;
+  actualWidth: number | null;
+  actualHeight: number | null;
+}
+
 export interface SlideContent {
   type: SlideType;
   /** Slide title (e.g., "The World") */
@@ -92,6 +101,10 @@ export interface SlideContent {
   companyLogoUrl?: string;
   /** Debug provenance — image IDs used */
   _debug_image_ids?: string[];
+  /** Debug provenance — per-image winner/compliance proof */
+  _debug_provenance?: SlideImageProvenance[];
+  /** Whether this slide has unresolved image slots */
+  _has_unresolved?: boolean;
 }
 
 export interface LookBookData {
