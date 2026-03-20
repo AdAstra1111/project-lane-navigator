@@ -1,9 +1,10 @@
 /**
  * ImageLightbox — Fullscreen image viewer with zoom, pan, and metadata overlay.
- * Used by approval queue and browsing surfaces for detailed image inspection.
+ * Used by Review Studio and browsing surfaces for detailed image inspection.
+ * Supports keyboard shortcuts: A=approve, D=reject, ←/→=navigate, Esc=close.
  */
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { X, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, Maximize2 } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { X, ZoomIn, ZoomOut, RotateCcw, Eye, EyeOff, Maximize2, ChevronLeft, ChevronRight, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
