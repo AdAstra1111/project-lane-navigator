@@ -509,6 +509,105 @@ function scoreFreshness(image: ProjectImage, allImages: ProjectImage[]): { score
   return { score, reason: `Freshness: ${Math.round(normalised * 100)}% newest` };
 }
 
+// ── Identity Continuity Scoring ──
+
+/**
+ * Score how well a candidate maintains identity continuity with character anchors.
+ * 
+ * Checks generation_config for:
+ * - identity_locked flag
+ * - identity_anchor_paths (was generated using anchor images)
+ * - model/provider consistency with other character images
+ * 
+ * For non-character slots, returns neutral score.
+ */
+function scoreIdentityContinuity(
+  image: ProjectImage,
+  slot: SlotTarget,
+  allSlotCandidates: ProjectImage[],
+): { score: number; continuityClass: IdentityContinuityClass; reason: string } {
+  // Non-character slots — identity continuity doesn't apply
+  if (slot.assetGroup !== 'character') {
+    return { score: 50, continuityClass: 'not_character', reason: 'Non-character slot — identity continuity N/A' };
+  }
+
+  const genConfig = (image.generation_config || {}) as Record<string, unknown>;
+  const hasIdentityLock = !!(genConfig.identity_locked);
+  const hasAnchorPaths = !!(genConfig.identity_anchor_paths);
+  const hasFreshIdentityMode = !!(genConfig.fresh_identity_mode);
+  
+  let score = 30; // baseline for character image with no identity context
+  let continuityClass: IdentityContinuityClass = 'no_anchor_context';
+  const signals: string[] = [];
+
+  // Strong signal: generated with explicit identity lock
+  if (hasIdentityLock) {
+    score += 40;
+    signals.push('identity_locked');
+    continuityClass = 'strong_match';
+  }
+
+  // Strong signal: generated using anchor image paths
+  if (hasAnchorPaths) {
+    score += 25;
+    signals.push('anchor_paths_used');
+    if (continuityClass !== 'strong_match') continuityClass = 'strong_match';
+  }
+
+  // Fresh identity mode — generated for identity bootstrap, good continuity
+  if (hasFreshIdentityMode) {
+    score += 10;
+    signals.push('fresh_identity_mode');
+  }
+
+  // Model/provider consistency with other character candidates for same subject
+  const sameSubjectCandidates = allSlotCandidates.filter(
+    c => c.id !== image.id && c.subject === image.subject && c.asset_group === 'character'
+  );
+  if (sameSubjectCandidates.length > 0) {
+    const modelSet = new Set(sameSubjectCandidates.map(c => c.model).filter(Boolean));
+    const providerSet = new Set(sameSubjectCandidates.map(c => c.provider).filter(Boolean));
+    
+    if (image.model && modelSet.has(image.model)) {
+      score += 5;
+      signals.push('model_consistent');
+    }
+    if (image.provider && providerSet.has(image.provider)) {
+      score += 5;
+      signals.push('provider_consistent');
+    }
+  }
+
+  // Classify based on signals
+  if (!hasIdentityLock && !hasAnchorPaths && !hasFreshIdentityMode) {
+    // Check if this looks like a pre-identity-lock generation
+    const genPurpose = image.generation_purpose || '';
+    if (genPurpose === 'character_identity') {
+      continuityClass = 'partial_match';
+      score += 10;
+      signals.push('character_identity_purpose');
+    } else {
+      // Candidate was generated without identity context
+      // If there are other candidates with identity lock, this one is drifted
+      const hasLockedPeers = allSlotCandidates.some(c => {
+        const gc = (c.generation_config || {}) as Record<string, unknown>;
+        return c.id !== image.id && (gc.identity_locked || gc.identity_anchor_paths);
+      });
+      if (hasLockedPeers) {
+        continuityClass = 'identity_drift';
+        score = Math.max(0, score - 15);
+        signals.push('drift_detected');
+      }
+    }
+  }
+
+  return {
+    score: Math.min(100, Math.max(0, score)),
+    continuityClass,
+    reason: `Identity continuity: ${continuityClass} [${signals.join(', ') || 'none'}]`,
+  };
+}
+
 // ── Main Scoring ──
 
 export function scoreCandidateForSlot(
@@ -565,14 +664,27 @@ export function scoreCandidateForSlot(
     reasons.push(alignment.reason);
   }
 
-  const weighted =
+  // identityContinuity — always scored for character slots
+  const identity = scoreIdentityContinuity(image, slot, allSlotCandidates);
+  reasons.push(identity.reason);
+
+  // For non-character slots, zero out identity weight and redistribute
+  const effectiveIdentityWeight = slot.assetGroup === 'character' ? weights.identityContinuity : 0;
+  const weightSum = weights.slotMatch + weights.aspectFit + weights.verticalCompliance +
+    weights.curationQuality + weights.bindingFidelity + weights.freshness +
+    weights.primarySetAlignment + effectiveIdentityWeight;
+  const normalizer = weightSum > 0 ? 1 / weightSum : 1;
+
+  const weighted = (
     slotMatch.score * weights.slotMatch +
     aspectFit.score * weights.aspectFit +
     vdCompliance.score * weights.verticalCompliance +
     curation.score * weights.curationQuality +
     binding.score * weights.bindingFidelity +
     freshness.score * weights.freshness +
-    alignment.score * weights.primarySetAlignment;
+    alignment.score * weights.primarySetAlignment +
+    identity.score * effectiveIdentityWeight
+  ) * normalizer;
 
   const totalScore = Math.round(weighted);
 
@@ -588,10 +700,12 @@ export function scoreCandidateForSlot(
       bindingFidelity: binding.score,
       freshness: freshness.score,
       primarySetAlignment: alignment.score,
+      identityContinuity: identity.score,
     },
     complianceLevel: vdCompliance.compliance.level,
     eligibleForSelection: vdCompliance.compliance.eligibleForWinnerSelection,
     eligible: slotMatch.eligible,
+    identityContinuityClass: identity.continuityClass,
     reasons,
   };
 }
