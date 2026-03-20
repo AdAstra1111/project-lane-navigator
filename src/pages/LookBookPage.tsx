@@ -103,20 +103,48 @@ export default function LookBookPage() {
 
       // Always re-resolve from DB — no stale snapshot reuse
       console.log('[LookBookPage] Building lookbook from fresh DB state...');
-      const data = await generateLookBookData(projectId, {
+      const freshData = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
 
+      // Preserve user layout overrides from previous build by matching slide type
+      if (lookBookData?.slides) {
+        const prevOverrides = new Map<string, { override: string; source: string }>();
+        lookBookData.slides.forEach(s => {
+          if (s.layoutFamilyOverride && s.layoutFamilyOverrideSource === 'user' && s.type) {
+            prevOverrides.set(s.type, {
+              override: s.layoutFamilyOverride,
+              source: 'user',
+            });
+          }
+        });
+        if (prevOverrides.size > 0) {
+          freshData.slides = freshData.slides.map(s => {
+            const prev = prevOverrides.get(s.type);
+            if (prev) {
+              return {
+                ...s,
+                layoutFamilyOverride: prev.override,
+                layoutFamilyOverrideSource: 'user' as const,
+                layoutFamilyEffective: prev.override,
+              };
+            }
+            return s;
+          });
+          console.log('[LookBookPage] ✓ Preserved layout overrides for', prevOverrides.size, 'slide types');
+        }
+      }
+
       // Log provenance for debugging stale-data issues
-      const imageCount = data.slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
+      const imageCount = freshData.slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
       console.log('[LookBookPage] ✓ Build complete', {
-        slideCount: data.slides.length,
+        slideCount: freshData.slides.length,
         totalImageRefs: imageCount,
-        generatedAt: data.generatedAt,
+        generatedAt: freshData.generatedAt,
       });
 
-      setLookBookData(data);
+      setLookBookData(freshData);
       setLookbookBuildEpoch(Date.now());
       toast.success('Look Book generated — open Viewer to preview slides');
     } catch (e: any) {
@@ -124,7 +152,7 @@ export default function LookBookPage() {
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding, invalidateImageCaches]);
+  }, [projectId, branding, invalidateImageCaches, lookBookData]);
 
   // Auto-rebuild when switching to viewer if no data exists yet
   useEffect(() => {
