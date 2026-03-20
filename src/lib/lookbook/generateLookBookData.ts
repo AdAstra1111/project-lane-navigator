@@ -489,6 +489,7 @@ export async function generateLookBookData(
   const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
   slides.push({
     type: 'overview',
+    slide_id: makeSlideId('overview'),
     title: 'Project Overview',
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
