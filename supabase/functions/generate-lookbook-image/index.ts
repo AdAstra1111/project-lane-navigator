@@ -1132,7 +1132,7 @@ FRAMING RULES:
             prompt_used: prompt,
             negative_prompt: isIdentityGeneration
               ? "cinematic scene, environmental context, narrative elements, dramatic lighting, props, costumes, action poses, text, watermarks, illustration, painting, CGI"
-              : stylePolicy.negativeStyleConstraints,
+              : [stylePolicy.negativeStyleConstraints, prestigeComposite.negativeBlock].filter(Boolean).join(", "),
             canon_constraints: { source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
