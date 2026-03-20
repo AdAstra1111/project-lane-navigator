@@ -1040,6 +1040,10 @@ serve(async (req) => {
       }
     }
 
+    // ── NARRATIVE BINDING: Load scene graph moments for story-driven generation ──
+    const narrativeMoments = await loadNarrativeMoments(supabase, project_id);
+    console.log(`[narrative-binding] project=${project_id} scenes_loaded=${narrativeMoments.length}`);
+
     // ── CANONICAL VISUAL BINDING: Auto-resolve character, location, world ──
     const canonicalBindings = await resolveCanonicalBindings(
       supabase, project_id, section, canon?.canon_json || null,
@@ -1070,6 +1074,7 @@ serve(async (req) => {
       locationBindingBlock: canonicalBindings.locationPromptBlock,
       characterBindingBlock: canonicalBindings.characterPromptBlock,
       boundCharacterNames: canonicalBindings.characters.map(c => c.character_name),
+      narrativeMoments,
     };
 
     // ── Resolve identity anchor signed URLs if provided ──
