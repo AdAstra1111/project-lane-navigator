@@ -28,6 +28,7 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { ApprovalWorkspace } from './ApprovalWorkspace';
 import {
   type RebuildMode, type RebuildResult,
 } from '@/lib/images/canonRebuildScoring';
@@ -1143,22 +1144,12 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       {showApprovalQueue && pendingSlots.length > 0 && (
         <Card className="border-border/60">
           <CardContent className="p-3">
-            <div className="flex items-center gap-1.5 mb-2">
-              <CheckCircle className="h-3.5 w-3.5 text-primary" />
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
-                Approval Queue
-              </span>
-            </div>
-            <div className="space-y-2">
-              {pendingSlots.map(slot => (
-                <ApprovalSlotRow
-                  key={slot.key}
-                  slot={slot}
-                  onApprove={approveIntoCanon}
-                  onReject={rejectCandidate}
-                />
-              ))}
-            </div>
+            <ApprovalWorkspace
+              slots={pendingSlots}
+              onApprove={approveIntoCanon}
+              onReject={rejectCandidate}
+              onSetPrimary={approveIntoCanon}
+            />
           </CardContent>
         </Card>
       )}
