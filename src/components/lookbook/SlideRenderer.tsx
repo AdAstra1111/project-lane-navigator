@@ -269,6 +269,7 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
   }
 
   // ── Landscape Standard (default grid) ──
+  // Use object-contain for portrait/square images within landscape standard to avoid bad crops
   return (
     <div style={{
       width: imgs.length === 1 ? 680 : 640, flexShrink: 0,
@@ -277,19 +278,28 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
       gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
       gap: 8,
     }}>
-      {imgs.slice(0, 4).map((url, i) => (
-        <div key={i} style={{
-          borderRadius: 6, overflow: 'hidden', border,
-          ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
-          ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-        }}>
-          <img src={url} alt="" style={{
-            width: '100%', height: '100%',
-            objectFit: 'cover',
-            filter: 'saturate(0.85) contrast(1.05)',
-          }} />
-        </div>
-      ))}
+      {imgs.slice(0, 4).map((url, i) => {
+        // Check if this slot has orientation info from slotAssignments
+        const slotInfo = slide.slotAssignments?.find(s => s.assignedUrl === url);
+        const isPortraitImg = slotInfo?.assignedOrientation === 'portrait' || slotInfo?.assignedOrientation === 'square';
+        return (
+          <div key={i} style={{
+            borderRadius: 6, overflow: 'hidden', border,
+            background: isPortraitImg ? colors.bgSecondary : undefined,
+            display: isPortraitImg ? 'flex' : undefined,
+            alignItems: isPortraitImg ? 'center' : undefined,
+            justifyContent: isPortraitImg ? 'center' : undefined,
+            ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
+            ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+          }}>
+            <img src={url} alt="" style={{
+              width: '100%', height: '100%',
+              objectFit: isPortraitImg ? 'contain' : 'cover',
+              filter: 'saturate(0.85) contrast(1.05)',
+            }} />
+          </div>
+        );
+      })}
     </div>
   );
 }
