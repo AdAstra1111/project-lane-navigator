@@ -496,8 +496,8 @@ function CandidateCard({
         compact ? 'aspect-square' : 'aspect-[3/4]',
       )} onClick={onExpand}>
         <img
-          src={image.public_url}
-          alt={image.alt_text || 'Candidate'}
+          src={image.signedUrl || image.storage_path}
+          alt={'Candidate'}
           className="w-full h-full object-cover"
           loading="lazy"
         />
