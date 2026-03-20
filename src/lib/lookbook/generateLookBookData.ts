@@ -473,7 +473,7 @@ export async function generateLookBookData(
     _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
   });
 
-  // ── STORY ENGINE ──
+  // ── STORY ENGINE ── (motif images used as visible grid, not just wash)
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
@@ -483,7 +483,8 @@ export async function generateLookBookData(
       bodySecondary: seCopy.bodySecondary || undefined,
       bullets: seCopy.bullets,
       imageUrl: motifImages[0]?.signedUrl || undefined,
-      _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 1),
+      imageUrls: motifImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 4),
     });
   }
 
