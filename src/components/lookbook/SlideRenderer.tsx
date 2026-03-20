@@ -124,6 +124,7 @@ export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: Slid
     case 'themes': return <ThemesSlide {...shared} />;
     case 'visual_language': return <VisualLanguageSlide {...shared} />;
     case 'story_engine': return <StoryEngineSlide {...shared} />;
+    case 'key_moments': return <KeyMomentsSlide {...shared} />;
     case 'comparables': return <ComparablesSlide {...shared} />;
     case 'creative_statement': return <StatementSlide {...shared} />;
     case 'closing': return <ClosingSlide {...shared} />;
