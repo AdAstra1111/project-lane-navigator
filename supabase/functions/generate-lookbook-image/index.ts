@@ -749,7 +749,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
 function buildSectionPrompt(section: LookbookSection, ctx: SectionContext, variantIndex: number): string {
   const pack = SHOT_PACKS[section === "character" ? "character" : section === "world" ? "world" : section === "key_moment" ? "key_moment" : "visual_language"];
   const shotType = pack[variantIndex % pack.length];
-  return buildPackPrompt(section as AssetGroup, shotType, ctx);
+  return buildPackPrompt(section as AssetGroup, shotType, ctx, variantIndex);
 }
 
 // ── Image generation ─────────────────────────────────────────────────────────
