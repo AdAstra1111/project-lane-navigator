@@ -506,6 +506,7 @@ export async function generateLookBookData(
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     slides.push({
       type: 'world',
+      slide_id: makeSlideId('world'),
       title: 'The World',
       body: normalizedCanon.world_rules || undefined,
       bodySecondary: normalizedCanon.locations || undefined,
