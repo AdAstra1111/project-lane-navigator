@@ -60,7 +60,9 @@ function CandidateRow({ candidate, rank }: { candidate: ScoredCandidate; rank: n
   return (
     <div className={cn(
       'rounded-md border px-2 py-1.5 text-[10px]',
-      rank === 0 && candidate.eligible ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border/50 bg-muted/10',
+      rank === 0 && candidate.canonPromotable ? 'border-emerald-500/40 bg-emerald-500/5' :
+      rank === 0 && candidate.eligible ? 'border-amber-500/40 bg-amber-500/5' :
+      'border-border/50 bg-muted/10',
     )}>
       <div className="flex items-center justify-between gap-1.5 cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-1.5 min-w-0">
