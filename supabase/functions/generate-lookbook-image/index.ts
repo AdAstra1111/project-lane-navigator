@@ -958,7 +958,16 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ section, asset_group: assetGroup, results }), {
+    return new Response(JSON.stringify({
+      section, asset_group: assetGroup, results,
+      canonical_binding: {
+        status: canonicalBindings.binding_status,
+        characters_bound: canonicalBindings.characters.length,
+        locations_bound: canonicalBindings.locations.length,
+        world_bound: canonicalBindings.world.bound,
+        missing: canonicalBindings.missing,
+      },
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
