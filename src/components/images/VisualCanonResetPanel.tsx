@@ -11,7 +11,7 @@
  * 7. Archive browser
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { resolveIdentityAnchorsFromImages, shouldPrioritizeIdentityGeneration, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
