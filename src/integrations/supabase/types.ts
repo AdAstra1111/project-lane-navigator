@@ -8343,6 +8343,96 @@ export type Database = {
           },
         ]
       }
+      lookbook_rebuild_runs: {
+        Row: {
+          attached_winner_count: number
+          completed_at: string | null
+          compliant_count: number
+          duration_ms: number | null
+          execution_status: string
+          failure_message: string | null
+          failure_stage: string | null
+          generated_count: number
+          id: string
+          preserved_primary_count: number
+          project_id: string
+          rebuild_mode: string
+          rejected_non_compliant_count: number
+          replaced_primary_count: number
+          resolved_slots: number
+          started_at: string
+          targeted_slot_keys: string[]
+          total_slots: number
+          trigger_source: string
+          unresolved_reasons: Json
+          unresolved_slots: number
+          winner_ids: string[]
+        }
+        Insert: {
+          attached_winner_count?: number
+          completed_at?: string | null
+          compliant_count?: number
+          duration_ms?: number | null
+          execution_status?: string
+          failure_message?: string | null
+          failure_stage?: string | null
+          generated_count?: number
+          id?: string
+          preserved_primary_count?: number
+          project_id: string
+          rebuild_mode: string
+          rejected_non_compliant_count?: number
+          replaced_primary_count?: number
+          resolved_slots?: number
+          started_at?: string
+          targeted_slot_keys?: string[]
+          total_slots?: number
+          trigger_source?: string
+          unresolved_reasons?: Json
+          unresolved_slots?: number
+          winner_ids?: string[]
+        }
+        Update: {
+          attached_winner_count?: number
+          completed_at?: string | null
+          compliant_count?: number
+          duration_ms?: number | null
+          execution_status?: string
+          failure_message?: string | null
+          failure_stage?: string | null
+          generated_count?: number
+          id?: string
+          preserved_primary_count?: number
+          project_id?: string
+          rebuild_mode?: string
+          rejected_non_compliant_count?: number
+          replaced_primary_count?: number
+          resolved_slots?: number
+          started_at?: string
+          targeted_slot_keys?: string[]
+          total_slots?: number
+          trigger_source?: string
+          unresolved_reasons?: Json
+          unresolved_slots?: number
+          winner_ids?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lookbook_rebuild_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "lookbook_rebuild_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lookbook_sections: {
         Row: {
           created_at: string
