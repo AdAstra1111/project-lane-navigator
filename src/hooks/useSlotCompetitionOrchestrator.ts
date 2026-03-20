@@ -1,12 +1,14 @@
 /**
  * useSlotCompetitionOrchestrator — explicit competition orchestration hook.
+ * Round-aware: creates initial rounds, supports rerun rounds.
  * 
  * Moves all competition lifecycle out of UI mount effects.
  * Provides explicit, idempotent actions for:
- *   - initializing competition groups for slots
+ *   - initializing competition groups + initial rounds for slots
  *   - syncing candidates into groups
- *   - persisting rankings
- *   - selecting winners
+ *   - persisting rankings (round-scoped)
+ *   - selecting winners (round-scoped)
+ *   - creating rerun rounds
  * 
  * All writes are intentional. No mount-time side effects.
  * All reads are query-backed from canonical DB state.
@@ -21,9 +23,11 @@ import {
   selectWinner,
   loadActiveGroups,
   loadCompetitionGroup,
+  createRerunRound,
+  loadCurrentRound,
   type CandidateGroup,
   type CompetitionGroupWithDetails,
-  type CompetitionInvariantError,
+  type CompetitionRound,
 } from '@/lib/competition/candidateCompetitionService';
 
 interface SlotInfo {
@@ -77,9 +81,9 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
   const initializeSlotCompetition = useMutation({
     mutationFn: async (slot: SlotInfo) => {
       if (!projectId) throw new Error('No project ID');
-      if (slot.candidateIds.length < 2) return null; // No competition for <2 candidates
+      if (slot.candidateIds.length < 2) return null;
 
-      // Idempotent: ensureGroupForSlot checks for existing open group
+      // Idempotent: ensureGroupForSlot checks for existing open group + creates initial round
       const group = await ensureGroupForSlot({
         projectId,
         slotKey: slot.key,
@@ -88,8 +92,7 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
         characterName: slot.subject || undefined,
       });
 
-      // Sync candidates — addCandidateVersion will throw on duplicates (unique constraint)
-      // We catch and ignore duplicate errors for idempotency
+      // Sync candidates — catch duplicate constraint errors for idempotency
       for (let i = 0; i < slot.candidateIds.length; i++) {
         try {
           await addCandidateVersion({
@@ -98,7 +101,6 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
             candidateIndex: i,
           });
         } catch (err: any) {
-          // Duplicate constraint is expected and safe
           if (!err?.message?.includes('duplicate') && !err?.message?.includes('unique')) {
             console.warn(`[Competition] Failed to add candidate ${slot.candidateIds[i]}:`, err);
           }
@@ -125,10 +127,11 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     }
   }, [initializeSlotCompetition]);
 
-  // ── Explicit action: persist ranking ──
+  // ── Explicit action: persist ranking (round-aware) ──
   const persistRanking = useMutation({
     mutationFn: async (params: {
       groupId: string;
+      roundId?: string;
       rankings: Array<{
         candidateVersionId: string;
         rankPosition: number;
@@ -139,6 +142,7 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     }) => {
       return persistRankingSnapshot({
         groupId: params.groupId,
+        roundId: params.roundId,
         rankings: params.rankings,
       });
     },
@@ -151,16 +155,18 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Ranking failed: ${e.message}`),
   });
 
-  // ── Explicit action: select winner ──
+  // ── Explicit action: select winner (round-aware) ──
   const selectCompetitionWinner = useMutation({
     mutationFn: async (params: {
       groupId: string;
       candidateVersionId: string;
+      roundId?: string;
       rationale?: string;
     }) => {
       return selectWinner({
         groupId: params.groupId,
         candidateVersionId: params.candidateVersionId,
+        roundId: params.roundId,
         selectionMode: 'manual',
         rationale: params.rationale || 'Selected via Approval Workspace',
       });
@@ -175,6 +181,24 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Winner selection failed: ${e.message}`),
   });
 
+  // ── Explicit action: create rerun round ──
+  const createRerun = useMutation({
+    mutationFn: async (params: { groupId: string; roundType?: 'rerun' | 'manual_reassessment' }) => {
+      return createRerunRound({
+        groupId: params.groupId,
+        roundType: params.roundType || 'rerun',
+      });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: competitionKeys.groupDetail(vars.groupId) });
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: competitionKeys.groups(projectId) });
+      }
+      toast.success('New competition round created');
+    },
+    onError: (e: Error) => toast.error(`Rerun creation failed: ${e.message}`),
+  });
+
   return {
     /** DB-backed group list (query state) */
     groups: groupsQuery.data || [],
@@ -187,9 +211,11 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     initializeSlotCompetition,
     /** Explicit: initialize all eligible slots */
     initializeAllSlots,
-    /** Explicit: persist ranking snapshot */
+    /** Explicit: persist ranking snapshot (round-aware) */
     persistRanking,
-    /** Explicit: select winner */
+    /** Explicit: select winner (round-aware) */
     selectCompetitionWinner,
+    /** Explicit: create rerun round for existing group */
+    createRerun,
   };
 }

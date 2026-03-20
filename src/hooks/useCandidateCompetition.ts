@@ -1,6 +1,7 @@
 /**
  * useCandidateCompetition — React hook for consuming candidate competition
  * state in UI components. Reads from canonical DB-backed state.
+ * Round-aware: exposes round operations and current round context.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -12,9 +13,12 @@ import {
   persistRankingSnapshot,
   selectWinner,
   closeGroup,
+  createRerunRound,
+  loadCurrentRound,
+  loadRoundHistory,
   type CandidateGroup,
   type CompetitionGroupWithDetails,
-  type CompetitionInvariantError,
+  type CompetitionRound,
 } from '@/lib/competition/candidateCompetitionService';
 
 export function useCandidateCompetition(projectId: string | undefined) {
@@ -27,7 +31,7 @@ export function useCandidateCompetition(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  // Load a single group with full details
+  // Load a single group with full details (including rounds)
   const useGroupDetails = (groupId: string | null) => {
     return useQuery({
       queryKey: ['candidate-group-details', groupId],
@@ -56,7 +60,7 @@ export function useCandidateCompetition(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Persist ranking snapshot
+  // Persist ranking snapshot (round-aware)
   const rankMutation = useMutation({
     mutationFn: (params: Parameters<typeof persistRankingSnapshot>[0]) =>
       persistRankingSnapshot(params),
@@ -67,7 +71,7 @@ export function useCandidateCompetition(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Select winner
+  // Select winner (round-aware)
   const selectWinnerMutation = useMutation({
     mutationFn: (params: Parameters<typeof selectWinner>[0]) =>
       selectWinner(params),
@@ -87,6 +91,18 @@ export function useCandidateCompetition(projectId: string | undefined) {
     },
   });
 
+  // Create rerun round
+  const createRerunMutation = useMutation({
+    mutationFn: (params: Parameters<typeof createRerunRound>[0]) =>
+      createRerunRound(params),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['candidate-group-details', vars.groupId] });
+      qc.invalidateQueries({ queryKey: ['candidate-groups', projectId] });
+      toast.success('New competition round created');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     groups: groupsQuery.data || [],
     isLoading: groupsQuery.isLoading,
@@ -96,5 +112,6 @@ export function useCandidateCompetition(projectId: string | undefined) {
     rank: rankMutation,
     selectWinner: selectWinnerMutation,
     closeGroup: closeGroupMutation,
+    createRerun: createRerunMutation,
   };
 }
