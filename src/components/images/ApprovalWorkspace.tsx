@@ -46,10 +46,12 @@ interface ApprovalWorkspaceProps {
   dnaTraitsByCharacter?: Record<string, Array<{ label: string; value: string; region?: string }>>;
   /** Identity anchor map for continuity classification */
   identityAnchorMap?: IdentityAnchorMap;
+  /** Cached visual similarity results keyed by image id */
+  visualSimilarities?: Record<string, VisualSimilarityResult>;
 }
 
 export function ApprovalWorkspace({
-  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter, identityAnchorMap,
+  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter, identityAnchorMap, visualSimilarities,
 }: ApprovalWorkspaceProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [lightboxImage, setLightboxImage] = useState<ProjectImage | null>(null);
