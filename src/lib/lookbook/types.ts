@@ -99,6 +99,29 @@ export interface SlideContent {
   companyName?: string;
   /** Company logo URL */
   companyLogoUrl?: string;
+
+  // ── Layout family metadata ──
+  /** Resolved layout family key for this slide */
+  layoutFamily?: string;
+  /** Slot assignments from the slot matcher */
+  slotAssignments?: Array<{
+    slotKey: string;
+    expectedOrientation: string;
+    intent: string;
+    assignedUrl: string | null;
+    assignedOrientation: string;
+    orientationMatch: boolean;
+  }>;
+  /** Orientation summary of images on this slide */
+  imageOrientationSummary?: {
+    portrait: number;
+    landscape: number;
+    square: number;
+    unknown: number;
+    total: number;
+  };
+
+  // ── Debug provenance ──
   /** Debug provenance — image IDs used */
   _debug_image_ids?: string[];
   /** Debug provenance — per-image winner/compliance proof */

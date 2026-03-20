@@ -10,6 +10,8 @@ import { resolveAllCanonImages } from './resolveCanonImages';
 import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { normalizeCanonText } from './normalizeCanonText';
+import { resolveLookbookLayoutFamily, summarizeOrientations, type LayoutFamilyKey } from './lookbookLayoutFamilies';
+import { matchImagesToSlots, type ImageCandidate } from './lookbookSlotMatcher';
 
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -567,6 +569,52 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
   });
 
+  // ── Enrich slides with layout family metadata (landscape decks only) ──
+  const deckFormat = isVD ? 'portrait' as const : 'landscape' as const;
+
+  if (deckFormat === 'landscape') {
+    for (const slide of slides) {
+      const slideImages: Array<{ width?: number | null; height?: number | null; signedUrl?: string }> = [];
+
+      // Collect image dimensions from provenance
+      if (slide._debug_provenance?.length) {
+        for (const p of slide._debug_provenance) {
+          const url = slide.imageUrls?.find((_, i) => slide._debug_image_ids?.[i] === p.imageId)
+            || (slide._debug_image_ids?.[0] === p.imageId ? slide.imageUrl : undefined);
+          slideImages.push({ width: p.actualWidth, height: p.actualHeight, signedUrl: url || undefined });
+        }
+      }
+
+      // Resolve layout family
+      const resolved = resolveLookbookLayoutFamily({
+        slideType: slide.type,
+        images: slideImages,
+        lane: assignedLane || null,
+        format,
+        isCharacterSection: slide.type === 'characters',
+      });
+
+      slide.layoutFamily = resolved.familyKey;
+      slide.imageOrientationSummary = summarizeOrientations(slideImages);
+
+      // Run slot matcher for image-bearing slides
+      if (slideImages.length > 0) {
+        const candidates: ImageCandidate[] = slideImages.map((img, i) => ({
+          url: slide.imageUrls?.[i] || slide.imageUrl || '',
+          width: img.width,
+          height: img.height,
+          rankIndex: i,
+        })).filter(c => c.url);
+
+        const matchResult = matchImagesToSlots(resolved, candidates);
+        slide.slotAssignments = matchResult.assignments;
+      }
+    }
+
+    console.log('[LookBook] ✓ layout families resolved:',
+      slides.filter(s => s.layoutFamily).map(s => `${s.type}→${s.layoutFamily}`).join(', '));
+  }
+
   // Debug provenance — strict deck mode audit
   const unresolvedSlides = slides.filter(s => s._has_unresolved);
   const provenanceSummary = slides
@@ -579,7 +627,6 @@ export async function generateLookBookData(
       unresolvedSlides.map(s => s.type).join(', '));
   }
 
-  const deckFormat = isVD ? 'portrait' as const : 'landscape' as const;
   console.log(`[LookBook] ✓ deck format: ${deckFormat} (strictMode=${isVD}, lane=${assignedLane || 'none'}, format=${format})`);
 
   return {
