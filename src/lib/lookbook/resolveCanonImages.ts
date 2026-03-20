@@ -318,6 +318,7 @@ export interface ResolvedCanonImages {
   atmosphere_lighting: SectionImageResult;
   texture_detail: SectionImageResult;
   symbolic_motifs: SectionImageResult;
+  key_moments: SectionImageResult;
   poster_directions: SectionImageResult;
 }
 
@@ -333,6 +334,7 @@ export async function resolveAllCanonImages(projectId: string): Promise<Resolved
     'atmosphere_lighting',
     'texture_detail',
     'symbolic_motifs',
+    'key_moments',
     'poster_directions',
   ];
 
