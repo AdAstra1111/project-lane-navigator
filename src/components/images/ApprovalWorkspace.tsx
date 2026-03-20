@@ -2,23 +2,19 @@
  * ApprovalWorkspace — Visual Decision Workspace replacing the simple approval queue.
  * Supports list view, character-grouped view, image lightbox, and side-by-side comparison.
  * Identity-aware: displays anchor continuity status per character candidate.
+ *
+ * HARDENED v0.5: No mount-time competition writes. All competition orchestration
+ * is explicit via useSlotCompetitionOrchestrator. This component only reads
+ * canonical DB-backed state and triggers explicit user actions.
  */
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import type { VisualSimilarityResult } from '@/lib/images/anchorVisualSimilarity';
-import {
-  ensureGroupForSlot,
-  addCandidateVersion,
-  persistRankingSnapshot,
-  selectWinner as selectCompetitionWinner,
-  loadGroupsForSlot,
-  loadCompetitionGroup,
-  type CandidateGroup,
-  type CompetitionGroupWithDetails,
-} from '@/lib/competition/candidateCompetitionService';
+import { useSlotCompetitionOrchestrator } from '@/hooks/useSlotCompetitionOrchestrator';
 import { rankCharacterCandidates } from '@/lib/images/characterCandidateRanking';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
   Users, ChevronRight, Crown, Link, Unlink, AlertTriangle, ShieldCheck,
+  Swords,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -53,13 +49,9 @@ interface ApprovalWorkspaceProps {
   onApprove: (image: ProjectImage) => void;
   onReject: (imageId: string, markReuse: boolean) => void;
   onSetPrimary?: (image: ProjectImage) => void;
-  /** DNA traits per character name */
   dnaTraitsByCharacter?: Record<string, Array<{ label: string; value: string; region?: string }>>;
-  /** Identity anchor map for continuity classification */
   identityAnchorMap?: IdentityAnchorMap;
-  /** Cached visual similarity results keyed by image id */
   visualSimilarities?: Record<string, VisualSimilarityResult>;
-  /** Project ID for competition persistence */
   projectId?: string;
 }
 
@@ -70,145 +62,88 @@ export function ApprovalWorkspace({
   const [lightboxImage, setLightboxImage] = useState<ProjectImage | null>(null);
   const [selectedForCompare, setSelectedForCompare] = useState<ProjectImage[]>([]);
   const [showComparison, setShowComparison] = useState(false);
-  // Competition state: maps slot key -> group details
-  const [competitionGroups, setCompetitionGroups] = useState<Record<string, CompetitionGroupWithDetails>>({});
-  const [competitionLoading, setCompetitionLoading] = useState(false);
+
+  // ── Canonical competition state from DB via orchestrator hook ──
+  const competition = useSlotCompetitionOrchestrator(projectId);
 
   const pendingSlots = useMemo(() => slots.filter(s => !s.filled && s.candidates.length > 0), [slots]);
 
-  // ── Competition: bootstrap groups for pending slots ──
-  useEffect(() => {
-    if (!projectId || pendingSlots.length === 0) return;
-    let cancelled = false;
-
-    async function bootstrapCompetition() {
-      setCompetitionLoading(true);
-      const groups: Record<string, CompetitionGroupWithDetails> = {};
-
-      for (const slot of pendingSlots) {
-        if (slot.candidates.length < 2) continue; // No competition for single candidates
-
-        try {
-          // Ensure group exists for this slot
-          const group = await ensureGroupForSlot({
-            projectId: projectId!,
-            slotKey: slot.key,
-            runContextType: 'image',
-            assetGroup: slot.assetGroup,
-            characterName: slot.subject || undefined,
-          });
-
-          // Add any candidates not yet in the group
-          for (let i = 0; i < slot.candidates.length; i++) {
-            try {
-              await addCandidateVersion({
-                groupId: group.id,
-                versionRefId: slot.candidates[i].id,
-                candidateIndex: i,
-              });
-            } catch {
-              // Duplicate (unique constraint) — expected and safe
-            }
-          }
-
-          // Load full details
-          const details = await loadCompetitionGroup(group.id);
-          if (details && !cancelled) {
-            groups[slot.key] = details;
-          }
-        } catch (err) {
-          console.warn(`[Competition] Bootstrap failed for slot ${slot.key}:`, err);
-        }
-      }
-
-      if (!cancelled) {
-        setCompetitionGroups(groups);
-        setCompetitionLoading(false);
-      }
+  // ── Explicit action: initialize competition for all pending slots ──
+  const handleInitializeCompetition = useCallback(() => {
+    const slotInfos = pendingSlots
+      .filter(s => s.candidates.length >= 2)
+      .map(s => ({
+        key: s.key,
+        assetGroup: s.assetGroup,
+        subject: s.subject,
+        candidateIds: s.candidates.map(c => c.id),
+      }));
+    if (slotInfos.length > 0) {
+      competition.initializeAllSlots(slotInfos);
     }
+  }, [pendingSlots, competition]);
 
-    bootstrapCompetition();
-    return () => { cancelled = true; };
-  }, [projectId, pendingSlots.map(s => `${s.key}:${s.candidates.length}`).join('|')]);
-
-  // ── Competition: persist ranking for a slot ──
-  const persistSlotRanking = useCallback(async (slot: RequiredSlot) => {
-    if (!projectId) return;
-    const group = competitionGroups[slot.key];
-    if (!group || group.versions.length < 2) return;
-
-    // Build version ref -> candidateVersion map
-    const refToVersion = new Map(group.versions.map(v => [v.version_ref_id, v]));
-
-    // Use canonical ranking
-    const anchorSet = slot.subject && identityAnchorMap ? identityAnchorMap[slot.subject] || null : null;
-    const ranking = rankCharacterCandidates(slot.candidates, anchorSet, null, visualSimilarities || null);
-
-    const rankingRows = ranking.ranked
-      .map((r, i) => {
-        const cv = refToVersion.get(r.image.id);
-        if (!cv) return null;
-        return {
-          candidateVersionId: cv.id,
-          rankPosition: i + 1,
-          rankScore: r.rankValue,
-          scoreJson: {
-            continuityStatus: r.continuityStatus,
-            driftPenalty: r.driftPenalty,
-            similarityAdjustment: r.similarityAdjustment,
-            score: r.score,
-          },
-          rankingInputsJson: {
-            rankReason: r.rankReason,
-            continuityReason: r.continuityReason,
-          },
-        };
-      })
-      .filter(Boolean) as any[];
-
-    if (rankingRows.length > 0) {
-      try {
-        await persistRankingSnapshot({ groupId: group.id, rankings: rankingRows });
-        // Reload group details
-        const updated = await loadCompetitionGroup(group.id);
-        if (updated) {
-          setCompetitionGroups(prev => ({ ...prev, [slot.key]: updated }));
-        }
-      } catch (err) {
-        console.warn('[Competition] Ranking persistence failed:', err);
-      }
-    }
-  }, [projectId, competitionGroups, identityAnchorMap, visualSimilarities]);
-
-  // ── Competition: select winner (wraps existing approve) ──
+  // ── Explicit action: approve with competition winner selection ──
   const handleApproveWithCompetition = useCallback(async (image: ProjectImage, slot?: RequiredSlot) => {
     // Always call existing approve
     onApprove(image);
 
-    // Persist competition winner if group exists
+    // Persist competition winner if group exists in canonical state
     if (slot && projectId) {
-      const group = competitionGroups[slot.key];
+      const group = competition.slotGroupMap[slot.key];
       if (group) {
-        const cv = group.versions.find(v => v.version_ref_id === image.id);
-        if (cv) {
-          try {
-            // Persist ranking first if not yet done
-            if (group.rankings.length === 0) {
-              await persistSlotRanking(slot);
+        try {
+          const details = await competition.loadGroupDetails(group.id);
+          if (details) {
+            const cv = details.versions.find(v => v.version_ref_id === image.id);
+            if (cv) {
+              // Persist ranking first if not yet done
+              if (details.rankings.length === 0) {
+                const anchorSet = slot.subject && identityAnchorMap ? identityAnchorMap[slot.subject] || null : null;
+                const ranking = rankCharacterCandidates(slot.candidates, anchorSet, null, visualSimilarities || null);
+                const refToVersion = new Map(details.versions.map(v => [v.version_ref_id, v]));
+                const rankingRows = ranking.ranked
+                  .map((r, i) => {
+                    const matched = refToVersion.get(r.image.id);
+                    if (!matched) return null;
+                    return {
+                      candidateVersionId: matched.id,
+                      rankPosition: i + 1,
+                      rankScore: r.rankValue,
+                      scoreJson: {
+                        continuityStatus: r.continuityStatus,
+                        driftPenalty: r.driftPenalty,
+                        similarityAdjustment: r.similarityAdjustment,
+                        score: r.score,
+                      },
+                      rankingInputsJson: {
+                        rankReason: r.rankReason,
+                        continuityReason: r.continuityReason,
+                      },
+                    };
+                  })
+                  .filter(Boolean) as any[];
+
+                if (rankingRows.length > 0) {
+                  await competition.persistRanking.mutateAsync({
+                    groupId: group.id,
+                    rankings: rankingRows,
+                  });
+                }
+              }
+
+              await competition.selectCompetitionWinner.mutateAsync({
+                groupId: group.id,
+                candidateVersionId: cv.id,
+              });
             }
-            await selectCompetitionWinner({
-              groupId: group.id,
-              candidateVersionId: cv.id,
-              selectionMode: 'manual',
-              rationale: 'Selected via Approval Workspace',
-            });
-          } catch (err) {
-            console.warn('[Competition] Winner selection failed:', err);
           }
+        } catch (err) {
+          console.warn('[Competition] Winner selection on approve failed:', err);
         }
       }
     }
-  }, [onApprove, projectId, competitionGroups, persistSlotRanking]);
+  }, [onApprove, projectId, competition, identityAnchorMap, visualSimilarities]);
 
   const toggleCompareSelect = useCallback((img: ProjectImage) => {
     setSelectedForCompare(prev => {
@@ -240,6 +175,10 @@ export function ApprovalWorkspace({
     ? dnaTraitsByCharacter?.[lightboxImage.subject]
     : undefined;
 
+  // Check if any slots are eligible for competition
+  const hasCompetitionEligibleSlots = pendingSlots.some(s => s.candidates.length >= 2);
+  const hasInitializedCompetition = Object.keys(competition.slotGroupMap).length > 0;
+
   if (pendingSlots.length === 0) {
     return (
       <div className="py-4 text-center text-[10px] text-muted-foreground">
@@ -261,6 +200,14 @@ export function ApprovalWorkspace({
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Explicit competition initialization */}
+          {hasCompetitionEligibleSlots && !hasInitializedCompetition && (
+            <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 px-2"
+              onClick={handleInitializeCompetition}
+              disabled={competition.initializeSlotCompetition.isPending}>
+              <Swords className="h-3 w-3" /> Initialize Competition
+            </Button>
+          )}
           {selectedForCompare.length >= 2 && (
             <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 px-2"
               onClick={openComparison}>
@@ -300,7 +247,7 @@ export function ApprovalWorkspace({
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
               identityAnchorMap={identityAnchorMap}
-              competitionGroup={competitionGroups[slot.key]}
+              competitionGroup={competition.slotGroupMap[slot.key]}
             />
           ))}
         </div>
@@ -380,7 +327,7 @@ function SlotApprovalRow({
   onToggleCompare: (img: ProjectImage) => void;
   selectedForCompare: ProjectImage[];
   identityAnchorMap?: IdentityAnchorMap;
-  competitionGroup?: CompetitionGroupWithDetails;
+  competitionGroup?: CandidateGroup;
 }) {
   const [expanded, setExpanded] = useState(slot.candidates.length <= 3);
 
@@ -463,31 +410,28 @@ function CharacterGroupRow({
   }, [slots]);
 
   return (
-    <div className="rounded-md border border-border/40 bg-muted/10 overflow-hidden">
+    <div className="rounded-md border border-border/40 bg-muted/20 overflow-hidden">
       <div className="flex items-center gap-2 px-2 py-1.5 bg-muted/30">
-        <Users className="h-3 w-3 text-primary/70" />
-        <span className="text-[10px] font-semibold text-foreground">{characterName}</span>
-        <Badge variant="secondary" className="text-[8px] px-1 py-0 ml-auto">
-          {slots.reduce((a, s) => a + s.candidates.length, 0)} candidates
-        </Badge>
+        <Users className="h-3 w-3 text-primary/60" />
+        <span className="text-[9px] font-semibold text-foreground">{characterName}</span>
+        <Badge variant="secondary" className="text-[7px] px-1 py-0">{slots.length} slots</Badge>
       </div>
 
-      <div className="px-2 py-1.5 space-y-2">
-        {Object.entries(slotsByType).map(([shotKey, groupSlots]) => (
-          <div key={shotKey}>
-            <p className="text-[8px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
-              {SHOT_TYPE_LABELS[shotKey as ShotType] || shotKey}
+      <div className="space-y-1.5 p-2">
+        {Object.entries(slotsByType).map(([typeKey, typeSlots]) => (
+          <div key={typeKey}>
+            <p className="text-[8px] text-muted-foreground uppercase tracking-wider mb-1">
+              {SHOT_TYPE_LABELS[typeKey as ShotType] || typeKey}
             </p>
             <ScrollArea className="w-full">
               <div className="flex gap-1.5 pb-1">
-                {groupSlots.flatMap(slot => slot.candidates).map(img => (
-                  <div key={img.id} className="shrink-0 w-24">
+                {typeSlots.flatMap(s => s.candidates).map(img => (
+                  <div key={img.id} className="flex-shrink-0 w-[100px]">
                     <CandidateCard
                       image={img}
-                      isRecommended={groupSlots.some(s => s.recommended?.id === img.id)}
+                      isRecommended={false}
                       isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
                       identityContinuity={img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
-                      rankReason={groupSlots.find(s => s.recommended?.id === img.id)?.recommendedReason ?? undefined}
                       onApprove={() => onApprove(img)}
                       onReject={() => onReject(img.id, false)}
                       onRejectReuse={() => onReject(img.id, true)}
@@ -507,173 +451,155 @@ function CharacterGroupRow({
   );
 }
 
-// ── Candidate Card ──
+// ── Candidate Card (internal) ──
+
+import type { CandidateGroup } from '@/lib/competition/candidateCompetitionService';
 
 function CandidateCard({
-  image, isRecommended, isSelectedForCompare, compact, identityContinuity, rankReason,
-  onApprove, onReject, onRejectReuse, onExpand, onToggleCompare,
+  image, isRecommended, isSelectedForCompare, identityContinuity, rankReason,
+  onApprove, onReject, onRejectReuse, onExpand, onToggleCompare, compact,
 }: {
   image: ProjectImage;
   isRecommended: boolean;
   isSelectedForCompare: boolean;
-  compact?: boolean;
-  identityContinuity?: { status: IdentityContinuityStatus; reason: string };
+  identityContinuity?: IdentityContinuityStatus;
   rankReason?: string;
   onApprove: () => void;
   onReject: () => void;
   onRejectReuse: () => void;
   onExpand: () => void;
   onToggleCompare: () => void;
+  compact?: boolean;
 }) {
+  const genConfig = image.generation_config as Record<string, any> | null;
+  const identityLocked = genConfig?.identity_locked === true;
+  const anchorPaths = genConfig?.identity_anchor_paths as string[] | undefined;
+  const anchorCount = anchorPaths?.length || 0;
+
+  const continuityColor = identityContinuity === 'strong_match' ? 'text-emerald-600' :
+    identityContinuity === 'partial_match' ? 'text-amber-500' :
+    identityContinuity === 'identity_drift' ? 'text-destructive' :
+    'text-muted-foreground';
+
+  const continuityLabel = identityContinuity === 'strong_match' ? 'Strong' :
+    identityContinuity === 'partial_match' ? 'Partial' :
+    identityContinuity === 'identity_drift' ? 'Drift' :
+    identityContinuity === 'no_anchor_context' ? 'No Anchor' : '';
+
   return (
-    <div className={cn(
-      'rounded-md overflow-hidden border-2 transition-all flex flex-col',
-      isSelectedForCompare
-        ? 'border-accent ring-1 ring-accent/40'
-        : isRecommended
-          ? 'border-primary/60 ring-1 ring-primary/20'
-          : 'border-border/40',
+    <Card className={cn(
+      'relative group overflow-hidden',
+      isSelectedForCompare && 'ring-2 ring-primary',
+      isRecommended && 'ring-1 ring-emerald-500/50',
     )}>
-      {/* Image area */}
-      <div
-        className={cn(
-          'relative cursor-pointer',
-          getDisplayAspectClass(image.width, image.height),
-        )}
-        onClick={onExpand}
-      >
-        {image.signedUrl ? (
-          <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-muted">
-            <Eye className="h-3 w-3 text-muted-foreground/30" />
+      {/* Image */}
+      <div className={cn(
+        'relative overflow-hidden bg-muted cursor-pointer',
+        compact ? 'aspect-square' : 'aspect-[3/4]',
+      )} onClick={onExpand}>
+        <img
+          src={image.public_url}
+          alt={image.alt_text || 'Candidate'}
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+
+        {/* Badges overlay */}
+        <div className="absolute top-1 left-1 flex flex-col gap-0.5">
+          {isRecommended && (
+            <Badge className="bg-emerald-600/90 text-white text-[7px] px-1 py-0 gap-0.5">
+              <Crown className="h-2.5 w-2.5" /> Top
+            </Badge>
+          )}
+          {identityLocked && (
+            <Badge variant="outline" className="bg-background/80 text-[7px] px-1 py-0 gap-0.5 border-primary/40">
+              <Link className="h-2 w-2" /> Locked
+            </Badge>
+          )}
+          {!identityLocked && anchorCount > 0 && (
+            <Badge variant="outline" className="bg-background/80 text-[7px] px-1 py-0 gap-0.5 border-amber-400/50">
+              <Link className="h-2 w-2" /> {anchorCount} anchor{anchorCount !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
+
+        {/* Continuity badge */}
+        {identityContinuity && identityContinuity !== 'no_anchor_context' && (
+          <div className="absolute top-1 right-1">
+            <Badge variant="outline" className={cn(
+              'bg-background/80 text-[7px] px-1 py-0 gap-0.5',
+              identityContinuity === 'strong_match' && 'border-emerald-500/50',
+              identityContinuity === 'partial_match' && 'border-amber-400/50',
+              identityContinuity === 'identity_drift' && 'border-destructive/50',
+            )}>
+              {identityContinuity === 'strong_match' ? <ShieldCheck className="h-2 w-2" /> :
+               identityContinuity === 'identity_drift' ? <AlertTriangle className="h-2 w-2" /> :
+               <Unlink className="h-2 w-2" />}
+              <span className={continuityColor}>{continuityLabel}</span>
+            </Badge>
           </div>
         )}
 
-        {/* Recommended badge with rank reason tooltip */}
-        {isRecommended && (
-          <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5"
-            title={rankReason || 'Recommended candidate'}>
-            <Crown className="h-2 w-2" /> Top
-          </Badge>
-        )}
-
-        {/* Identity continuity badge — uses canonical anchor-based classification */}
-        {(() => {
-          const isChar = image.asset_group === 'character';
-          if (!isChar || !identityContinuity) return null;
-          const { status, reason } = identityContinuity;
-          switch (status) {
-            case 'strong_match':
-              return (
-                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-emerald-500/70 text-white gap-0.5"
-                  title={reason}>
-                  <ShieldCheck className="h-2 w-2" /> Locked
-                </Badge>
-              );
-            case 'partial_match':
-              return (
-                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-blue-500/70 text-white gap-0.5"
-                  title={reason}>
-                  <Link className="h-2 w-2" /> Partial
-                </Badge>
-              );
-            case 'identity_drift':
-              return (
-                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-destructive/70 text-white gap-0.5"
-                  title={reason}>
-                  <AlertTriangle className="h-2 w-2" /> Drift
-                </Badge>
-              );
-            case 'no_anchor_context':
-              return (
-                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-amber-500/70 text-white gap-0.5"
-                  title={reason}>
-                  <Unlink className="h-2 w-2" /> No Anchor
-                </Badge>
-              );
-            default:
-              return null;
-          }
-        })()}
-
-        {/* Compare selection indicator */}
-        {isSelectedForCompare && (
-          <Badge className="absolute top-0.5 right-0.5 text-[7px] px-1 py-0 bg-accent text-accent-foreground">
-            ✓
-          </Badge>
-        )}
-
-        {/* Orientation label */}
-        <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5">
-          <p className="text-[7px] text-white/70 truncate">
-            {getOrientationLabel(image.width, image.height)}
-            {image.width && image.height ? ` ${image.width}×${image.height}` : ''}
-          </p>
-          {/* Anchor provenance — grounded in actual generation_config */}
-          {(() => {
-            if (image.asset_group !== 'character') return null;
-            const gc = (image.generation_config || {}) as Record<string, unknown>;
-            const locked = !!gc.identity_locked;
-            const anchorPaths = gc.identity_anchor_paths as Record<string, string> | undefined;
-            const usedSlots: string[] = [];
-            if (anchorPaths) {
-              if (anchorPaths.headshot) usedSlots.push('H');
-              if (anchorPaths.fullBody) usedSlots.push('FB');
-            }
-            if (!locked && usedSlots.length === 0) return null;
-            return (
-              <p className="text-[6px] text-white/50 truncate mt-px">
-                {locked ? '🔒 Lock' : ''}
-                {usedSlots.length > 0 ? `${locked ? ' · ' : ''}Anchors: ${usedSlots.join('+')}` : ''}
-              </p>
-            );
-          })()}
+        {/* Compare checkbox */}
+        <div className="absolute bottom-1 right-1">
+          <Button
+            size="sm"
+            variant={isSelectedForCompare ? 'default' : 'outline'}
+            className="h-5 w-5 p-0 bg-background/80"
+            onClick={(e) => { e.stopPropagation(); onToggleCompare(); }}
+          >
+            <Eye className="h-2.5 w-2.5" />
+          </Button>
         </div>
       </div>
 
-      {/* Persistent action bar — always visible */}
-      <div className={cn(
-        'flex items-center bg-muted/40 border-t border-border/30',
-        compact ? 'gap-0.5 px-0.5 py-0.5' : 'gap-1 px-1 py-1',
-      )}>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={cn(
-            'flex-1 gap-0.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10',
-            compact ? 'h-5 text-[7px] px-0.5' : 'h-6 text-[8px] px-1',
+      {/* Rank reason tooltip */}
+      {rankReason && (
+        <div className="px-1.5 py-0.5 bg-muted/30 border-t border-border/30">
+          <p className="text-[7px] text-muted-foreground truncate" title={rankReason}>
+            {rankReason}
+          </p>
+        </div>
+      )}
+
+      {/* Metadata */}
+      <CardContent className="p-1.5 space-y-1">
+        <div className="flex items-center gap-1 flex-wrap">
+          {image.shot_type && (
+            <Badge variant="secondary" className="text-[7px] px-1 py-0">
+              {SHOT_TYPE_LABELS[image.shot_type as ShotType] || image.shot_type}
+            </Badge>
           )}
-          onClick={(e) => { e.stopPropagation(); onApprove(); }}
-        >
-          <CheckCircle className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
-          {!compact && 'Approve'}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={cn(
-            'flex-1 gap-0.5 text-destructive hover:text-destructive hover:bg-destructive/10',
-            compact ? 'h-5 text-[7px] px-0.5' : 'h-6 text-[8px] px-1',
+          {image.orientation && (
+            <Badge variant="outline" className="text-[7px] px-1 py-0 border-border/40">
+              {getOrientationLabel(image.orientation)}
+            </Badge>
           )}
-          onClick={(e) => { e.stopPropagation(); onReject(); }}
-        >
-          <XCircle className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
-          {!compact && 'Reject'}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={cn(
-            'gap-0.5 text-muted-foreground hover:text-foreground',
-            compact ? 'h-5 w-5 p-0' : 'h-6 w-6 p-0',
-          )}
-          onClick={(e) => { e.stopPropagation(); onToggleCompare(); }}
-          title={isSelectedForCompare ? 'Deselect' : 'Select for compare'}
-        >
-          <LayoutGrid className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
-        </Button>
-      </div>
-    </div>
+        </div>
+
+        {/* Always-visible action row */}
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="outline" className="h-6 flex-1 text-[8px] gap-0.5 px-1"
+            onClick={onExpand}>
+            <Expand className="h-2.5 w-2.5" /> Expand
+          </Button>
+          <Button size="sm" variant="default"
+            className="h-6 flex-1 text-[8px] gap-0.5 px-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={onApprove}>
+            <CheckCircle className="h-2.5 w-2.5" /> Approve
+          </Button>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="destructive" className="h-6 flex-1 text-[8px] gap-0.5 px-1"
+            onClick={onReject}>
+            <XCircle className="h-2.5 w-2.5" /> Reject
+          </Button>
+          <Button size="sm" variant="outline" className="h-6 flex-1 text-[8px] gap-0.5 px-1"
+            onClick={onRejectReuse}>
+            <Recycle className="h-2.5 w-2.5" /> Reuse
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
