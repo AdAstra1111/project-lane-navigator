@@ -379,9 +379,10 @@ function CandidateCard({
           </div>
         )}
 
-        {/* Recommended badge */}
+        {/* Recommended badge with rank reason tooltip */}
         {isRecommended && (
-          <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5">
+          <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5"
+            title={rankReason || 'Recommended candidate'}>
             <Crown className="h-2 w-2" /> Top
           </Badge>
         )}

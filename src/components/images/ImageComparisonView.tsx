@@ -332,7 +332,17 @@ function ComparisonCell({
           )}
         </div>
 
-        {/* Row 3: actions */}
+        {/* Row 3: rank reason from canonical helper */}
+        {rankReason && (
+          <p className="text-[7px] text-white/35 italic truncate" title={rankReason}>
+            {isRecommended ? '★ ' : ''}{rankReason}
+            {driftPenalty != null && driftPenalty < 0 && (
+              <span className="text-red-400/60 ml-1">({driftPenalty})</span>
+            )}
+          </p>
+        )}
+
+        {/* Row 4: actions */}
         <div className="flex items-center gap-1">
           {onSetPrimary && (
             <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-0.5 text-white/70 hover:text-white hover:bg-white/10 px-1.5"
