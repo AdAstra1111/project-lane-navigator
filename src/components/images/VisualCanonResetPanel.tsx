@@ -335,6 +335,12 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     abortRef.current = false;
     setPopulating(true);
+    populateBridge.register({
+      total: slots.length,
+      processed: 0,
+      percent: 0,
+      stageDescription: `Generating candidate images for ${slots.length} slots…`,
+    });
     setPopulateProgress({
       generated: 0, total: slots.length, failed: 0,
       currentSlot: slots[0]?.label || null,
