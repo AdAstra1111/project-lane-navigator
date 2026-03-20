@@ -453,8 +453,6 @@ function CharacterGroupRow({
 
 // ── Candidate Card (internal) ──
 
-import type { CandidateGroup } from '@/lib/competition/candidateCompetitionService';
-
 function CandidateCard({
   image, isRecommended, isSelectedForCompare, identityContinuity, rankReason,
   onApprove, onReject, onRejectReuse, onExpand, onToggleCompare, compact,
