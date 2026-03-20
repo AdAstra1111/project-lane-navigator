@@ -8,8 +8,9 @@ import {
   CheckCircle, XCircle, Recycle, Eye, Expand, Filter,
   Crown, ShieldCheck, AlertTriangle, Unlink, Link,
   Image as ImageIcon, SlidersHorizontal, X, Sparkles,
-  ArrowRightCircle,
+  ArrowRightCircle, BookOpen,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +47,7 @@ const SECTION_LABELS: Record<string, string> = {
 };
 
 export function ReviewStudio({ projectId }: ReviewStudioProps) {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterState>('candidate');
   const [groupBy, setGroupBy] = useState<GroupBy>('section');
   const [shotFilter, setShotFilter] = useState<string>('all');
@@ -161,10 +163,16 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     setBulkApproving(true);
     try {
       await batchApproveAll(suggestedApproval.safe);
+      toast.success(`${suggestedApproval.safe.length} images approved — rebuild LookBook to see changes`, {
+        action: {
+          label: 'Build LookBook',
+          onClick: () => navigate(`/projects/${projectId}/lookbook`),
+        },
+      });
     } finally {
       setBulkApproving(false);
     }
-  }, [bulkApproving, suggestedApproval.safe, batchApproveAll]);
+  }, [bulkApproving, suggestedApproval.safe, batchApproveAll, navigate, projectId]);
 
   // ── Sync to Visual Sets bridge ──
   // Wires existing project_images candidates into governed visual set slots
@@ -198,7 +206,13 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
   // Actions
   const handleApprove = useCallback((img: ProjectImage) => {
     approveIntoCanon(img);
-  }, [approveIntoCanon]);
+    toast.success('Image approved — rebuild LookBook to see changes', {
+      action: {
+        label: 'Build LookBook',
+        onClick: () => navigate(`/projects/${projectId}/lookbook`),
+      },
+    });
+  }, [approveIntoCanon, navigate, projectId]);
 
   const handleReject = useCallback((imgId: string) => {
     rejectCandidate(imgId, false);
@@ -240,6 +254,16 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
           <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-muted-foreground">
             {activeCount} approved
           </Badge>
+          {/* Build LookBook shortcut */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1.5 ml-2"
+            onClick={() => navigate(`/projects/${projectId}/lookbook`)}
+          >
+            <BookOpen className="h-3 w-3" />
+            Build LookBook
+          </Button>
         </div>
 
         {selectedForCompare.length >= 2 && (
