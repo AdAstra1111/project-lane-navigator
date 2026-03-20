@@ -21,6 +21,14 @@ interface ImageLightboxProps {
   score?: number | null;
   /** Optional canonical rank reason from ranking helper */
   rankReason?: string | null;
+  /** Navigation: all images in current set for ←/→ */
+  imageSet?: ProjectImage[];
+  /** Called when navigating to a different image */
+  onNavigate?: (image: ProjectImage) => void;
+  /** Approve action (keyboard: A) */
+  onApprove?: (image: ProjectImage) => void;
+  /** Reject action (keyboard: D) */
+  onReject?: (imageId: string) => void;
 }
 
 const MIN_ZOOM = 1;
