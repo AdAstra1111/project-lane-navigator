@@ -274,7 +274,7 @@ export async function triggerNextTaskForRound(params: {
     .insert({
       group_id: params.groupId,
       selected_candidate_version_id: candidateVersionId,
-      selection_mode: 'manual', // DB enum constraint — represents auto-promoted bridge
+      selection_mode: 'auto_promoted',
       round_id: params.roundId,
       selected_by: params.createdBy || null,
       rationale: `Auto-promoted via next-task trigger from promotion ${promotion.id}`,
