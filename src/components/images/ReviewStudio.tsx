@@ -7,7 +7,7 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, Filter,
   Crown, ShieldCheck, AlertTriangle, Unlink, Link,
-  Image as ImageIcon, SlidersHorizontal, X,
+  Image as ImageIcon, SlidersHorizontal, X, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import { getOrientationLabel, getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { classifyIdentityContinuity, resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 type FilterState = 'candidate' | 'active' | 'archived' | 'all';
 type GroupBy = 'none' | 'section' | 'character' | 'shot_type';
 
@@ -61,7 +62,7 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     limit: 500,
   });
 
-  const { approveIntoCanon, rejectCandidate } = useVisualCanonReset(projectId);
+  const { approveIntoCanon, rejectCandidate, batchApproveAll } = useVisualCanonReset(projectId);
   const { setCurationState } = useImageCuration(projectId);
 
   // Derive identity anchors
@@ -118,6 +119,49 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     return groups;
   }, [filteredImages, groupBy]);
 
+  // ── Safe suggestion classification ──
+  // Uses existing identity continuity signals to determine which candidates are safe to auto-approve.
+  // Character images with identity_drift are excluded. Images without a valid URL are excluded.
+  const suggestedApproval = useMemo(() => {
+    const candidates = images.filter(i => i.curation_state === 'candidate');
+    const safe: ProjectImage[] = [];
+    const skipped: { image: ProjectImage; reason: string }[] = [];
+
+    for (const img of candidates) {
+      // Must have a renderable image
+      if (!img.signedUrl && !img.storage_path) {
+        skipped.push({ image: img, reason: 'No image data' });
+        continue;
+      }
+
+      // Character images: check identity continuity
+      if (img.asset_group === 'character' && img.subject) {
+        const anchors = identityAnchorMap[img.subject] || null;
+        const continuity = classifyIdentityContinuity(img, anchors);
+        if (continuity.status === 'identity_drift') {
+          skipped.push({ image: img, reason: 'Identity drift detected' });
+          continue;
+        }
+      }
+
+      safe.push(img);
+    }
+
+    return { safe, skipped };
+  }, [images, identityAnchorMap]);
+
+  const [bulkApproving, setBulkApproving] = useState(false);
+
+  const handleBulkApproveSuggested = useCallback(async () => {
+    if (bulkApproving || suggestedApproval.safe.length === 0) return;
+    setBulkApproving(true);
+    try {
+      await batchApproveAll(suggestedApproval.safe);
+    } finally {
+      setBulkApproving(false);
+    }
+  }, [bulkApproving, suggestedApproval.safe, batchApproveAll]);
+
   // Actions
   const handleApprove = useCallback((img: ProjectImage) => {
     approveIntoCanon(img);
@@ -170,6 +214,23 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
             onClick={() => setShowComparison(true)}>
             <Eye className="h-3 w-3" /> Compare ({selectedForCompare.length})
           </Button>
+        )}
+
+        {/* Bulk approve suggested — only when viewing pending candidates */}
+        {filter === 'candidate' && suggestedApproval.safe.length > 0 && (
+          <ConfirmDialog
+            title="Approve Suggested Images"
+            description={`${suggestedApproval.safe.length} image${suggestedApproval.safe.length === 1 ? '' : 's'} passed safety checks and will be approved into canon. ${suggestedApproval.skipped.length > 0 ? `${suggestedApproval.skipped.length} skipped (${[...new Set(suggestedApproval.skipped.map(s => s.reason))].join(', ')}).` : ''} First candidate per slot becomes primary.`}
+            confirmLabel={`Approve ${suggestedApproval.safe.length} Images`}
+            variant="default"
+            onConfirm={handleBulkApproveSuggested}
+          >
+            <Button size="sm" className="h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={bulkApproving}>
+              <Sparkles className="h-3 w-3" />
+              {bulkApproving ? 'Approving…' : `Approve Suggested (${suggestedApproval.safe.length})`}
+            </Button>
+          </ConfirmDialog>
         )}
       </div>
 
