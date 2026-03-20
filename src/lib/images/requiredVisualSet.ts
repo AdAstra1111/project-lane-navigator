@@ -114,6 +114,8 @@ export interface RequiredSlot {
   candidates: ProjectImage[];
   /** Recommended candidate (most recent active or candidate) */
   recommended: ProjectImage | null;
+  /** Canonical reason for recommendation from ranking helper */
+  recommendedReason: string | null;
   /** Whether this slot is identity-critical */
   isIdentity: boolean;
 }
@@ -185,13 +187,16 @@ function buildSlot(
 
   // Identity-aware recommendation using canonical ranking helper
   let recommended: ProjectImage | null = primary;
+  let recommendedReason: string | null = primary ? 'Active primary' : null;
   if (!recommended && candidates.length > 0) {
     if (assetGroup === 'character' && subject && anchorMap) {
       const anchorSet = anchorMap[subject] || null;
       const ranking = rankCharacterCandidates(candidates, anchorSet);
       recommended = ranking.top?.image ?? candidates[0];
+      recommendedReason = ranking.top?.rankReason ?? null;
     } else {
       recommended = candidates[0];
+      recommendedReason = 'Most recent candidate';
     }
   }
 
@@ -208,6 +213,7 @@ function buildSlot(
     primaryImage: primary,
     candidates,
     recommended,
+    recommendedReason,
     isIdentity,
   };
 }

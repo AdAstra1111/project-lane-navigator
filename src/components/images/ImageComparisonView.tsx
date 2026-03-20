@@ -86,13 +86,15 @@ export function ImageComparisonView({
     return { ranked, top: ranked[0] || null, topReason: ranked[0]?.rankReason || 'No candidates' };
   }, [images, characterAnchorSet, scores]);
 
-  // Compute per-image provenance for display
+  // Compute per-image analysis with rank reason from canonical helper
   const analysis = useMemo(() => {
     return ranking.ranked.map(rc => ({
       image: rc.image,
       continuity: { status: rc.continuityStatus, reason: rc.continuityReason },
       provenance: getProvenance(rc.image),
       score: rc.score,
+      rankReason: rc.rankReason,
+      driftPenalty: rc.driftPenalty,
     }));
   }, [ranking]);
 
@@ -187,6 +189,9 @@ export function ImageComparisonView({
               <span className="text-white/80 font-medium">
                 {recommended.image.subject || 'Candidate'} — {SHOT_TYPE_LABELS[(recommended.image.shot_type as ShotType)] || recommended.image.shot_type || 'unknown'}
               </span>
+              {ranking.topReason && (
+                <span className="text-white/40 text-[9px] italic">{ranking.topReason}</span>
+              )}
               {recommended.score != null && (
                 <span className="text-white/40 tabular-nums">({recommended.score.toFixed(2)})</span>
               )}
@@ -219,6 +224,8 @@ export function ImageComparisonView({
               continuity={entry.continuity}
               provenance={entry.provenance}
               isRecommended={entry.image.id === summary.recommendedId}
+              rankReason={entry.rankReason}
+              driftPenalty={entry.driftPenalty}
               onSetPrimary={onSetPrimary}
               onReject={onReject}
             />
@@ -232,7 +239,7 @@ export function ImageComparisonView({
 // ── Comparison Cell ──
 
 function ComparisonCell({
-  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, onSetPrimary, onReject,
+  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, rankReason, driftPenalty, onSetPrimary, onReject,
 }: {
   image: ProjectImage;
   zoom?: number;
@@ -240,6 +247,8 @@ function ComparisonCell({
   continuity: { status: string; reason: string };
   provenance: { locked: boolean; usedSlots: string[]; hasAnchors: boolean };
   isRecommended: boolean;
+  rankReason?: string;
+  driftPenalty?: number;
   onSetPrimary?: (img: ProjectImage) => void;
   onReject?: (id: string) => void;
 }) {
@@ -323,7 +332,17 @@ function ComparisonCell({
           )}
         </div>
 
-        {/* Row 3: actions */}
+        {/* Row 3: rank reason from canonical helper */}
+        {rankReason && (
+          <p className="text-[7px] text-white/35 italic truncate" title={rankReason}>
+            {isRecommended ? '★ ' : ''}{rankReason}
+            {driftPenalty != null && driftPenalty < 0 && (
+              <span className="text-red-400/60 ml-1">({driftPenalty})</span>
+            )}
+          </p>
+        )}
+
+        {/* Row 4: actions */}
         <div className="flex items-center gap-1">
           {onSetPrimary && (
             <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-0.5 text-white/70 hover:text-white hover:bg-white/10 px-1.5"

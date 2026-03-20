@@ -19,13 +19,15 @@ interface ImageLightboxProps {
   dnaTraits?: Array<{ label: string; value: string; region?: string }>;
   /** Optional score to display */
   score?: number | null;
+  /** Optional canonical rank reason from ranking helper */
+  rankReason?: string | null;
 }
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 0.5;
 
-export function ImageLightbox({ image, open, onClose, dnaTraits, score }: ImageLightboxProps) {
+export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReason }: ImageLightboxProps) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showOverlay, setShowOverlay] = useState(true);
@@ -195,6 +197,15 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score }: ImageL
                 </div>
               );
             })()}
+
+            {/* Recommendation context from canonical ranking */}
+            {rankReason && (
+              <div className="mt-1.5">
+                <Badge variant="outline" className="text-[8px] border-primary/30 text-primary/80 bg-primary/5">
+                  ★ {rankReason}
+                </Badge>
+              </div>
+            )}
 
             {/* DNA traits */}
             {dnaTraits && dnaTraits.length > 0 && (

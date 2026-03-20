@@ -29,6 +29,7 @@ interface RequiredSlot {
   filled: boolean;
   candidates: ProjectImage[];
   recommended: ProjectImage | null;
+  recommendedReason: string | null;
   isIdentity: boolean;
   primaryImage: ProjectImage | null;
 }
@@ -255,6 +256,7 @@ function SlotApprovalRow({
               isRecommended={img.id === slot.recommended?.id}
               isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
               identityContinuity={img.asset_group === 'character' && img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
+              rankReason={img.id === slot.recommended?.id ? (slot.recommendedReason ?? undefined) : undefined}
               onApprove={() => onApprove(img)}
               onReject={() => onReject(img.id, false)}
               onRejectReuse={() => onReject(img.id, true)}
@@ -318,6 +320,7 @@ function CharacterGroupRow({
                       isRecommended={groupSlots.some(s => s.recommended?.id === img.id)}
                       isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
                       identityContinuity={img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
+                      rankReason={groupSlots.find(s => s.recommended?.id === img.id)?.recommendedReason ?? undefined}
                       onApprove={() => onApprove(img)}
                       onReject={() => onReject(img.id, false)}
                       onRejectReuse={() => onReject(img.id, true)}
@@ -340,7 +343,7 @@ function CharacterGroupRow({
 // ── Candidate Card ──
 
 function CandidateCard({
-  image, isRecommended, isSelectedForCompare, compact, identityContinuity,
+  image, isRecommended, isSelectedForCompare, compact, identityContinuity, rankReason,
   onApprove, onReject, onRejectReuse, onExpand, onToggleCompare,
 }: {
   image: ProjectImage;
@@ -348,6 +351,7 @@ function CandidateCard({
   isSelectedForCompare: boolean;
   compact?: boolean;
   identityContinuity?: { status: IdentityContinuityStatus; reason: string };
+  rankReason?: string;
   onApprove: () => void;
   onReject: () => void;
   onRejectReuse: () => void;
@@ -379,9 +383,10 @@ function CandidateCard({
           </div>
         )}
 
-        {/* Recommended badge */}
+        {/* Recommended badge with rank reason tooltip */}
         {isRecommended && (
-          <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5">
+          <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5"
+            title={rankReason || 'Recommended candidate'}>
             <Crown className="h-2 w-2" /> Top
           </Badge>
         )}
