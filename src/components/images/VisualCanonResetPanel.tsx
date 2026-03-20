@@ -551,7 +551,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           targetState: 'archived',
           regenerateAfter: false,
         });
-        await refetchImages();
+        const preResetResult = await refetchImages();
+        preGenImageCount = ((preResetResult?.data || []) as ProjectImage[]).length;
 
         setRebuildStage('Archiving images');
         await new Promise(r => setTimeout(r, 500));
@@ -565,6 +566,9 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       const postGenResult = await refetchImages();
       const postGenImages: ProjectImage[] = (postGenResult?.data || []) as ProjectImage[];
+
+      // True per-run generation count: new images created in this rebuild
+      const newlyGeneratedCount = Math.max(0, postGenImages.length - preGenImageCount);
 
       // ── Common: Score all candidates per slot ──
       setRebuildStage('Scoring candidates');
