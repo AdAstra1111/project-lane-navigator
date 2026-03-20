@@ -482,7 +482,7 @@ interface ImageCardProps {
 
 function ImageCard({
   img, updating, compareMode, compareSelected,
-  showShotTypes, showCurationControls, showProvenance,
+  showShotTypes, showCurationControls, showProvenance, laneKey,
   onSelect, onLightbox, onCurationAction, onPromote,
 }: ImageCardProps) {
   const isActive = img.curation_state === 'active' || img.is_primary;
