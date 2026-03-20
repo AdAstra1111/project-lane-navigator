@@ -506,6 +506,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         setRebuildStage('Analysing incumbents');
         const preResult = await refetchImages();
         preGenImages = (preResult?.data || []) as ProjectImage[];
+        preGenImageCount = preGenImages.length;
 
         const freshEntities = extractEntities(canonJson);
         const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, preGenImages, isVerticalDrama);
