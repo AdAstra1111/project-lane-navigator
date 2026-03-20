@@ -871,9 +871,28 @@ function parseDataUrl(dataUrl: string): ProviderImageResult {
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 2000;
+const AI_REQUEST_TIMEOUT_MS = 45000;
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit, timeoutMs = AI_REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`AI request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function generateImage(apiKey: string, prompt: string, model: string, gatewayUrl: string): Promise<ProviderImageResult> {
@@ -886,7 +905,7 @@ async function generateImage(apiKey: string, prompt: string, model: string, gate
       await sleep(backoff);
     }
 
-    const aiResponse = await fetch(gatewayUrl, {
+    const aiResponse = await fetchWithTimeout(gatewayUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -1223,7 +1242,7 @@ serve(async (req) => {
               await sleep(backoff);
             }
 
-            const aiResponse = await fetch(editGenConfig.gatewayUrl, {
+            const aiResponse = await fetchWithTimeout(editGenConfig.gatewayUrl, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${LOVABLE_API_KEY}`,
