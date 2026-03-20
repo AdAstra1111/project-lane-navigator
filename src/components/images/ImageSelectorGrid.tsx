@@ -22,6 +22,7 @@ import {
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
+import { getDisplayAspectClass, getOrientationLabel } from '@/lib/images/orientationUtils';
 
 // ── Section policy model ─────────────────────────────────────────────────────
 
