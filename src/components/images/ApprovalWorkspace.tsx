@@ -379,23 +379,43 @@ function CandidateCard({
           </Badge>
         )}
 
-        {/* Identity continuity badge */}
+        {/* Identity continuity badge — uses canonical anchor-based classification */}
         {(() => {
-          const gc = (image.generation_config || {}) as Record<string, unknown>;
-          const hasLock = !!(gc.identity_locked || gc.identity_anchor_paths);
           const isChar = image.asset_group === 'character';
-          if (!isChar) return null;
-          return hasLock ? (
-            <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-emerald-500/70 text-white gap-0.5"
-              title="Generated with identity anchors — strong continuity">
-              <Link className="h-2 w-2" /> ID
-            </Badge>
-          ) : (
-            <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-amber-500/70 text-white gap-0.5"
-              title="Generated without identity anchors — potential drift">
-              <Unlink className="h-2 w-2" /> Drift
-            </Badge>
-          );
+          if (!isChar || !identityContinuity) return null;
+          const { status, reason } = identityContinuity;
+          switch (status) {
+            case 'strong_match':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-emerald-500/70 text-white gap-0.5"
+                  title={reason}>
+                  <ShieldCheck className="h-2 w-2" /> Locked
+                </Badge>
+              );
+            case 'partial_match':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-blue-500/70 text-white gap-0.5"
+                  title={reason}>
+                  <Link className="h-2 w-2" /> Partial
+                </Badge>
+              );
+            case 'identity_drift':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-destructive/70 text-white gap-0.5"
+                  title={reason}>
+                  <AlertTriangle className="h-2 w-2" /> Drift
+                </Badge>
+              );
+            case 'no_anchor_context':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-amber-500/70 text-white gap-0.5"
+                  title={reason}>
+                  <Unlink className="h-2 w-2" /> No Anchor
+                </Badge>
+              );
+            default:
+              return null;
+          }
         })()}
 
         {/* Compare selection indicator */}
