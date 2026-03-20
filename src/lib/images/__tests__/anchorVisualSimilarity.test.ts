@@ -212,7 +212,7 @@ describe('ranking integration with visual similarity', async () => {
       'unlocked-strong-visual': makeResult(90),
     };
 
-    const withSim = rankCharacterCandidates([locked, unlocked], fullAnchorSet, null, null, similarities);
+    const withSim = rankCharacterCandidates([locked, unlocked], fullAnchorSet, null, similarities);
     const lockedRanked = withSim.ranked.find(r => r.image.id === 'locked-weak-visual')!;
     expect(lockedRanked.similarityAdjustment).toBe(-8);
     expect(lockedRanked.visualSimilarity).toBeTruthy();
