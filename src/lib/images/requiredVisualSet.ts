@@ -213,6 +213,7 @@ function buildSlot(
     primaryImage: primary,
     candidates,
     recommended,
+    recommendedReason,
     isIdentity,
   };
 }
