@@ -4,7 +4,7 @@
  * Canonical lookbook_sections are the authoritative runtime model.
  * Workspace is always accessible and is the default authoring mode.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import {
   Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench,
