@@ -106,7 +106,7 @@ const WEIGHTS = {
  * Returns 0–100. An exact match = 100. Related shots get partial credit.
  * Fundamentally wrong shots = 0 (ineligible).
  */
-function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot): { score: number; eligible: boolean; reason: string } {
+function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot): { score: number; eligible: boolean; exactMatch: boolean; reason: string } {
   const st = (imageShotType || '').toLowerCase();
 
   if (st === targetSlot) {
