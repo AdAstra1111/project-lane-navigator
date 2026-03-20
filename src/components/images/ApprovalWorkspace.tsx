@@ -16,6 +16,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import { getDisplayAspectClass, getOrientationLabel } from '@/lib/images/orientationUtils';
+import { classifyIdentityContinuity, type IdentityAnchorMap, type IdentityContinuityStatus } from '@/lib/images/characterIdentityAnchorSet';
 import { ImageLightbox } from './ImageLightbox';
 import { ImageComparisonView } from './ImageComparisonView';
 
