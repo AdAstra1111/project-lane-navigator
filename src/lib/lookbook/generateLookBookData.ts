@@ -524,6 +524,7 @@ export async function generateLookBookData(
   if (normalizedCharacters.length > 0) {
     slides.push({
       type: 'characters',
+      slide_id: makeSlideId('characters'),
       title: 'Characters',
       characters: normalizedCharacters,
       _debug_image_ids: canonImages.character_identity.imageIds,
