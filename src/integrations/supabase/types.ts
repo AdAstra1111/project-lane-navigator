@@ -17079,6 +17079,80 @@ export type Database = {
           },
         ]
       }
+      round_progressions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          group_id: string
+          id: string
+          next_task_ref_id: string | null
+          next_task_type: string
+          progression_snapshot_json: Json
+          progression_status: string
+          promoted_candidate_version_id: string | null
+          rationale: string | null
+          round_id: string
+          source_promotion_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          group_id: string
+          id?: string
+          next_task_ref_id?: string | null
+          next_task_type?: string
+          progression_snapshot_json?: Json
+          progression_status?: string
+          promoted_candidate_version_id?: string | null
+          rationale?: string | null
+          round_id: string
+          source_promotion_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          group_id?: string
+          id?: string
+          next_task_ref_id?: string | null
+          next_task_type?: string
+          progression_snapshot_json?: Json
+          progression_status?: string
+          promoted_candidate_version_id?: string | null
+          rationale?: string | null
+          round_id?: string
+          source_promotion_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_progressions_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_progressions_promoted_candidate_version_id_fkey"
+            columns: ["promoted_candidate_version_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_progressions_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "round_progressions_source_promotion_id_fkey"
+            columns: ["source_promotion_id"]
+            isOneToOne: false
+            referencedRelation: "round_promotions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       round_promotions: {
         Row: {
           created_at: string
