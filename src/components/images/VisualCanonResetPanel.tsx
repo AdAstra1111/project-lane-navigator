@@ -307,10 +307,11 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
   // Progressive auto-populate — slot by slot with live UI updates
   // Now also wires generated images into governed visual sets
-  const handleAutoPopulate = useCallback(async (identityOnly: boolean) => {
-    const slots = buildSlotManifest(identityOnly);
+  // targetSlotKeys: if provided, only generate for these specific slot keys (preserve-mode scoping)
+  const handleAutoPopulate = useCallback(async (identityOnly: boolean, targetSlotKeys?: Set<string>) => {
+    const slots = buildSlotManifest(identityOnly, targetSlotKeys);
     if (slots.length === 0) {
-      toast.info('All slots already have candidates');
+      if (!targetSlotKeys) toast.info('All slots already have candidates');
       return;
     }
 
