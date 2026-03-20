@@ -1,6 +1,6 @@
 /**
  * Canon Rebuild Executor Tests — verifies canonical execution path,
- * status honesty, and result semantics.
+ * status honesty, result semantics, and stage tracking.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -9,7 +9,9 @@ import {
   isRebuildPartial,
   getRebuildStatusSeverity,
   getRebuildStatusLabel,
+  REBUILD_STAGES,
   type RebuildExecutionStatus,
+  type RebuildStage,
 } from '../canonRebuildExecutor';
 
 describe('extractEntities', () => {
@@ -83,5 +85,31 @@ describe('execution status helpers', () => {
     expect(getRebuildStatusLabel('failed')).toBe('Failed');
     expect(getRebuildStatusLabel('pending')).toBe('Pending');
     expect(getRebuildStatusLabel('running')).toBe('Running');
+  });
+});
+
+describe('REBUILD_STAGES', () => {
+  it('contains all canonical execution stages', () => {
+    expect(REBUILD_STAGES).toContain('analysing_incumbents');
+    expect(REBUILD_STAGES).toContain('resetting_canon');
+    expect(REBUILD_STAGES).toContain('generating_images');
+    expect(REBUILD_STAGES).toContain('scoring_candidates');
+    expect(REBUILD_STAGES).toContain('evaluating_replacements');
+    expect(REBUILD_STAGES).toContain('attaching_winners');
+    expect(REBUILD_STAGES).toContain('building_lookbook');
+    expect(REBUILD_STAGES).toContain('preparing_download');
+  });
+
+  it('has exactly 8 stages', () => {
+    expect(REBUILD_STAGES).toHaveLength(8);
+  });
+
+  it('stages are ordered from start to end of pipeline', () => {
+    const idx = (s: RebuildStage) => REBUILD_STAGES.indexOf(s);
+    expect(idx('analysing_incumbents')).toBeLessThan(idx('generating_images'));
+    expect(idx('generating_images')).toBeLessThan(idx('scoring_candidates'));
+    expect(idx('scoring_candidates')).toBeLessThan(idx('attaching_winners'));
+    expect(idx('attaching_winners')).toBeLessThan(idx('building_lookbook'));
+    expect(idx('building_lookbook')).toBeLessThan(idx('preparing_download'));
   });
 });

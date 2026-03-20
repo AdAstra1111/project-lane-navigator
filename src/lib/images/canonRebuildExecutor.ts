@@ -44,6 +44,21 @@ export type RebuildTriggerSource =
   | 'auto_run'
   | 'scheduled';
 
+// ── Canonical Execution Stages ──
+
+export const REBUILD_STAGES = [
+  'analysing_incumbents',
+  'resetting_canon',
+  'generating_images',
+  'scoring_candidates',
+  'evaluating_replacements',
+  'attaching_winners',
+  'building_lookbook',
+  'preparing_download',
+] as const;
+
+export type RebuildStage = typeof REBUILD_STAGES[number];
+
 // ── Execution Input ──
 
 export interface RebuildExecutionInput {
@@ -93,7 +108,7 @@ export interface RebuildExecutionResult {
   /** Duration in ms */
   durationMs: number;
   /** Stage where failure occurred, if any */
-  failureStage: string | null;
+  failureStage: RebuildStage | null;
   /** Error message if failed */
   failureMessage: string | null;
   /** Newly generated image count (true per-run delta) */
@@ -135,6 +150,110 @@ async function fetchProjectImages(projectId: string): Promise<ProjectImage[]> {
   return (data || []) as ProjectImage[];
 }
 
+// ── Persist Execution Record ──
+
+async function persistRebuildRun(
+  projectId: string,
+  result: RebuildExecutionResult,
+): Promise<void> {
+  try {
+    const payload = {
+      project_id: projectId,
+      trigger_source: result.triggerSource,
+      rebuild_mode: result.rebuildResult.mode,
+      execution_status: result.executionStatus,
+      targeted_slot_keys: result.targetedSlotKeys || [],
+      started_at: result.startedAt,
+      completed_at: result.completedAt,
+      duration_ms: result.durationMs,
+      failure_stage: result.failureStage,
+      failure_message: result.failureMessage,
+      total_slots: result.rebuildResult.totalSlots,
+      resolved_slots: result.rebuildResult.resolvedSlots,
+      unresolved_slots: result.rebuildResult.unresolvedSlots,
+      generated_count: result.newlyGeneratedCount,
+      compliant_count: result.rebuildResult.compliantCount,
+      rejected_non_compliant_count: result.rebuildResult.rejectedNonCompliantCount,
+      attached_winner_count: result.rebuildResult.attachedWinnerCount,
+      preserved_primary_count: result.rebuildResult.preservedPrimaryCount,
+      replaced_primary_count: result.rebuildResult.replacedPrimaryCount,
+      winner_ids: result.rebuildResult.winnerIds,
+      unresolved_reasons: result.rebuildResult.unresolvedReasons,
+    };
+
+    const { error } = await (supabase as any)
+      .from('lookbook_rebuild_runs')
+      .insert(payload);
+
+    if (error) {
+      console.error('[rebuild-executor] Failed to persist rebuild run:', error.message);
+    } else {
+      console.log(`[rebuild-executor] Persisted rebuild run: ${result.executionStatus}`);
+    }
+  } catch (e: any) {
+    // Persistence failure must not block the rebuild result
+    console.error('[rebuild-executor] Persistence error (non-fatal):', e.message);
+  }
+}
+
+// ── Read Rebuild History ──
+
+export interface LookbookRebuildRun {
+  id: string;
+  project_id: string;
+  trigger_source: string;
+  rebuild_mode: string;
+  execution_status: string;
+  targeted_slot_keys: string[];
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  failure_stage: string | null;
+  failure_message: string | null;
+  total_slots: number;
+  resolved_slots: number;
+  unresolved_slots: number;
+  generated_count: number;
+  compliant_count: number;
+  rejected_non_compliant_count: number;
+  attached_winner_count: number;
+  preserved_primary_count: number;
+  replaced_primary_count: number;
+  winner_ids: string[];
+  unresolved_reasons: Array<{ slotKey: string; reason: string }>;
+}
+
+export async function fetchRecentRebuildRuns(
+  projectId: string,
+  limit = 10,
+): Promise<LookbookRebuildRun[]> {
+  const { data, error } = await (supabase as any)
+    .from('lookbook_rebuild_runs')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('started_at', { ascending: false })
+    .limit(limit);
+
+  if (error || !data) return [];
+  return data as LookbookRebuildRun[];
+}
+
+// ── Stage Tracker ──
+
+class StageTracker {
+  currentStage: RebuildStage | null = null;
+
+  advance(stage: RebuildStage, callback?: (s: string) => void) {
+    this.currentStage = stage;
+    callback?.(stage);
+  }
+
+  /** Returns the last known stage at point of failure */
+  get failureStage(): RebuildStage | null {
+    return this.currentStage;
+  }
+}
+
 // ── Main Executor ──
 
 export async function executeCanonRebuild(
@@ -144,10 +263,8 @@ export async function executeCanonRebuild(
   const startTime = Date.now();
   const { projectId, mode, triggerSource, canonJson, isVerticalDrama, projectFormat, projectLane } = input;
   const isPreserve = mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
-  const stage = (s: string) => input.onStageChange?.(s);
+  const tracker = new StageTracker();
 
-  let failureStage: string | null = null;
-  let failureMessage: string | null = null;
   let preGenImageCount = 0;
   let newlyGeneratedCount = 0;
 
@@ -156,7 +273,7 @@ export async function executeCanonRebuild(
     let preGenImages: ProjectImage[] = [];
 
     if (isPreserve) {
-      stage('Analysing incumbents');
+      tracker.advance('analysing_incumbents', input.onStageChange);
       preGenImages = input.refetchImages
         ? ((await input.refetchImages())?.data || []) as ProjectImage[]
         : await fetchProjectImages(projectId);
@@ -199,13 +316,13 @@ export async function executeCanonRebuild(
 
       // Generate only targeted slots
       if (finalTargetKeys.size > 0 && input.generateSlotImages) {
-        stage('Generating missing slots');
+        tracker.advance('generating_images', input.onStageChange);
         await input.generateSlotImages(finalTargetKeys);
         await new Promise(r => setTimeout(r, 500));
       } else if (finalTargetKeys.size === 0) {
         // No-op preserve run
         const rebuildResult = buildRebuildResult(mode, [], 0);
-        return {
+        const result: RebuildExecutionResult = {
           rebuildResult,
           executionStatus: 'no_op',
           triggerSource,
@@ -217,10 +334,12 @@ export async function executeCanonRebuild(
           failureMessage: null,
           newlyGeneratedCount: 0,
         };
+        await persistRebuildRun(projectId, result);
+        return result;
       }
     } else {
       // ── RESET MODE ──
-      stage('Resetting canon');
+      tracker.advance('resetting_canon', input.onStageChange);
       if (input.resetCanon) {
         await input.resetCanon();
       }
@@ -230,11 +349,10 @@ export async function executeCanonRebuild(
         : await fetchProjectImages(projectId);
       preGenImageCount = resetImages.length;
 
-      stage('Archiving images');
       await new Promise(r => setTimeout(r, 500));
 
       // Generate full visual set
-      stage('Generating images');
+      tracker.advance('generating_images', input.onStageChange);
       if (input.generateSlotImages) {
         await input.generateSlotImages(input.targetSlotKeys);
         await new Promise(r => setTimeout(r, 500));
@@ -242,7 +360,7 @@ export async function executeCanonRebuild(
     }
 
     // ── Phase 2: Post-generation scoring ──
-    stage('Scoring candidates');
+    tracker.advance('scoring_candidates', input.onStageChange);
 
     const postGenImages = input.refetchImages
       ? ((await input.refetchImages())?.data || []) as ProjectImage[]
@@ -274,7 +392,7 @@ export async function executeCanonRebuild(
     let anchors = undefined as ReturnType<typeof buildAlignmentAnchors> | undefined;
 
     if (isPreserve) {
-      stage('Evaluating replacements');
+      tracker.advance('evaluating_replacements', input.onStageChange);
       const primaryImages = postGenImages.filter(i => i.is_primary && i.curation_state === 'active');
       anchors = buildAlignmentAnchors(primaryImages);
       for (const slot of freshRequired.slots) {
@@ -297,7 +415,7 @@ export async function executeCanonRebuild(
     });
 
     // ── Phase 3: Attach winners ──
-    stage('Attaching winners');
+    tracker.advance('attaching_winners', input.onStageChange);
 
     for (const result of slotResults) {
       if (!result.winner) continue;
@@ -365,23 +483,23 @@ export async function executeCanonRebuild(
     if (input.refetchImages) await input.refetchImages();
 
     // ── Phase 4: Post-rebuild actions ──
-    stage('Building lookbook');
+    tracker.advance('building_lookbook', input.onStageChange);
     if (input.onLookbookRebuild) {
       await input.onLookbookRebuild();
     }
 
-    stage('Preparing download');
+    tracker.advance('preparing_download', input.onStageChange);
     if (input.downloadWinners) {
       await input.downloadWinners(winnerIds);
     }
 
-    stage('Complete');
+    input.onStageChange?.('Complete');
 
     // Determine execution status
     const executionStatus: RebuildExecutionStatus =
       rebuildResult.unresolvedSlots > 0 ? 'completed_with_unresolved' : 'completed';
 
-    return {
+    const executionResult: RebuildExecutionResult = {
       rebuildResult,
       executionStatus,
       triggerSource,
@@ -393,14 +511,18 @@ export async function executeCanonRebuild(
       failureMessage: null,
       newlyGeneratedCount,
     };
+
+    // Persist audit record
+    await persistRebuildRun(projectId, executionResult);
+
+    return executionResult;
   } catch (err: any) {
-    failureStage = input.onStageChange ? 'unknown' : null;
-    failureMessage = err.message || 'Unknown error';
-    console.error(`[rebuild-executor] Failed:`, err);
+    const failureMessage = err.message || 'Unknown error';
+    console.error(`[rebuild-executor] Failed at stage '${tracker.currentStage}':`, err);
 
     // Return a failed result with empty rebuild data
     const emptyResult = buildRebuildResult(mode, [], 0);
-    return {
+    const executionResult: RebuildExecutionResult = {
       rebuildResult: emptyResult,
       executionStatus: 'failed',
       triggerSource,
@@ -408,10 +530,15 @@ export async function executeCanonRebuild(
       startedAt,
       completedAt: new Date().toISOString(),
       durationMs: Date.now() - startTime,
-      failureStage,
+      failureStage: tracker.failureStage,
       failureMessage,
       newlyGeneratedCount: 0,
     };
+
+    // Persist even failed runs for auditability
+    await persistRebuildRun(projectId, executionResult);
+
+    return executionResult;
   }
 }
 
