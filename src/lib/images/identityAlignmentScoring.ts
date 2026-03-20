@@ -128,10 +128,10 @@ function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot):
 
   const partialScore = PARTIAL[targetSlot]?.[st];
   if (partialScore !== undefined) {
-    return { score: partialScore, eligible: partialScore >= 20, reason: `Partial slot fit: ${st} for ${targetSlot} (${partialScore}%)` };
+    return { score: partialScore, eligible: partialScore >= 20, exactMatch: false, reason: `Partial slot fit: ${st} for ${targetSlot} (${partialScore}%) — advisory only, not canon-promotable` };
   }
 
-  return { score: 0, eligible: false, reason: `Shot type "${st || 'unknown'}" incompatible with ${targetSlot}` };
+  return { score: 0, eligible: false, exactMatch: false, reason: `Shot type "${st || 'unknown'}" incompatible with ${targetSlot}` };
 }
 
 // ── Identity Signature Match ──
