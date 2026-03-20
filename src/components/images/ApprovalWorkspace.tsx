@@ -3,8 +3,19 @@
  * Supports list view, character-grouped view, image lightbox, and side-by-side comparison.
  * Identity-aware: displays anchor continuity status per character candidate.
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import type { VisualSimilarityResult } from '@/lib/images/anchorVisualSimilarity';
+import {
+  ensureGroupForSlot,
+  addCandidateVersion,
+  persistRankingSnapshot,
+  selectWinner as selectCompetitionWinner,
+  loadGroupsForSlot,
+  loadCompetitionGroup,
+  type CandidateGroup,
+  type CompetitionGroupWithDetails,
+} from '@/lib/competition/candidateCompetitionService';
+import { rankCharacterCandidates } from '@/lib/images/characterCandidateRanking';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
   Users, ChevronRight, Crown, Link, Unlink, AlertTriangle, ShieldCheck,
