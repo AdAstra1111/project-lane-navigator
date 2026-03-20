@@ -46,6 +46,18 @@ export default function LookBookPage() {
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
   const [rebuildHistoryEpoch, setRebuildHistoryEpoch] = useState(0);
 
+  // ── Auto-rebuild orchestration ──
+  const autoRebuild = useLookbookAutoRebuild(projectId, {
+    onRebuildComplete: (result) => {
+      setRebuildHistoryEpoch(e => e + 1);
+      if (result.executionStatus === 'completed' || result.executionStatus === 'completed_with_unresolved') {
+        // Invalidate caches so next lookbook build uses fresh data
+        invalidateImageCaches();
+        setLookBookData(null);
+      }
+    },
+  });
+
   const {
     sections,
     isLoading: sectionsLoading,
