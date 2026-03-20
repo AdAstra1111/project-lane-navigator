@@ -395,6 +395,7 @@ export function scoreCandidate(
       },
       recommendedAction: 'reject_for_slot',
       eligible: false,
+      canonPromotable: false,
       reasons,
       warnings: ['Ineligible: shot type does not match target slot'],
       confidence: 'high',
