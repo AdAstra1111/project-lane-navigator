@@ -407,6 +407,19 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
             <Badge variant={dna.identityStrength === 'strong' ? 'default' : 'secondary'} className="text-[9px] h-4">
               {dna.identityStrength === 'strong' ? '🔒 Strong' : dna.identityStrength === 'partial' ? '⚠ Partial' : '○ Weak'}
             </Badge>
+            <Badge variant="outline" className="text-[8px] h-3.5 px-1">
+              Mode {autoFlowMode === 'aggressive' ? 'B' : 'A'}
+            </Badge>
+            {autoFlowResult?.persisted && (
+              <Badge variant="outline" className="text-[8px] h-3.5 px-1 border-primary/30 text-primary/80">
+                Auto-saved v{autoFlowResult.persistedVersionNumber}
+              </Badge>
+            )}
+            {autoFlowResult && !autoFlowResult.persisted && (
+              <Badge variant="outline" className="text-[8px] h-3.5 px-1 text-muted-foreground">
+                {autoFlowResult.integrity.status.replace(/_/g, ' ')}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Button
