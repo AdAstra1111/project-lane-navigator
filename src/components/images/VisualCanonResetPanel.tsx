@@ -80,6 +80,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   // Full Canon Rebuild state
   const [fullRebuilding, setFullRebuilding] = useState(false);
   const [rebuildStage, setRebuildStage] = useState<string | null>(null);
+  const [rebuildMode, setRebuildMode] = useState<RebuildMode>('RESET_FULL_CANON_REBUILD');
+  const [lastRebuildResult, setLastRebuildResult] = useState<RebuildResult | null>(null);
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
