@@ -61,8 +61,31 @@ export interface SlideImageProvenance {
   actualHeight: number | null;
 }
 
+/** Canonical per-slide user decisions — scalable structure for editorial overrides */
+export interface SlideUserDecisions {
+  /** User-selected layout family override */
+  layout_family?: string | null;
+}
+
+/** Rebuild result — structured truth reporting for automated rebuild */
+export interface RebuildResult {
+  totalSlots: number;
+  resolvedSlots: number;
+  unresolvedSlots: number;
+  generatedCount: number;
+  compliantCount: number;
+  rejectedNonCompliantCount: number;
+  attachedWinnerCount: number;
+  winnerIds: string[];
+  unresolvedReasons: Array<{ slotKey: string; reason: string }>;
+}
+
 export interface SlideContent {
   type: SlideType;
+  /** Stable slide identifier — deterministic, survives regeneration */
+  slide_id: string;
+  /** Canonical user decisions — persisted editorial overrides */
+  user_decisions?: SlideUserDecisions;
   /** Slide title (e.g., "The World") */
   title?: string;
   /** Subtitle or section label */
@@ -103,9 +126,9 @@ export interface SlideContent {
   // ── Layout family metadata ──
   /** Resolved layout family key for this slide (from auto-resolver) */
   layoutFamily?: string;
-  /** User-selected override family, if any */
+  /** User-selected override family, if any — legacy compat, prefer user_decisions */
   layoutFamilyOverride?: string | null;
-  /** Effective family = override ?? resolved ?? default */
+  /** Effective family = user_decisions.layout_family ?? override ?? resolved ?? default */
   layoutFamilyEffective?: string;
   /** Resolution reason / audit trail */
   layoutFamilyReason?: string;

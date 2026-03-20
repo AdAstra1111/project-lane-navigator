@@ -2,10 +2,12 @@
  * generateLookBookData — Assembles Look Book slides from canonical project state.
  * Uses resolveAllCanonImages for section-accurate image resolution,
  * matching the same DB queries as the workspace panels.
+ *
+ * Every slide gets a deterministic slide_id for stable identity across rebuilds.
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
 import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
@@ -13,6 +15,62 @@ import { normalizeCanonText } from './normalizeCanonText';
 import { resolveLookbookLayoutFamily, summarizeOrientations, type LayoutFamilyKey } from './lookbookLayoutFamilies';
 import { matchImagesToSlots, type ImageCandidate } from './lookbookSlotMatcher';
 
+/**
+ * Generate a deterministic slide_id from slide type and an optional ordinal.
+ * This must be stable across rebuilds for the same semantic slide.
+ */
+function makeSlideId(slideType: string, ordinal = 0): string {
+  return ordinal > 0 ? `${slideType}_${ordinal}` : slideType;
+}
+
+/**
+ * Merge forward valid user decisions from a previous build into freshly generated slides.
+ * Matches by slide_id for stability. Drops decisions that reference invalid/unsupported layouts.
+ */
+export function mergeUserDecisions(
+  freshSlides: SlideContent[],
+  previousSlides: SlideContent[],
+): { merged: SlideContent[]; preservedCount: number; droppedCount: number; dropReasons: string[] } {
+  const prevBySlideId = new Map<string, SlideUserDecisions>();
+  for (const s of previousSlides) {
+    if (s.slide_id && s.user_decisions && Object.keys(s.user_decisions).length > 0) {
+      prevBySlideId.set(s.slide_id, s.user_decisions);
+    }
+  }
+
+  if (prevBySlideId.size === 0) {
+    return { merged: freshSlides, preservedCount: 0, droppedCount: 0, dropReasons: [] };
+  }
+
+  let preservedCount = 0;
+  let droppedCount = 0;
+  const dropReasons: string[] = [];
+
+  const merged = freshSlides.map(slide => {
+    const prevDecisions = prevBySlideId.get(slide.slide_id);
+    if (!prevDecisions) return slide;
+
+    // If slide has unresolved images, do not preserve layout override
+    if (slide._has_unresolved && prevDecisions.layout_family) {
+      droppedCount++;
+      dropReasons.push(`${slide.slide_id}: dropped layout_family (unresolved images)`);
+      return slide;
+    }
+
+    // Preserve valid decisions
+    const effectiveFamily = prevDecisions.layout_family || slide.layoutFamily || 'landscape_standard';
+    preservedCount++;
+    return {
+      ...slide,
+      user_decisions: { ...prevDecisions },
+      layoutFamilyOverride: prevDecisions.layout_family || null,
+      layoutFamilyOverrideSource: prevDecisions.layout_family ? 'user' as const : null,
+      layoutFamilyEffective: effectiveFamily,
+    };
+  });
+
+  return { merged, preservedCount, droppedCount, dropReasons };
+}
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
   dark: {
