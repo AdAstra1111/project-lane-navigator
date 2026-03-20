@@ -14,6 +14,7 @@ type CanonicalSectionKey =
   | 'atmosphere_lighting'
   | 'texture_detail'
   | 'symbolic_motifs'
+  | 'key_moments'
   | 'poster_directions';
 
 /** Mirrors SECTION_QUERY_MAP from useLookbookSectionContent */
