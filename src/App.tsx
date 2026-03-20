@@ -252,6 +252,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
     <UIModeProvider>
+    <ProcessingProvider>
     <ThemeProvider>
     <TooltipProvider>
       <Toaster />
@@ -264,6 +265,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
     </ThemeProvider>
+    </ProcessingProvider>
     </UIModeProvider>
     </AuthProvider>
   </QueryClientProvider>

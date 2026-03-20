@@ -409,8 +409,16 @@ export function ProjectShell({ children }: ProjectShellProps) {
           <OperatingModeToggle mode={mode} onChange={setMode} />
         </div>
 
-        {/* Right: drawer toggle */}
-        <div className="flex items-center shrink-0">
+        {/* Right: processing center + drawer toggle */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ProcessingCenterButton />
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-[10px]">
+              Processing Center
+            </TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
