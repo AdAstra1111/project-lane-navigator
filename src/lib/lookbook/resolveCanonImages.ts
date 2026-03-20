@@ -261,7 +261,8 @@ async function fetchSectionImages(
   // re-enter canonical resolution. Only active and candidate curation states
   // are eligible for lookbook builds.
 
-  // ── CVBE Phase 2: sort bound images before unbound within each tier ──
+  // ── CVBE Phase 2: exclude unbound when bound alternatives exist, then sort ──
+  images = applyCanonicalExclusionGate(images);
   images = sortWithBindingPreference(images);
 
   await hydrateSignedUrls(images);
