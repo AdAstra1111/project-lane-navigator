@@ -194,7 +194,7 @@ function EdgeAccent({ color }: { color: string }) {
 }
 
 /* ═══ COVER — cinematic key art opener ═══ */
-function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlideProps) {
+function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
   const hasHero = !!slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
@@ -203,51 +203,55 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlidePro
         <div className="absolute inset-0">
           <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
           <div className="absolute inset-0" style={{
-            background: `
-              linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
-              linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
-              linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
-            `,
+            background: isPortrait
+              ? `linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}ee 30%, transparent 60%)`
+              : `
+                linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
+                linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
+                linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
+              `,
           }} />
         </div>
       )}
 
-      {/* Title lockup — left-aligned, bottom-weighted for cinematic authority */}
-      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
-        <div style={{ maxWidth: hasHero ? 960 : 1200 }}>
-          <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
+      {/* Title lockup — bottom-weighted */}
+      <div className="absolute inset-0 flex flex-col justify-end" style={{
+        padding: isPortrait ? '60px 56px 72px' : '80px 96px 88px',
+      }}>
+        <div style={{ maxWidth: isPortrait ? 960 : (hasHero ? 960 : 1200) }}>
+          <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: isPortrait ? 20 : 28 }} />
           <h1
             style={{
               ...titleStyle,
-              fontSize: hasHero ? 96 : 112,
+              fontSize: isPortrait ? (hasHero ? 72 : 84) : (hasHero ? 96 : 112),
               fontWeight: 700,
               lineHeight: 0.95,
               color: colors.text,
-              marginBottom: 20,
+              marginBottom: 16,
             }}
           >
             {slide.title}
           </h1>
           {slide.subtitle && (
             <p style={{
-              fontSize: 24,
+              fontSize: isPortrait ? 20 : 24,
               lineHeight: 1.5,
               color: colors.textMuted,
               fontFamily: `"${fontBody}", sans-serif`,
-              maxWidth: 720,
-              marginBottom: 40,
+              maxWidth: isPortrait ? 560 : 720,
+              marginBottom: isPortrait ? 28 : 40,
             }}>
               {slide.subtitle}
             </p>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isPortrait ? 20 : 32 }}>
             {slide.credit && (
-              <span style={{ fontSize: 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>
+              <span style={{ fontSize: isPortrait ? 12 : 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>
                 {slide.credit}
               </span>
             )}
             {slide.companyName && (
-              <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>
+              <span style={{ fontSize: isPortrait ? 11 : 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>
                 {slide.companyName}
               </span>
             )}
