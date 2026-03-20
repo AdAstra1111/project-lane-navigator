@@ -812,6 +812,13 @@ export function selectSlotWinner(
 
   const topCandidate = eligiblePool[0];
 
+  // Determine match quality based on whether fallback was used and winner's slot match score
+  const resolveMatchQuality = (winnerScored: ScoredSlotCandidate): SlotMatchQuality => {
+    if (useFallback) return 'fallback';
+    if (winnerScored.components.slotMatch >= 80) return 'exact';
+    return 'fallback';
+  };
+
   // ── PRESERVE MODE: check replacement threshold ──
   if (mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' && incumbent) {
     const incumbentScored = scored.find(s => s.imageId === incumbent.id);
@@ -834,6 +841,7 @@ export function selectSlotWinner(
             incumbentPreserved: true,
             incumbentReplaced: false,
             incumbentId: incumbent.id,
+            matchQuality: resolveMatchQuality(incumbentScored),
           };
         }
         // Fall through to replace with topCandidate
@@ -849,6 +857,7 @@ export function selectSlotWinner(
           incumbentPreserved: true,
           incumbentReplaced: false,
           incumbentId: incumbent.id,
+          matchQuality: resolveMatchQuality(incumbentScored),
         };
       }
     }
@@ -873,6 +882,7 @@ export function selectSlotWinner(
       incumbentPreserved: false,
       incumbentReplaced: false,
       incumbentId: incumbent?.id || null,
+      matchQuality: 'weak',
     };
   }
 
@@ -885,6 +895,7 @@ export function selectSlotWinner(
     incumbentPreserved: false,
     incumbentReplaced: incumbent ? winner.imageId !== incumbent.id : false,
     incumbentId: incumbent?.id || null,
+    matchQuality: resolveMatchQuality(winner),
   };
 }
 
