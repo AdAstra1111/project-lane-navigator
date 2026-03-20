@@ -471,6 +471,7 @@ export async function generateLookBookData(
   // ── COVER ──
   slides.push({
     type: 'cover',
+    slide_id: makeSlideId('cover'),
     title,
     subtitle: logline || undefined,
     credit: writerCredit,
