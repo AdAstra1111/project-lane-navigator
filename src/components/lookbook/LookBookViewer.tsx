@@ -38,6 +38,8 @@ interface LookBookViewerProps {
   onExportPDF?: () => void;
   isExporting?: boolean;
   className?: string;
+  /** Callback to persist a layout-family override into canonical slide data */
+  onSlideLayoutOverride?: (slideIndex: number, familyKey: LayoutFamilyKey | null) => void;
 }
 
 // ── Layout Family Mini Glyphs ───────────────────────────────────────────────
