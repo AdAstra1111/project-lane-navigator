@@ -207,7 +207,7 @@ export default function VisualDevHub() {
             icon={<Users className="h-4 w-4" />}
             title="Cast Photos & Identity"
             subtitle="Headshots, profile views, full-body anchors, and continuity lock"
-            defaultOpen={true}
+            defaultOpen={false}
           >
             {projectId && <CharacterBaseLookPanel projectId={projectId} />}
           </WorkSection>
