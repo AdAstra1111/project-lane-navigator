@@ -545,9 +545,9 @@ export async function generateLookBookData(
     .join(', ');
   console.log('[LookBook] ✓ generation complete — slides:', slides.length, '| images:', provenanceSummary);
 
-  // Determine deck format from lane
-  const deckFormat = assignedLane === 'vertical_drama' ? 'portrait' as const : 'landscape' as const;
-  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'})`);
+  // Determine deck format — vertical-drama format OR vertical_drama lane → portrait
+  const deckFormat = isVerticalDrama(format, assignedLane) ? 'portrait' as const : 'landscape' as const;
+  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'}, format=${format})`);
 
   return {
     projectId,
