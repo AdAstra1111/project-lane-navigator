@@ -281,10 +281,15 @@ function buildWorldBindingBlock(world: WorldBinding): string {
 async function resolveCanonicalBindings(
   sb: any, projectId: string, sectionKey: string, canonJson: any,
   explicitCharacterName?: string, explicitLocationId?: string | null, explicitLocationName?: string,
+  explicitCharacterNames?: string[], explicitLocationIds?: string[],
 ): Promise<CanonicalBindingResult> {
+  // Determine if caller provided exact targets
+  const hasExactCharTarget = !!(explicitCharacterName || explicitCharacterNames?.length);
+  const hasExactLocTarget = !!(explicitLocationId || explicitLocationIds?.length);
+
   const [characters, locations] = await Promise.all([
-    resolveCharacterBindings(sb, projectId, sectionKey, explicitCharacterName),
-    resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName),
+    resolveCharacterBindings(sb, projectId, sectionKey, explicitCharacterName, explicitCharacterNames),
+    resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName, explicitLocationIds),
   ]);
   const world = resolveWorldBinding(canonJson);
   const characterPromptBlock = buildCharacterBindingBlock(characters);
@@ -296,8 +301,15 @@ async function resolveCanonicalBindings(
   if (rel.locations && !locations.length) missing.push('missing_location_binding');
   if (rel.world && !world.bound) missing.push('missing_world_binding');
   const binding_status = missing.length === 0 ? 'bound' : missing.length < 3 ? 'partially_bound' : 'unbound';
-  console.log(`[CanonicalBinding] section=${sectionKey} chars=${characters.length} locs=${locations.length} world=${world.bound} status=${binding_status}`);
-  return { characters, locations, world, characterPromptBlock, locationPromptBlock, worldPromptBlock, binding_status, missing };
+
+  // Compute targeting_mode: exact if caller specified targets, derived if section-rules resolved, heuristic if broad fallback
+  const targeting_mode: 'exact' | 'derived' | 'heuristic' =
+    (hasExactCharTarget || hasExactLocTarget) ? 'exact'
+    : (characters.length > 0 || locations.length > 0) ? 'derived'
+    : 'heuristic';
+
+  console.log(`[CanonicalBinding] section=${sectionKey} chars=${characters.length} locs=${locations.length} world=${world.bound} status=${binding_status} targeting=${targeting_mode}`);
+  return { characters, locations, world, characterPromptBlock, locationPromptBlock, worldPromptBlock, binding_status, missing, targeting_mode };
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
