@@ -224,7 +224,7 @@ function StateImageCard({
 
   return (
     <div className={cn(
-      'group relative rounded overflow-hidden border-2 transition-all aspect-video bg-muted',
+      `group relative rounded overflow-hidden border-2 transition-all ${getDisplayAspectClass(image.width, image.height)} bg-muted`,
       isPrimary ? 'border-primary ring-1 ring-primary/30'
         : isArchived ? 'border-border/30 opacity-50'
         : 'border-border/50 hover:border-primary/40',

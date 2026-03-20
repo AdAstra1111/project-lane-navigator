@@ -525,6 +525,10 @@ function ImageCard({
             <Check className="h-2 w-2" /> Active
           </Badge>
         )}
+        {/* Orientation badge */}
+        <Badge variant="outline" className="text-[7px] px-1 py-0 border-white/30 text-white/70 bg-black/40">
+          {getOrientationLabel(img.width, img.height)}
+        </Badge>
         {/* External indicator */}
         {showProvenance && !native && (
           <Badge variant="outline" className="text-[7px] px-1 py-0 border-amber-500/40 text-amber-400 bg-black/40">
