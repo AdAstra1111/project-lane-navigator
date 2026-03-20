@@ -40,6 +40,15 @@ import {
   loadRepairHistory,
   type RepairRun,
 } from '@/lib/competition/repairLoopService';
+import {
+  autoPromoteRound,
+  evaluateRoundPromotion,
+  loadPromotionForRound,
+  resolveEffectiveWinner,
+  type RoundPromotion,
+  type EffectiveWinner,
+  type PromotionGatePolicy,
+} from '@/lib/competition/autoPromotionService';
 
 interface SlotInfo {
   key: string;
