@@ -164,6 +164,39 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score }: ImageL
               <span className="text-[8px] text-white/30 ml-auto font-mono">{image.id.slice(0, 8)}</span>
             </div>
 
+            {/* Identity anchor provenance — from actual generation_config */}
+            {image.asset_group === 'character' && (() => {
+              const gc = (image.generation_config || {}) as Record<string, unknown>;
+              const locked = !!gc.identity_locked;
+              const anchorPaths = gc.identity_anchor_paths as Record<string, string> | undefined;
+              const usedSlots: string[] = [];
+              if (anchorPaths) {
+                if (anchorPaths.headshot) usedSlots.push('Headshot');
+                if (anchorPaths.fullBody) usedSlots.push('Full Body');
+              }
+              if (!locked && usedSlots.length === 0) return null;
+              return (
+                <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                  {locked && (
+                    <Badge variant="secondary" className="text-[8px] bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                      🔒 Identity Locked
+                    </Badge>
+                  )}
+                  {usedSlots.length > 0 && (
+                    <Badge variant="outline" className="text-[8px] border-white/20 text-white/60">
+                      Anchors: {usedSlots.join(', ')}
+                    </Badge>
+                  )}
+                  {!locked && usedSlots.length > 0 && (
+                    <Badge variant="outline" className="text-[8px] border-amber-500/30 text-amber-300/70">
+                      Partial context
+                    </Badge>
+                  )}
+                </div>
+              );
+            })()}
+            </div>
+
             {/* DNA traits */}
             {dnaTraits && dnaTraits.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
