@@ -1,13 +1,14 @@
 /**
  * LookBookViewer — Frame-based, presentation-ready Look Book viewer.
- * Scales 1920×1080 slides to fit any viewport. Keyboard navigation.
+ * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
+ * Scales slides to fit any viewport. Keyboard navigation.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { SlideRenderer } from './SlideRenderer';
-import { SLIDE_WIDTH, SLIDE_HEIGHT } from '@/lib/lookbook/types';
+import { getSlideDimensions } from '@/lib/lookbook/types';
 import type { LookBookData } from '@/lib/lookbook/types';
 
 interface LookBookViewerProps {
@@ -24,6 +25,13 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
   const [scale, setScale] = useState(0.5);
 
   const totalSlides = data.slides.length;
+  const deckFormat = data.deckFormat || 'landscape';
+  const { width: slideW, height: slideH } = getSlideDimensions(deckFormat);
+  const isPortrait = deckFormat === 'portrait';
+
+  // Thumbnail dimensions — adapt to deck format
+  const thumbW = isPortrait ? 54 : 96;
+  const thumbH = isPortrait ? 96 : 54;
 
   // Calculate scale to fit container
   useEffect(() => {
@@ -33,14 +41,14 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
       const padding = isFullscreen ? 0 : 48;
       const availW = rect.width - padding;
       const availH = rect.height - padding - (isFullscreen ? 0 : 64);
-      const sx = availW / SLIDE_WIDTH;
-      const sy = availH / SLIDE_HEIGHT;
+      const sx = availW / slideW;
+      const sy = availH / slideH;
       setScale(Math.min(sx, sy, 1));
     };
     updateScale();
     window.addEventListener('resize', updateScale);
     return () => window.removeEventListener('resize', updateScale);
-  }, [isFullscreen]);
+  }, [isFullscreen, slideW, slideH]);
 
   // Keyboard navigation
   const goNext = useCallback(() => setCurrentSlide(s => Math.min(s + 1, totalSlides - 1)), [totalSlides]);
@@ -93,6 +101,9 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-foreground">{data.projectTitle}</span>
           <span className="text-xs text-muted-foreground">Look Book</span>
+          {isPortrait && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-medium uppercase tracking-wider">Portrait</span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {onExportPDF && (
@@ -118,8 +129,8 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
         <div
           className="relative shadow-2xl rounded-sm"
           style={{
-            width: SLIDE_WIDTH,
-            height: SLIDE_HEIGHT,
+            width: slideW,
+            height: slideH,
             transform: `scale(${scale})`,
             transformOrigin: 'center center',
           }}
@@ -129,6 +140,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
             identity={data.identity}
             slideIndex={currentSlide}
             totalSlides={totalSlides}
+            deckFormat={deckFormat}
           />
         </div>
 
@@ -174,14 +186,14 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
                   ? 'border-white/10 hover:border-white/30 opacity-60 hover:opacity-100'
                   : 'border-border/50 hover:border-border opacity-60 hover:opacity-100',
             )}
-            style={{ width: 96, height: 54 }}
+            style={{ width: thumbW, height: thumbH }}
           >
             <div
               className="origin-top-left"
               style={{
-                width: SLIDE_WIDTH,
-                height: SLIDE_HEIGHT,
-                transform: `scale(${96 / SLIDE_WIDTH})`,
+                width: slideW,
+                height: slideH,
+                transform: `scale(${thumbW / slideW})`,
                 transformOrigin: 'top left',
                 pointerEvents: 'none',
               }}
@@ -191,6 +203,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
                 identity={data.identity}
                 slideIndex={i}
                 totalSlides={totalSlides}
+                deckFormat={deckFormat}
               />
             </div>
           </button>

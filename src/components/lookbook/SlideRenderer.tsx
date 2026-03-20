@@ -1,14 +1,17 @@
 /**
- * SlideRenderer — Premium cinematic slide compositions at 1920×1080.
- * Each slide type has a purpose-built editorial layout.
+ * SlideRenderer — Premium cinematic slide compositions.
+ * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
+ * Each slide type has a purpose-built editorial layout with portrait variants.
  */
-import type { SlideContent, LookBookVisualIdentity } from '@/lib/lookbook/types';
+import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
+import { getSlideDimensions } from '@/lib/lookbook/types';
 
 interface SlideRendererProps {
   slide: SlideContent;
   identity: LookBookVisualIdentity;
   slideIndex: number;
   totalSlides: number;
+  deckFormat?: DeckFormat;
 }
 
 const seenRenderDiagnostics = new Set<string>();
@@ -92,15 +95,17 @@ function normalizeSlideForRender(slide: SlideContent, slideIndex: number): Slide
   return normalizedSlide;
 }
 
-export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: SlideRendererProps) {
+export function SlideRenderer({ slide, identity, slideIndex, totalSlides, deckFormat = 'landscape' }: SlideRendererProps) {
   const normalizedSlide = normalizeSlideForRender(slide, slideIndex);
   const { colors, typography } = identity;
   const fontTitle = typography.titleFont;
   const fontBody = typography.bodyFont;
+  const isPortrait = deckFormat === 'portrait';
+  const { width: slideW, height: slideH } = getSlideDimensions(deckFormat);
 
   const baseStyle: React.CSSProperties = {
-    width: 1920,
-    height: 1080,
+    width: slideW,
+    height: slideH,
     background: `linear-gradient(160deg, ${colors.bg}, ${colors.gradientTo})`,
     color: colors.text,
     fontFamily: `"${fontBody}", sans-serif`,
@@ -114,7 +119,7 @@ export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: Slid
     letterSpacing: typography.titleUppercase ? '0.12em' : '0.02em',
   };
 
-  const shared: SlideProps = { slide: normalizedSlide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides };
+  const shared: SlideProps = { slide: normalizedSlide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait };
 
   switch (normalizedSlide.type) {
     case 'cover': return <CoverSlide {...shared} />;
@@ -142,6 +147,7 @@ interface SlideProps {
   fontBody: string;
   slideIndex: number;
   totalSlides: number;
+  isPortrait: boolean;
 }
 
 function SlideNumber({ index, total, color }: { index: number; total: number; color: string }) {
@@ -188,7 +194,7 @@ function EdgeAccent({ color }: { color: string }) {
 }
 
 /* ═══ COVER — cinematic key art opener ═══ */
-function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlideProps) {
+function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
   const hasHero = !!slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
@@ -197,51 +203,55 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlidePro
         <div className="absolute inset-0">
           <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
           <div className="absolute inset-0" style={{
-            background: `
-              linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
-              linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
-              linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
-            `,
+            background: isPortrait
+              ? `linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}ee 30%, transparent 60%)`
+              : `
+                linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
+                linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
+                linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
+              `,
           }} />
         </div>
       )}
 
-      {/* Title lockup — left-aligned, bottom-weighted for cinematic authority */}
-      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
-        <div style={{ maxWidth: hasHero ? 960 : 1200 }}>
-          <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
+      {/* Title lockup — bottom-weighted */}
+      <div className="absolute inset-0 flex flex-col justify-end" style={{
+        padding: isPortrait ? '60px 56px 72px' : '80px 96px 88px',
+      }}>
+        <div style={{ maxWidth: isPortrait ? 960 : (hasHero ? 960 : 1200) }}>
+          <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: isPortrait ? 20 : 28 }} />
           <h1
             style={{
               ...titleStyle,
-              fontSize: hasHero ? 96 : 112,
+              fontSize: isPortrait ? (hasHero ? 72 : 84) : (hasHero ? 96 : 112),
               fontWeight: 700,
               lineHeight: 0.95,
               color: colors.text,
-              marginBottom: 20,
+              marginBottom: 16,
             }}
           >
             {slide.title}
           </h1>
           {slide.subtitle && (
             <p style={{
-              fontSize: 24,
+              fontSize: isPortrait ? 20 : 24,
               lineHeight: 1.5,
               color: colors.textMuted,
               fontFamily: `"${fontBody}", sans-serif`,
-              maxWidth: 720,
-              marginBottom: 40,
+              maxWidth: isPortrait ? 560 : 720,
+              marginBottom: isPortrait ? 28 : 40,
             }}>
               {slide.subtitle}
             </p>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isPortrait ? 20 : 32 }}>
             {slide.credit && (
-              <span style={{ fontSize: 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>
+              <span style={{ fontSize: isPortrait ? 12 : 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>
                 {slide.credit}
               </span>
             )}
             {slide.companyName && (
-              <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>
+              <span style={{ fontSize: isPortrait ? 11 : 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>
                 {slide.companyName}
               </span>
             )}
@@ -259,65 +269,65 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody }: SlidePro
   );
 }
 
-/* ═══ OVERVIEW — two-panel editorial ═══ */
-function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides }: SlideProps) {
+/* ═══ OVERVIEW — editorial layout, stacked in portrait ═══ */
+function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
+  const pad = isPortrait ? '56px 48px 56px 56px' : '72px 96px 72px 100px';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
-      <div style={{ padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Project Overview" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: 56, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
+        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 44 : 56, fontWeight: 600, marginBottom: isPortrait ? 32 : 48, color: colors.text }}>{slide.title}</h2>
 
-        <div style={{ display: 'flex', gap: 64, flex: 1 }}>
-          {/* Left — logline + synopsis */}
+        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 32 : 64, flex: 1 }}>
+          {/* Logline + synopsis */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             {slide.body && (
               <p style={{
-                fontSize: 28,
+                fontSize: isPortrait ? 22 : 28,
                 lineHeight: 1.45,
                 fontWeight: 500,
                 color: colors.text,
                 fontFamily: `"${fontBody}", sans-serif`,
-                marginBottom: 28,
-                maxWidth: 780,
+                marginBottom: isPortrait ? 20 : 28,
               }}>
                 {slide.body}
               </p>
             )}
             {slide.bodySecondary && (
               <p style={{
-                fontSize: 17,
+                fontSize: isPortrait ? 15 : 17,
                 lineHeight: 1.7,
                 color: colors.textMuted,
                 fontFamily: `"${fontBody}", sans-serif`,
-                maxWidth: 720,
               }}>
                 {slide.bodySecondary}
               </p>
             )}
           </div>
 
-          {/* Right — metadata panel */}
+          {/* Metadata panel */}
           {slide.bullets && slide.bullets.length > 0 && (
             <div style={{
-              width: 360,
+              width: isPortrait ? '100%' : 360,
               flexShrink: 0,
               background: colors.bgSecondary,
               border: `1px solid ${colors.accentMuted}`,
               borderRadius: 8,
-              padding: '40px 36px',
+              padding: isPortrait ? '28px 32px' : '40px 36px',
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: isPortrait ? 'row' : 'column',
+              flexWrap: isPortrait ? 'wrap' : 'nowrap',
               justifyContent: 'center',
-              gap: 28,
+              gap: isPortrait ? 20 : 28,
             }}>
               {slide.bullets.map((b, i) => {
                 const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
                 return (
-                  <div key={i}>
+                  <div key={i} style={{ minWidth: isPortrait ? '40%' : undefined }}>
                     {label && <span style={{ fontSize: 11, letterSpacing: '0.25em', textTransform: 'uppercase', color: colors.accent, display: 'block', marginBottom: 6 }}>{label}</span>}
-                    <span style={{ fontSize: 20, color: colors.text, fontWeight: 500 }}>{value}</span>
+                    <span style={{ fontSize: isPortrait ? 17 : 20, color: colors.text, fontWeight: 500 }}>{value}</span>
                   </div>
                 );
               })}
@@ -331,9 +341,10 @@ function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIn
 }
 
 /* ═══ WORLD — immersive atmosphere ═══ */
-function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides }: SlideProps) {
+function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const hasImages = imgs.length > 0;
+  const pad = isPortrait ? '56px 48px 56px 56px' : '72px 96px 72px 100px';
 
   return (
     <div style={baseStyle} className="slide-content">
@@ -346,33 +357,56 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
       )}
 
       <EdgeAccent color={colors.accent} />
-      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="The World" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
+        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 52, fontWeight: 600, marginBottom: isPortrait ? 24 : 36, color: colors.text }}>{slide.title}</h2>
 
-        <div style={{ display: 'flex', gap: 48, flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 24 : 48, flex: 1, minHeight: 0 }}>
+          {/* Image grid — top in portrait, right in landscape */}
+          {isPortrait && hasImages && (
+            <div style={{
+              height: 560,
+              flexShrink: 0,
+              display: 'grid',
+              gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
+              gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
+              gap: 8,
+            }}>
+              {imgs.slice(0, 4).map((url, i) => (
+                <div key={i} style={{
+                  borderRadius: 6, overflow: 'hidden',
+                  border: `1px solid ${colors.accentMuted}`,
+                  ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
+                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+                }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.05)' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Text column */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
             {slide.body && (
-              <p style={{ fontSize: 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20, maxWidth: 680 }}>
+              <p style={{ fontSize: isPortrait ? 17 : 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>
                 {slide.body}
               </p>
             )}
             {slide.bodySecondary && (
-              <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 640 }}>
+              <p style={{ fontSize: isPortrait ? 14 : 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>
                 {slide.bodySecondary}
               </p>
             )}
             {slide.quote && (
-              <div style={{ marginTop: 'auto', paddingTop: 28, borderTop: `1px solid ${colors.accentMuted}`, maxWidth: 600 }}>
-                <p style={{ fontSize: 20, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.65, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
+              <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
+                <p style={{ fontSize: isPortrait ? 17 : 20, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.65, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
               </div>
             )}
           </div>
 
-          {/* Image grid — adaptive */}
-          {hasImages && (
+          {/* Image grid — right in landscape */}
+          {!isPortrait && hasImages && (
             <div style={{
               width: imgs.length === 1 ? 680 : 640,
               flexShrink: 0,
@@ -382,16 +416,12 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
               gap: 8,
             }}>
               {imgs.slice(0, 4).map((url, i) => (
-                <div
-                  key={i}
-                  style={{
-                    borderRadius: 6,
-                    overflow: 'hidden',
-                    border: `1px solid ${colors.accentMuted}`,
-                    ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
-                    ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-                  }}
-                >
+                <div key={i} style={{
+                  borderRadius: 6, overflow: 'hidden',
+                  border: `1px solid ${colors.accentMuted}`,
+                  ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
+                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+                }}>
                   <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.05)' }} />
                 </div>
               ))}
