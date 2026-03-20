@@ -496,12 +496,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       isVerticalDrama,
       onStageChange: setRebuildStage,
       generateSlotImages: (targetKeys) => handleAutoPopulate(false, targetKeys),
-      resetCanon: () => resetScopedCanon({
-        sections: [],
-        clearPrimary: true,
-        targetState: 'archived',
-        regenerateAfter: false,
-      }),
+      resetCanon: async () => {
+        await resetScopedCanon({
+          sections: [],
+          clearPrimary: true,
+          targetState: 'archived',
+          regenerateAfter: false,
+        });
+      },
       refetchImages: async () => {
         const r = await refetchImages();
         return { data: (r?.data || []) as ProjectImage[] };
