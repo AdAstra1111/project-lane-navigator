@@ -22,7 +22,7 @@ import {
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
-import { getDisplayAspectClass, getOrientationLabel } from '@/lib/images/orientationUtils';
+import { getDisplayAspectClass, getOrientationLabel, classifyOrientation } from '@/lib/images/orientationUtils';
 
 // ── Section policy model ─────────────────────────────────────────────────────
 
@@ -292,6 +292,7 @@ export function ImageSelectorGrid({
                       showShotTypes={false}
                       showCurationControls={showCurationControls}
                       showProvenance={showProvenance}
+                      laneKey={laneKey}
                       onSelect={handleSelect}
                       onLightbox={setLightbox}
                       onCurationAction={handleCurationAction}
@@ -314,6 +315,7 @@ export function ImageSelectorGrid({
                 showShotTypes={showShotTypes}
                 showCurationControls={showCurationControls}
                 showProvenance={showProvenance}
+                laneKey={laneKey}
                 onSelect={handleSelect}
                 onLightbox={setLightbox}
                 onCurationAction={handleCurationAction}
@@ -473,6 +475,7 @@ interface ImageCardProps {
   showShotTypes: boolean;
   showCurationControls: boolean;
   showProvenance: boolean;
+  laneKey?: string;
   onSelect: (img: ProjectImage) => void;
   onLightbox: (img: ProjectImage) => void;
   onCurationAction: (e: React.MouseEvent, img: ProjectImage, state: CurationState) => void;
@@ -481,7 +484,7 @@ interface ImageCardProps {
 
 function ImageCard({
   img, updating, compareMode, compareSelected,
-  showShotTypes, showCurationControls, showProvenance,
+  showShotTypes, showCurationControls, showProvenance, laneKey,
   onSelect, onLightbox, onCurationAction, onPromote,
 }: ImageCardProps) {
   const isActive = img.curation_state === 'active' || img.is_primary;
@@ -529,6 +532,21 @@ function ImageCard({
         <Badge variant="outline" className="text-[7px] px-1 py-0 border-white/30 text-white/70 bg-black/40">
           {getOrientationLabel(img.width, img.height)}
         </Badge>
+        {/* VD compliance indicator when lane is vertical_drama */}
+        {laneKey === 'vertical_drama' && (() => {
+          const o = classifyOrientation(img.width, img.height);
+          const isCompliant = o === 'portrait' && img.height && img.width && (img.height / img.width) >= 1.65;
+          return (
+            <Badge variant="outline" className={cn(
+              'text-[7px] px-1 py-0 bg-black/40',
+              isCompliant
+                ? 'border-emerald-500/50 text-emerald-400'
+                : 'border-destructive/50 text-destructive',
+            )}>
+              {isCompliant ? '✓ VD' : '✕ VD'}
+            </Badge>
+          );
+        })()}
         {/* External indicator */}
         {showProvenance && !native && (
           <Badge variant="outline" className="text-[7px] px-1 py-0 border-amber-500/40 text-amber-400 bg-black/40">
