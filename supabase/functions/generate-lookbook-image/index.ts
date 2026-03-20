@@ -129,7 +129,8 @@ const SECTION_BINDING_RELEVANCE: Record<string, { characters: boolean; locations
 };
 
 async function resolveCharacterBindings(
-  sb: any, projectId: string, sectionKey: string, explicitCharacterName?: string,
+  sb: any, projectId: string, sectionKey: string,
+  explicitCharacterName?: string, explicitCharacterNames?: string[],
 ): Promise<CharacterBinding[]> {
   if (!SECTION_BINDING_RELEVANCE[sectionKey]?.characters) return [];
   const { data: dnaRows } = await sb
@@ -138,9 +139,19 @@ async function resolveCharacterBindings(
     .eq("project_id", projectId).eq("is_current", true)
     .order("character_name").limit(10);
   if (!dnaRows?.length) return [];
+
+  // Build exact target set from explicit params
+  const exactTargets = new Set<string>();
+  if (explicitCharacterName) exactTargets.add(explicitCharacterName.toLowerCase());
+  if (explicitCharacterNames?.length) {
+    for (const n of explicitCharacterNames) exactTargets.add(n.toLowerCase());
+  }
+
   const bindings: CharacterBinding[] = [];
   for (const dna of dnaRows) {
-    if (explicitCharacterName && dna.character_name?.toLowerCase() !== explicitCharacterName.toLowerCase()) continue;
+    const nameLC = dna.character_name?.toLowerCase() || '';
+    // If exact targets specified, only bind those exact characters
+    if (exactTargets.size > 0 && !exactTargets.has(nameLC)) continue;
     const sig = dna.identity_signature as Record<string, unknown> | null;
     const locked = dna.locked_invariants as Record<string, unknown> | null;
     const traitParts: string[] = [];
@@ -154,7 +165,8 @@ async function resolveCharacterBindings(
       if (entries.length) traitParts.push(`Locked: ${entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('; ')}`);
     }
     bindings.push({ character_name: dna.character_name, dna_version_id: dna.id, identity_signature: sig, locked_invariants: locked, traits_summary: traitParts.join('. ') || `${dna.character_name}` });
-    if (!explicitCharacterName && bindings.length >= 3) break;
+    // If no exact targets, cap at 3 (heuristic mode)
+    if (exactTargets.size === 0 && bindings.length >= 3) break;
   }
   return bindings;
 }
