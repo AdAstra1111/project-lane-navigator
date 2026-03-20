@@ -139,6 +139,11 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     [allImages],
   );
 
+  // Batch-load cached visual similarity results for all candidates
+  const { similarities: cachedSimilarities } = useVisualSimilarityCache(
+    projectId, candidateImages, identityAnchorMap,
+  );
+
   // ── Batch Approve All handler ──
   const handleBatchApprove = useCallback(async () => {
     if (candidateImages.length === 0) return;
