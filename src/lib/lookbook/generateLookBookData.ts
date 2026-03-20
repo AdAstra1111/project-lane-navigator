@@ -595,6 +595,8 @@ export async function generateLookBookData(
       });
 
       slide.layoutFamily = resolved.familyKey;
+      slide.layoutFamilyReason = resolved.reason;
+      slide.layoutFamilyEffective = resolved.familyKey;
       slide.imageOrientationSummary = summarizeOrientations(slideImages);
 
       // Run slot matcher for image-bearing slides

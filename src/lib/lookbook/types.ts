@@ -101,8 +101,16 @@ export interface SlideContent {
   companyLogoUrl?: string;
 
   // ── Layout family metadata ──
-  /** Resolved layout family key for this slide */
+  /** Resolved layout family key for this slide (from auto-resolver) */
   layoutFamily?: string;
+  /** User-selected override family, if any */
+  layoutFamilyOverride?: string | null;
+  /** Effective family = override ?? resolved ?? default */
+  layoutFamilyEffective?: string;
+  /** Resolution reason / audit trail */
+  layoutFamilyReason?: string;
+  /** Override provenance */
+  layoutFamilyOverrideSource?: 'user' | null;
   /** Slot assignments from the slot matcher */
   slotAssignments?: Array<{
     slotKey: string;

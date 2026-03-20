@@ -162,7 +162,7 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
   const imgs = (slotUrls.length > 0 ? slotUrls : rawImgs).slice(0, maxImages);
   if (imgs.length === 0) return null;
 
-  const family = slide.layoutFamily || 'landscape_standard';
+  const family = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
   const border = `1px solid ${colors.accentMuted}`;
 
   // ── Portrait Hero: single portrait image centered in landscape frame ──
@@ -500,7 +500,8 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
   }
 
   // ── Landscape cover ──
-  const isPortraitHero = slide.layoutFamily === 'landscape_portrait_hero';
+  const effectiveFamily = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
+  const isPortraitHero = effectiveFamily === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       {hasHero && (
@@ -877,9 +878,10 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 
   // ── Landscape characters ──
   const pad = '72px 96px 72px 100px';
-  const isPortraitFamily = slide.layoutFamily === 'landscape_character_portraits'
-    || slide.layoutFamily === 'landscape_two_up_portrait'
-    || slide.layoutFamily === 'landscape_portrait_hero';
+  const charEffective = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
+  const isPortraitFamily = charEffective === 'landscape_character_portraits'
+    || charEffective === 'landscape_two_up_portrait'
+    || charEffective === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
@@ -1265,10 +1267,11 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
 function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const imgCount = imgs.length;
+  const kmEffective = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
   const isPortraitFamily = !isPortrait && (
-    slide.layoutFamily === 'landscape_portrait_hero'
-    || slide.layoutFamily === 'landscape_two_up_portrait'
-    || slide.layoutFamily === 'landscape_character_portraits'
+    kmEffective === 'landscape_portrait_hero'
+    || kmEffective === 'landscape_two_up_portrait'
+    || kmEffective === 'landscape_character_portraits'
   );
 
   const getGridStyle = (): React.CSSProperties => {
