@@ -72,6 +72,11 @@ function CandidateRow({ candidate, rank }: { candidate: ScoredCandidate; rank: n
           <span className={cn('text-[9px]', ACTION_COLORS[candidate.recommendedAction])}>
             {ACTION_LABELS[candidate.recommendedAction]}
           </span>
+          {candidate.canonPromotable ? (
+            <Badge variant="default" className="text-[7px] h-3.5 px-1 bg-emerald-600">Promotable</Badge>
+          ) : candidate.eligible ? (
+            <Badge variant="outline" className="text-[7px] h-3.5 px-1 text-amber-600 border-amber-400">Advisory</Badge>
+          ) : null}
         </div>
         <div className="flex items-center gap-1">
           {candidate.warnings.length > 0 && (
