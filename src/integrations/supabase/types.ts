@@ -1353,8 +1353,10 @@ export type Database = {
         Row: {
           candidate_index: number
           created_at: string
+          creation_mode: string
           group_id: string
           id: string
+          source_candidate_version_id: string | null
           source_run_id: string | null
           version_ref_id: string
           version_ref_type: string
@@ -1362,8 +1364,10 @@ export type Database = {
         Insert: {
           candidate_index?: number
           created_at?: string
+          creation_mode?: string
           group_id: string
           id?: string
+          source_candidate_version_id?: string | null
           source_run_id?: string | null
           version_ref_id: string
           version_ref_type?: string
@@ -1371,8 +1375,10 @@ export type Database = {
         Update: {
           candidate_index?: number
           created_at?: string
+          creation_mode?: string
           group_id?: string
           id?: string
+          source_candidate_version_id?: string | null
           source_run_id?: string | null
           version_ref_id?: string
           version_ref_type?: string
@@ -1383,6 +1389,13 @@ export type Database = {
             columns: ["group_id"]
             isOneToOne: false
             referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_versions_source_candidate_version_id_fkey"
+            columns: ["source_candidate_version_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -16447,6 +16460,112 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      repair_runs: {
+        Row: {
+          attempt_index: number
+          created_at: string
+          created_by: string | null
+          group_id: string
+          id: string
+          max_attempts: number
+          repair_policy_key: string
+          repair_round_id: string | null
+          source_round_id: string
+          status: string
+        }
+        Insert: {
+          attempt_index?: number
+          created_at?: string
+          created_by?: string | null
+          group_id: string
+          id?: string
+          max_attempts?: number
+          repair_policy_key?: string
+          repair_round_id?: string | null
+          source_round_id: string
+          status?: string
+        }
+        Update: {
+          attempt_index?: number
+          created_at?: string
+          created_by?: string | null
+          group_id?: string
+          id?: string
+          max_attempts?: number
+          repair_policy_key?: string
+          repair_round_id?: string | null
+          source_round_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "repair_runs_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "repair_runs_repair_round_id_fkey"
+            columns: ["repair_round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "repair_runs_source_round_id_fkey"
+            columns: ["source_round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      repair_targets: {
+        Row: {
+          created_at: string
+          diagnostics_json: Json
+          id: string
+          repair_run_id: string
+          source_candidate_version_id: string
+          target_rank_position: number | null
+          target_reason_key: string
+        }
+        Insert: {
+          created_at?: string
+          diagnostics_json?: Json
+          id?: string
+          repair_run_id: string
+          source_candidate_version_id: string
+          target_rank_position?: number | null
+          target_reason_key?: string
+        }
+        Update: {
+          created_at?: string
+          diagnostics_json?: Json
+          id?: string
+          repair_run_id?: string
+          source_candidate_version_id?: string
+          target_rank_position?: number | null
+          target_reason_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "repair_targets_repair_run_id_fkey"
+            columns: ["repair_run_id"]
+            isOneToOne: false
+            referencedRelation: "repair_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "repair_targets_source_candidate_version_id_fkey"
+            columns: ["source_candidate_version_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_versions"
             referencedColumns: ["id"]
           },
         ]
