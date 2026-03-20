@@ -200,7 +200,13 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
   // Actions
   const handleApprove = useCallback((img: ProjectImage) => {
     approveIntoCanon(img);
-  }, [approveIntoCanon]);
+    toast.success('Image approved — rebuild LookBook to see changes', {
+      action: {
+        label: 'Build LookBook',
+        onClick: () => navigate(`/projects/${projectId}/lookbook`),
+      },
+    });
+  }, [approveIntoCanon, navigate, projectId]);
 
   const handleReject = useCallback((imgId: string) => {
     rejectCandidate(imgId, false);
