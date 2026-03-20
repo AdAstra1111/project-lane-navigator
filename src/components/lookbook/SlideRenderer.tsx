@@ -869,7 +869,7 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
                   borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column',
                 }}>
                   {c.imageUrl ? (
-                    <div style={{ height: 220, overflow: 'hidden', flexShrink: 0, background: colors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ height: 280, overflow: 'hidden', flexShrink: 0, background: colors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <PortraitImage src={c.imageUrl} style={{ filter: 'saturate(0.8) contrast(1.05)' }} />
                     </div>
                   ) : (
