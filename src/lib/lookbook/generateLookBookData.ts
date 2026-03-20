@@ -53,7 +53,7 @@ const LEGACY_ORDINAL_TO_SEMANTIC: Record<string, string> = {
 export function mergeUserDecisions(
   freshSlides: SlideContent[],
   previousSlides: SlideContent[],
-): { merged: SlideContent[]; preservedCount: number; droppedCount: number; dropReasons: string[] } {
+): { merged: SlideContent[]; preservedCount: number; droppedCount: number; dropReasons: string[]; migratedCount: number } {
   const prevBySlideId = new Map<string, SlideUserDecisions>();
   for (const s of previousSlides) {
     if (s.slide_id && s.user_decisions && Object.keys(s.user_decisions).length > 0) {
@@ -62,27 +62,45 @@ export function mergeUserDecisions(
   }
 
   if (prevBySlideId.size === 0) {
-    return { merged: freshSlides, preservedCount: 0, droppedCount: 0, dropReasons: [] };
+    return { merged: freshSlides, preservedCount: 0, droppedCount: 0, dropReasons: [], migratedCount: 0 };
   }
 
   let preservedCount = 0;
   let droppedCount = 0;
+  let migratedCount = 0;
   const dropReasons: string[] = [];
 
   const merged = freshSlides.map(slide => {
-    const prevDecisions = prevBySlideId.get(slide.slide_id);
+    // 1. Try exact semantic slide_id match first
+    let prevDecisions = prevBySlideId.get(slide.slide_id);
+    let matchSource = 'exact';
+
+    // 2. If not found, try legacy ordinal-to-semantic migration
+    if (!prevDecisions) {
+      for (const [legacyId, semanticId] of Object.entries(LEGACY_ORDINAL_TO_SEMANTIC)) {
+        if (semanticId === slide.slide_id && prevBySlideId.has(legacyId)) {
+          prevDecisions = prevBySlideId.get(legacyId);
+          matchSource = 'legacy_migration';
+          migratedCount++;
+          console.log(`[LookBook merge] migrated legacy ID '${legacyId}' → '${slide.slide_id}'`);
+          break;
+        }
+      }
+    }
+
     if (!prevDecisions) return slide;
 
     // If slide has unresolved images, do not preserve layout override
     if (slide._has_unresolved && prevDecisions.layout_family) {
       droppedCount++;
-      dropReasons.push(`${slide.slide_id}: dropped layout_family (unresolved images)`);
+      dropReasons.push(`${slide.slide_id}: dropped layout_family (unresolved images, match=${matchSource})`);
       return slide;
     }
 
     // Preserve valid decisions
     const effectiveFamily = prevDecisions.layout_family || slide.layoutFamily || 'landscape_standard';
     preservedCount++;
+    console.log(`[LookBook merge] preserved user_decisions for '${slide.slide_id}' (match=${matchSource})`);
     return {
       ...slide,
       user_decisions: { ...prevDecisions },
@@ -92,7 +110,8 @@ export function mergeUserDecisions(
     };
   });
 
-  return { merged, preservedCount, droppedCount, dropReasons };
+  console.log(`[LookBook merge] result: preserved=${preservedCount}, dropped=${droppedCount}, migrated=${migratedCount}`);
+  return { merged, preservedCount, droppedCount, dropReasons, migratedCount };
 }
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
