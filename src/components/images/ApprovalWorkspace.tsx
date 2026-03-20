@@ -431,7 +431,7 @@ function CharacterGroupRow({
                       image={img}
                       isRecommended={false}
                       isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
-                      identityContinuity={img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
+                      identityContinuity={img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null).status : undefined}
                       onApprove={() => onApprove(img)}
                       onReject={() => onReject(img.id, false)}
                       onRejectReuse={() => onReject(img.id, true)}
