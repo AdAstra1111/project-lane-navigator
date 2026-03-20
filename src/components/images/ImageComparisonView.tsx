@@ -91,7 +91,7 @@ export function ImageComparisonView({
     }));
     ranked.sort((a, b) => (b.rankValue) - (a.rankValue));
     return { ranked, top: ranked[0] || null, topReason: ranked[0]?.rankReason || 'No candidates' };
-  }, [images, characterAnchorSet, scores]);
+  }, [images, characterAnchorSet, scores, visualSimilarities]);
 
   // Compute per-image analysis with rank reason from canonical helper
   const analysis = useMemo(() => {
