@@ -8,6 +8,7 @@ import {
   CheckCircle, XCircle, Recycle, Eye, Expand, Filter,
   Crown, ShieldCheck, AlertTriangle, Unlink, Link,
   Image as ImageIcon, SlidersHorizontal, X, Sparkles,
+  ArrowRightCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,7 @@ import {
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useImageCuration } from '@/hooks/useImageCuration';
+import { useVisualSets } from '@/hooks/useVisualSets';
 import { ImageLightbox } from './ImageLightbox';
 import { ImageComparisonView } from './ImageComparisonView';
 import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
@@ -27,6 +29,7 @@ import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import { getOrientationLabel, getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { classifyIdentityContinuity, resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { toast } from 'sonner';
 type FilterState = 'candidate' | 'active' | 'archived' | 'all';
 type GroupBy = 'none' | 'section' | 'character' | 'shot_type';
 
