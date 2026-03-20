@@ -19,6 +19,8 @@ interface ImageLightboxProps {
   dnaTraits?: Array<{ label: string; value: string; region?: string }>;
   /** Optional score to display */
   score?: number | null;
+  /** Optional canonical rank reason from ranking helper */
+  rankReason?: string | null;
 }
 
 const MIN_ZOOM = 1;
