@@ -473,6 +473,7 @@ interface ImageCardProps {
   showShotTypes: boolean;
   showCurationControls: boolean;
   showProvenance: boolean;
+  laneKey?: string;
   onSelect: (img: ProjectImage) => void;
   onLightbox: (img: ProjectImage) => void;
   onCurationAction: (e: React.MouseEvent, img: ProjectImage, state: CurationState) => void;
