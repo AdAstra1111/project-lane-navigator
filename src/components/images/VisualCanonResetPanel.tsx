@@ -17,6 +17,7 @@ import {
   Lock, Package, Wand2, Zap, CheckCheck, Download, Link2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
