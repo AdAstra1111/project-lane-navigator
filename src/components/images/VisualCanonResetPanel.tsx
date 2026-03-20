@@ -365,6 +365,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       if (slot.assetGroup === 'character') {
         genBody.character_name = slot.subject;
+        // ── Identity anchor injection for character generation ──
+        if (!slot.isIdentity && slot.subject && identityAnchorMap[slot.subject]) {
+          const anchors = identityAnchorMap[slot.subject];
+          if (anchors.anchorPaths.headshot || anchors.anchorPaths.fullBody) {
+            genBody.identity_anchor_paths = anchors.anchorPaths;
+            console.log(`[auto-populate] Injecting identity anchors for ${slot.subject}: completeness=${anchors.completeness}`);
+          }
+        }
       } else if (slot.assetGroup === 'world') {
         genBody.location_name = slot.subject;
       }
