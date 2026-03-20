@@ -113,7 +113,8 @@ export function useSectionReset(projectId: string) {
     setResettingSection(sectionKey);
 
     try {
-      const resetBatchId = `reset_${sectionKey}_${Date.now()}`;
+      // canon_reset_batch_id is UUID — generate a proper one
+      const resetBatchId = crypto.randomUUID();
 
       // Find all section images (regardless of current curation state)
       const findQuery = buildSectionQuery(sectionKey);
