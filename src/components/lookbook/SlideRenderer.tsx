@@ -269,65 +269,65 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
   );
 }
 
-/* ═══ OVERVIEW — two-panel editorial ═══ */
-function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides }: SlideProps) {
+/* ═══ OVERVIEW — editorial layout, stacked in portrait ═══ */
+function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
+  const pad = isPortrait ? '56px 48px 56px 56px' : '72px 96px 72px 100px';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
-      <div style={{ padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Project Overview" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: 56, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
+        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 44 : 56, fontWeight: 600, marginBottom: isPortrait ? 32 : 48, color: colors.text }}>{slide.title}</h2>
 
-        <div style={{ display: 'flex', gap: 64, flex: 1 }}>
-          {/* Left — logline + synopsis */}
+        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 32 : 64, flex: 1 }}>
+          {/* Logline + synopsis */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             {slide.body && (
               <p style={{
-                fontSize: 28,
+                fontSize: isPortrait ? 22 : 28,
                 lineHeight: 1.45,
                 fontWeight: 500,
                 color: colors.text,
                 fontFamily: `"${fontBody}", sans-serif`,
-                marginBottom: 28,
-                maxWidth: 780,
+                marginBottom: isPortrait ? 20 : 28,
               }}>
                 {slide.body}
               </p>
             )}
             {slide.bodySecondary && (
               <p style={{
-                fontSize: 17,
+                fontSize: isPortrait ? 15 : 17,
                 lineHeight: 1.7,
                 color: colors.textMuted,
                 fontFamily: `"${fontBody}", sans-serif`,
-                maxWidth: 720,
               }}>
                 {slide.bodySecondary}
               </p>
             )}
           </div>
 
-          {/* Right — metadata panel */}
+          {/* Metadata panel */}
           {slide.bullets && slide.bullets.length > 0 && (
             <div style={{
-              width: 360,
+              width: isPortrait ? '100%' : 360,
               flexShrink: 0,
               background: colors.bgSecondary,
               border: `1px solid ${colors.accentMuted}`,
               borderRadius: 8,
-              padding: '40px 36px',
+              padding: isPortrait ? '28px 32px' : '40px 36px',
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: isPortrait ? 'row' : 'column',
+              flexWrap: isPortrait ? 'wrap' : 'nowrap',
               justifyContent: 'center',
-              gap: 28,
+              gap: isPortrait ? 20 : 28,
             }}>
               {slide.bullets.map((b, i) => {
                 const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
                 return (
-                  <div key={i}>
+                  <div key={i} style={{ minWidth: isPortrait ? '40%' : undefined }}>
                     {label && <span style={{ fontSize: 11, letterSpacing: '0.25em', textTransform: 'uppercase', color: colors.accent, display: 'block', marginBottom: 6 }}>{label}</span>}
-                    <span style={{ fontSize: 20, color: colors.text, fontWeight: 500 }}>{value}</span>
+                    <span style={{ fontSize: isPortrait ? 17 : 20, color: colors.text, fontWeight: 500 }}>{value}</span>
                   </div>
                 );
               })}
