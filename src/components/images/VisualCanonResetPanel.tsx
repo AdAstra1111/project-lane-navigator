@@ -132,6 +132,12 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   const pendingSlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length > 0), [requiredSet]);
   const emptySlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0), [requiredSet]);
 
+  // Resolve identity anchor map from loaded images — used for generation + approval display
+  const identityAnchorMap: IdentityAnchorMap = useMemo(
+    () => resolveIdentityAnchorsFromImages(allImages),
+    [allImages],
+  );
+
   // ── Batch Approve All handler ──
   const handleBatchApprove = useCallback(async () => {
     if (candidateImages.length === 0) return;
