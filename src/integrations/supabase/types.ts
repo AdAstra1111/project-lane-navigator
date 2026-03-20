@@ -1170,6 +1170,203 @@ export type Database = {
         }
         Relationships: []
       }
+      candidate_groups: {
+        Row: {
+          asset_group: string | null
+          character_name: string | null
+          created_at: string
+          created_by: string | null
+          created_from_task_type: string | null
+          id: string
+          lane: string | null
+          project_id: string
+          ranking_policy_key: string
+          run_context_id: string | null
+          run_context_type: string
+          slot_key: string | null
+          status: string
+        }
+        Insert: {
+          asset_group?: string | null
+          character_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_from_task_type?: string | null
+          id?: string
+          lane?: string | null
+          project_id: string
+          ranking_policy_key?: string
+          run_context_id?: string | null
+          run_context_type?: string
+          slot_key?: string | null
+          status?: string
+        }
+        Update: {
+          asset_group?: string | null
+          character_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_from_task_type?: string | null
+          id?: string
+          lane?: string | null
+          project_id?: string
+          ranking_policy_key?: string
+          run_context_id?: string | null
+          run_context_type?: string
+          slot_key?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_groups_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "candidate_groups_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_rankings: {
+        Row: {
+          candidate_version_id: string
+          group_id: string
+          id: string
+          rank_position: number
+          rank_score: number
+          ranked_at: string
+          ranking_inputs_json: Json
+          ranking_version_key: string
+          score_json: Json
+        }
+        Insert: {
+          candidate_version_id: string
+          group_id: string
+          id?: string
+          rank_position?: number
+          rank_score?: number
+          ranked_at?: string
+          ranking_inputs_json?: Json
+          ranking_version_key?: string
+          score_json?: Json
+        }
+        Update: {
+          candidate_version_id?: string
+          group_id?: string
+          id?: string
+          rank_position?: number
+          rank_score?: number
+          ranked_at?: string
+          ranking_inputs_json?: Json
+          ranking_version_key?: string
+          score_json?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_rankings_candidate_version_id_fkey"
+            columns: ["candidate_version_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_rankings_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_selections: {
+        Row: {
+          group_id: string
+          id: string
+          rationale: string | null
+          selected_at: string
+          selected_by: string | null
+          selected_candidate_version_id: string
+          selection_mode: string
+        }
+        Insert: {
+          group_id: string
+          id?: string
+          rationale?: string | null
+          selected_at?: string
+          selected_by?: string | null
+          selected_candidate_version_id: string
+          selection_mode?: string
+        }
+        Update: {
+          group_id?: string
+          id?: string
+          rationale?: string | null
+          selected_at?: string
+          selected_by?: string | null
+          selected_candidate_version_id?: string
+          selection_mode?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_selections_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_selections_selected_candidate_version_id_fkey"
+            columns: ["selected_candidate_version_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_versions: {
+        Row: {
+          candidate_index: number
+          created_at: string
+          group_id: string
+          id: string
+          source_run_id: string | null
+          version_ref_id: string
+          version_ref_type: string
+        }
+        Insert: {
+          candidate_index?: number
+          created_at?: string
+          group_id: string
+          id?: string
+          source_run_id?: string | null
+          version_ref_id: string
+          version_ref_type?: string
+        }
+        Update: {
+          candidate_index?: number
+          created_at?: string
+          group_id?: string
+          id?: string
+          source_run_id?: string | null
+          version_ref_id?: string
+          version_ref_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_versions_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canon_facts: {
         Row: {
           confidence: number

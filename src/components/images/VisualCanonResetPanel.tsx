@@ -1240,6 +1240,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
               onSetPrimary={approveIntoCanon}
               identityAnchorMap={identityAnchorMap}
               visualSimilarities={cachedSimilarities}
+              projectId={projectId}
             />
           </CardContent>
         </Card>

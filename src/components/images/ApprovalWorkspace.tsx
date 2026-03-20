@@ -3,8 +3,19 @@
  * Supports list view, character-grouped view, image lightbox, and side-by-side comparison.
  * Identity-aware: displays anchor continuity status per character candidate.
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import type { VisualSimilarityResult } from '@/lib/images/anchorVisualSimilarity';
+import {
+  ensureGroupForSlot,
+  addCandidateVersion,
+  persistRankingSnapshot,
+  selectWinner as selectCompetitionWinner,
+  loadGroupsForSlot,
+  loadCompetitionGroup,
+  type CandidateGroup,
+  type CompetitionGroupWithDetails,
+} from '@/lib/competition/candidateCompetitionService';
+import { rankCharacterCandidates } from '@/lib/images/characterCandidateRanking';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
   Users, ChevronRight, Crown, Link, Unlink, AlertTriangle, ShieldCheck,
@@ -48,17 +59,156 @@ interface ApprovalWorkspaceProps {
   identityAnchorMap?: IdentityAnchorMap;
   /** Cached visual similarity results keyed by image id */
   visualSimilarities?: Record<string, VisualSimilarityResult>;
+  /** Project ID for competition persistence */
+  projectId?: string;
 }
 
 export function ApprovalWorkspace({
-  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter, identityAnchorMap, visualSimilarities,
+  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter, identityAnchorMap, visualSimilarities, projectId,
 }: ApprovalWorkspaceProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [lightboxImage, setLightboxImage] = useState<ProjectImage | null>(null);
   const [selectedForCompare, setSelectedForCompare] = useState<ProjectImage[]>([]);
   const [showComparison, setShowComparison] = useState(false);
+  // Competition state: maps slot key -> group details
+  const [competitionGroups, setCompetitionGroups] = useState<Record<string, CompetitionGroupWithDetails>>({});
+  const [competitionLoading, setCompetitionLoading] = useState(false);
 
   const pendingSlots = useMemo(() => slots.filter(s => !s.filled && s.candidates.length > 0), [slots]);
+
+  // ── Competition: bootstrap groups for pending slots ──
+  useEffect(() => {
+    if (!projectId || pendingSlots.length === 0) return;
+    let cancelled = false;
+
+    async function bootstrapCompetition() {
+      setCompetitionLoading(true);
+      const groups: Record<string, CompetitionGroupWithDetails> = {};
+
+      for (const slot of pendingSlots) {
+        if (slot.candidates.length < 2) continue; // No competition for single candidates
+
+        try {
+          // Ensure group exists for this slot
+          const group = await ensureGroupForSlot({
+            projectId: projectId!,
+            slotKey: slot.key,
+            runContextType: 'image',
+            assetGroup: slot.assetGroup,
+            characterName: slot.subject || undefined,
+          });
+
+          // Add any candidates not yet in the group
+          for (let i = 0; i < slot.candidates.length; i++) {
+            try {
+              await addCandidateVersion({
+                groupId: group.id,
+                versionRefId: slot.candidates[i].id,
+                candidateIndex: i,
+              });
+            } catch {
+              // Duplicate (unique constraint) — expected and safe
+            }
+          }
+
+          // Load full details
+          const details = await loadCompetitionGroup(group.id);
+          if (details && !cancelled) {
+            groups[slot.key] = details;
+          }
+        } catch (err) {
+          console.warn(`[Competition] Bootstrap failed for slot ${slot.key}:`, err);
+        }
+      }
+
+      if (!cancelled) {
+        setCompetitionGroups(groups);
+        setCompetitionLoading(false);
+      }
+    }
+
+    bootstrapCompetition();
+    return () => { cancelled = true; };
+  }, [projectId, pendingSlots.map(s => `${s.key}:${s.candidates.length}`).join('|')]);
+
+  // ── Competition: persist ranking for a slot ──
+  const persistSlotRanking = useCallback(async (slot: RequiredSlot) => {
+    if (!projectId) return;
+    const group = competitionGroups[slot.key];
+    if (!group || group.versions.length < 2) return;
+
+    // Build version ref -> candidateVersion map
+    const refToVersion = new Map(group.versions.map(v => [v.version_ref_id, v]));
+
+    // Use canonical ranking
+    const anchorSet = slot.subject && identityAnchorMap ? identityAnchorMap[slot.subject] || null : null;
+    const ranking = rankCharacterCandidates(slot.candidates, anchorSet, null, visualSimilarities || null);
+
+    const rankingRows = ranking.ranked
+      .map((r, i) => {
+        const cv = refToVersion.get(r.image.id);
+        if (!cv) return null;
+        return {
+          candidateVersionId: cv.id,
+          rankPosition: i + 1,
+          rankScore: r.rankValue,
+          scoreJson: {
+            continuityStatus: r.continuityStatus,
+            driftPenalty: r.driftPenalty,
+            similarityAdjustment: r.similarityAdjustment,
+            score: r.score,
+          },
+          rankingInputsJson: {
+            rankReason: r.rankReason,
+            continuityReason: r.continuityReason,
+          },
+        };
+      })
+      .filter(Boolean) as any[];
+
+    if (rankingRows.length > 0) {
+      try {
+        await persistRankingSnapshot({ groupId: group.id, rankings: rankingRows });
+        // Reload group details
+        const updated = await loadCompetitionGroup(group.id);
+        if (updated) {
+          setCompetitionGroups(prev => ({ ...prev, [slot.key]: updated }));
+        }
+      } catch (err) {
+        console.warn('[Competition] Ranking persistence failed:', err);
+      }
+    }
+  }, [projectId, competitionGroups, identityAnchorMap, visualSimilarities]);
+
+  // ── Competition: select winner (wraps existing approve) ──
+  const handleApproveWithCompetition = useCallback(async (image: ProjectImage, slot?: RequiredSlot) => {
+    // Always call existing approve
+    onApprove(image);
+
+    // Persist competition winner if group exists
+    if (slot && projectId) {
+      const group = competitionGroups[slot.key];
+      if (group) {
+        const cv = group.versions.find(v => v.version_ref_id === image.id);
+        if (cv) {
+          try {
+            // Persist ranking first if not yet done
+            if (group.rankings.length === 0) {
+              await persistSlotRanking(slot);
+            }
+            await selectCompetitionWinner({
+              groupId: group.id,
+              candidateVersionId: cv.id,
+              selectionMode: 'manual',
+              rationale: 'Selected via Approval Workspace',
+            });
+          } catch (err) {
+            console.warn('[Competition] Winner selection failed:', err);
+          }
+        }
+      }
+    }
+  }, [onApprove, projectId, competitionGroups, persistSlotRanking]);
 
   const toggleCompareSelect = useCallback((img: ProjectImage) => {
     setSelectedForCompare(prev => {
@@ -144,12 +294,13 @@ export function ApprovalWorkspace({
             <SlotApprovalRow
               key={slot.key}
               slot={slot}
-              onApprove={onApprove}
+              onApprove={(img) => handleApproveWithCompetition(img, slot)}
               onReject={onReject}
               onExpand={setLightboxImage}
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
               identityAnchorMap={identityAnchorMap}
+              competitionGroup={competitionGroups[slot.key]}
             />
           ))}
         </div>
@@ -220,7 +371,7 @@ export function ApprovalWorkspace({
 // ── Slot Approval Row ──
 
 function SlotApprovalRow({
-  slot, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap,
+  slot, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap, competitionGroup,
 }: {
   slot: RequiredSlot;
   onApprove: (img: ProjectImage) => void;
@@ -229,6 +380,7 @@ function SlotApprovalRow({
   onToggleCompare: (img: ProjectImage) => void;
   selectedForCompare: ProjectImage[];
   identityAnchorMap?: IdentityAnchorMap;
+  competitionGroup?: CompetitionGroupWithDetails;
 }) {
   const [expanded, setExpanded] = useState(slot.candidates.length <= 3);
 
@@ -243,6 +395,17 @@ function SlotApprovalRow({
         <Badge variant="secondary" className="text-[8px] px-1 py-0">
           {slot.candidates.length} candidate{slot.candidates.length !== 1 ? 's' : ''}
         </Badge>
+        {competitionGroup && (
+          <Badge variant="outline" className={cn(
+            'text-[7px] px-1 py-0',
+            competitionGroup.status === 'winner_selected' ? 'border-emerald-500/50 text-emerald-600' :
+            competitionGroup.status === 'ranked' ? 'border-primary/40 text-primary/70' :
+            'border-border/40 text-muted-foreground',
+          )}>
+            {competitionGroup.status === 'winner_selected' ? '✓ Winner' :
+             competitionGroup.status === 'ranked' ? 'Ranked' : 'Competing'}
+          </Badge>
+        )}
         {slot.candidates.length > 3 && (
           <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => setExpanded(!expanded)}>
             <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
