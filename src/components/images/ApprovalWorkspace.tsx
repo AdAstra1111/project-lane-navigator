@@ -1,11 +1,12 @@
 /**
  * ApprovalWorkspace — Visual Decision Workspace replacing the simple approval queue.
  * Supports list view, character-grouped view, image lightbox, and side-by-side comparison.
+ * Identity-aware: displays anchor continuity status per character candidate.
  */
 import { useState, useMemo, useCallback } from 'react';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
-  Users, ChevronRight, Crown, Link, Unlink,
+  Users, ChevronRight, Crown, Link, Unlink, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
