@@ -29,6 +29,7 @@ interface RequiredSlot {
   filled: boolean;
   candidates: ProjectImage[];
   recommended: ProjectImage | null;
+  recommendedReason: string | null;
   isIdentity: boolean;
   primaryImage: ProjectImage | null;
 }
