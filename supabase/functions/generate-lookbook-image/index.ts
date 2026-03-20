@@ -384,16 +384,16 @@ async function resolveCanonicalBindings(
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
-  close_up: "Extreme close-up or tight close-up. Face filling the frame. Intimate, emotional, every pore visible. Shallow depth of field.",
-  medium: "Medium shot, waist-up. Character in environment context. Balanced composition. Clear facial expression with setting visible.",
-  wide: "Wide establishing shot. Sweeping, immersive cinematic scale. Characters small in frame against vast environment. Epic scope.",
+  close_up: "Extreme close-up or tight close-up. Face filling the frame. Intimate, emotionally raw, every imperfection visible. Shallow depth of field. Must convey strong internal emotion — tension, grief, desire, resolve. Eyes tell the story.",
+  medium: "Medium shot, waist-up. Character in environment context. Balanced composition. Clear facial expression with setting visible. Show relationship between character and space. Interaction-ready framing.",
+  wide: "Wide establishing shot. Sweeping, immersive cinematic scale. Spatial clarity is paramount — the viewer must understand the geography and atmosphere. Characters small in frame against vast environment. Epic scope with real depth and distance.",
   full_body: "Full body shot, head to toe. Character standing in environment. Clear silhouette and posture. Fashion editorial quality.",
   profile: "Profile view, side-on. Dramatic rim lighting. Strong silhouette against atmospheric background. Contemplative mood.",
   over_shoulder: "Over-the-shoulder perspective. Looking past one figure toward another or toward the scene. Creates depth and narrative tension.",
   detail: "Macro or detail shot. Close focus on a specific texture, object, or environmental detail. Shallow depth of field, rich texture.",
-  tableau: "Tableau composition. Multiple figures arranged in deliberate, cinematic blocking — as staged for a real camera on a real film set. Precise spatial relationships, motivated positioning. Shot as a wide or mid-wide with cinema lens. Real actors, real environment, real physics. NOT a painting or illustration.",
+  tableau: "Tableau composition. Multiple figures arranged in deliberate, cinematic blocking that reveals relationships and power dynamics through spatial positioning. Every placement is motivated — distance, height, facing direction all tell the story. Shot as a wide or mid-wide with cinema lens. Real actors, real environment, real physics. NOT a painting or illustration.",
   emotional_variant: "Same character, different emotional state. Raw emotional expression — tension, vulnerability, determination, or joy. Character-defining moment.",
-  atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling.",
+  atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling through light and atmosphere.",
   time_variant: "Same location, different time of day. Dawn/dusk/night variant. Dramatic lighting shift. Temporal contrast.",
   lighting_ref: "Lighting reference — real film set lighting setup. Show practical and motivated light sources. Key light direction, fill ratio, color temperature, hard vs soft shadows. As seen on a professional film set with cinema-grade lighting fixtures. Real environments, real physics of light.",
   texture_ref: "Material and surface reference — real-world production design. Close-up on key physical materials: weathered wood, concrete, fabric weave, skin texture, metal patina, natural stone. Shot with macro lens, shallow DOF. Tactile, grounded, zero abstraction.",
