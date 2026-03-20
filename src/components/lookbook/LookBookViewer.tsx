@@ -38,8 +38,8 @@ interface LookBookViewerProps {
   onExportPDF?: () => void;
   isExporting?: boolean;
   className?: string;
-  /** Callback to persist a layout-family override into canonical slide data */
-  onSlideLayoutOverride?: (slideIndex: number, familyKey: LayoutFamilyKey | null) => void;
+  /** Callback to persist a layout-family override into canonical slide data by slide_id */
+  onSlideLayoutOverride?: (slideId: string, familyKey: LayoutFamilyKey | null) => void;
 }
 
 // ── Layout Family Mini Glyphs ───────────────────────────────────────────────
@@ -308,10 +308,10 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
 
-  // Override handler — persists into canonical data via parent callback
+  // Override handler — persists into canonical data via slide_id
   const handleOverride = (familyKey: LayoutFamilyKey | null) => {
-    if (onSlideLayoutOverride) {
-      onSlideLayoutOverride(currentSlide, familyKey);
+    if (onSlideLayoutOverride && currentSlideData?.slide_id) {
+      onSlideLayoutOverride(currentSlideData.slide_id, familyKey);
     }
   };
 

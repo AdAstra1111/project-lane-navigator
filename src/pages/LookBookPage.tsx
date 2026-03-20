@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
 import { LookbookSectionPanel } from '@/components/lookbook/LookbookSectionPanel';
-import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
+import { generateLookBookData, mergeUserDecisions } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
@@ -107,31 +107,19 @@ export default function LookBookPage() {
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
 
-      // Preserve user layout overrides from previous build by matching slide type
+      // Preserve valid user decisions by slide_id (not slide.type)
       if (lookBookData?.slides) {
-        const prevOverrides = new Map<string, { override: string; source: string }>();
-        lookBookData.slides.forEach(s => {
-          if (s.layoutFamilyOverride && s.layoutFamilyOverrideSource === 'user' && s.type) {
-            prevOverrides.set(s.type, {
-              override: s.layoutFamilyOverride,
-              source: 'user',
-            });
-          }
-        });
-        if (prevOverrides.size > 0) {
-          freshData.slides = freshData.slides.map(s => {
-            const prev = prevOverrides.get(s.type);
-            if (prev) {
-              return {
-                ...s,
-                layoutFamilyOverride: prev.override,
-                layoutFamilyOverrideSource: 'user' as const,
-                layoutFamilyEffective: prev.override,
-              };
-            }
-            return s;
+        const { merged, preservedCount, droppedCount, dropReasons } = mergeUserDecisions(
+          freshData.slides,
+          lookBookData.slides,
+        );
+        freshData.slides = merged;
+        if (preservedCount > 0 || droppedCount > 0) {
+          console.log('[LookBookPage] ✓ User decisions merge:', {
+            preserved: preservedCount,
+            dropped: droppedCount,
+            dropReasons,
           });
-          console.log('[LookBookPage] ✓ Preserved layout overrides for', prevOverrides.size, 'slide types');
         }
       }
 
@@ -141,6 +129,7 @@ export default function LookBookPage() {
         slideCount: freshData.slides.length,
         totalImageRefs: imageCount,
         generatedAt: freshData.generatedAt,
+        slideIds: freshData.slides.map(s => s.slide_id),
       });
 
       setLookBookData(freshData);
@@ -160,16 +149,17 @@ export default function LookBookPage() {
     }
   }, [viewMode, lookBookData, generating, projectId, handleGenerate]);
 
-  // Persist layout-family override into canonical lookbook data
-  const handleSlideLayoutOverride = useCallback((slideIndex: number, familyKey: LayoutFamilyKey | null) => {
+  // Persist layout-family override into canonical lookbook data via slide_id
+  const handleSlideLayoutOverride = useCallback((slideId: string, familyKey: LayoutFamilyKey | null) => {
     setLookBookData(prev => {
       if (!prev) return prev;
-      const updatedSlides = prev.slides.map((slide, i) => {
-        if (i !== slideIndex) return slide;
+      const updatedSlides = prev.slides.map(slide => {
+        if (slide.slide_id !== slideId) return slide;
         if (familyKey === null) {
-          // Reset to auto
+          // Reset to auto — clear user decisions
           return {
             ...slide,
+            user_decisions: { ...slide.user_decisions, layout_family: null },
             layoutFamilyOverride: null,
             layoutFamilyOverrideSource: null,
             layoutFamilyEffective: slide.layoutFamily || 'landscape_standard',
@@ -177,6 +167,7 @@ export default function LookBookPage() {
         }
         return {
           ...slide,
+          user_decisions: { ...slide.user_decisions, layout_family: familyKey },
           layoutFamilyOverride: familyKey,
           layoutFamilyOverrideSource: 'user' as const,
           layoutFamilyEffective: familyKey,
