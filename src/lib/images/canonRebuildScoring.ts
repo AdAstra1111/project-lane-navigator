@@ -168,7 +168,9 @@ function scoreVerticalCompliance(
   const LEVEL_SCORES: Record<VerticalComplianceLevel, number> = {
     strict_vertical_compliant: 100,
     portrait_only: 30,
+    square: 10,
     non_compliant: 0,
+    unknown_unmeasured: 0,
   };
 
   return {

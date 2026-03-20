@@ -35,7 +35,7 @@ export const VERTICAL_STRICT_ASPECT: AspectRatio = '9:16';
 
 // ── Classification Types ─────────────────────────────────────────────────────
 
-export type VerticalComplianceLevel = 'strict_vertical_compliant' | 'portrait_only' | 'non_compliant';
+export type VerticalComplianceLevel = 'strict_vertical_compliant' | 'portrait_only' | 'square' | 'non_compliant' | 'unknown_unmeasured';
 
 export type DimensionSource = 'measured' | 'requested_fallback' | 'inferred' | 'unknown';
 
@@ -126,8 +126,8 @@ export function classifyVerticalCompliance(
           reason: `Identity exception slot "${slotShotType}" — matches expected ${expectedAspectRatio}`,
         };
       }
-      // Even if not matching expected, portrait is OK for identity
-      if (ratio >= 1.0) {
+      // Even if not matching expected, portrait is OK for identity (but NOT square)
+      if (ratio > 1.0) {
         return {
           level: 'portrait_only',
           eligibleForWinnerSelection: true, // identity exceptions allow portrait
@@ -137,6 +137,19 @@ export function classifyVerticalCompliance(
           isIdentityException: true,
           dimensionSource: 'measured',
           reason: `Identity exception slot — portrait but not exact ${expectedAspectRatio}`,
+        };
+      }
+      // Square identity image — not eligible even for identity exceptions
+      if (Math.abs(ratio - 1.0) < 0.05) {
+        return {
+          level: 'square',
+          eligibleForWinnerSelection: false,
+          expectedAspectRatio,
+          actualAspectRatio: actualAR,
+          actualRatio: ratio,
+          isIdentityException: true,
+          dimensionSource: 'measured',
+          reason: `Identity exception slot — but image is square, not portrait`,
         };
       }
     }
@@ -155,7 +168,21 @@ export function classifyVerticalCompliance(
       };
     }
 
-    if (ratio >= 1.0) {
+    // Square — explicitly separate from portrait
+    if (Math.abs(ratio - 1.0) < 0.05) {
+      return {
+        level: 'square',
+        eligibleForWinnerSelection: false,
+        expectedAspectRatio,
+        actualAspectRatio: actualAR,
+        actualRatio: ratio,
+        isIdentityException,
+        dimensionSource: 'measured',
+        reason: `Square (h/w=${ratio.toFixed(2)}) — NOT eligible for strict VD slots`,
+      };
+    }
+
+    if (ratio > 1.0) {
       return {
         level: 'portrait_only',
         eligibleForWinnerSelection: false,
@@ -202,7 +229,7 @@ export function classifyVerticalCompliance(
 
   // No measured dimensions + strict VD slot = NOT eligible
   return {
-    level: 'non_compliant',
+    level: 'unknown_unmeasured',
     eligibleForWinnerSelection: false,
     expectedAspectRatio,
     actualAspectRatio: 'unknown (no measured dimensions)',
@@ -276,7 +303,7 @@ export function classifyVerticalDramaForBrowsing(
   const h = image.height;
 
   if (!w || !h || w <= 0 || h <= 0) {
-    return { label: 'VD ?', compliant: false, level: 'non_compliant' };
+    return { label: 'VD ?', compliant: false, level: 'unknown_unmeasured' };
   }
 
   const ratio = h / w;
@@ -286,8 +313,13 @@ export function classifyVerticalDramaForBrowsing(
     return { label: '✓ VD', compliant: true, level: 'strict_vertical_compliant' };
   }
 
+  // Square — explicitly not portrait
+  if (Math.abs(ratio - 1.0) < 0.05) {
+    return { label: '□ VD', compliant: false, level: 'square' };
+  }
+
   // Portrait but not strict vertical
-  if (ratio >= 1.0) {
+  if (ratio > 1.0) {
     return { label: '~ VD', compliant: false, level: 'portrait_only' };
   }
 

@@ -529,9 +529,10 @@ function ImageCard({
             <Check className="h-2 w-2" /> Active
           </Badge>
         )}
-        {/* Orientation badge */}
+        {/* Orientation badge with measured dims */}
         <Badge variant="outline" className="text-[7px] px-1 py-0 border-white/30 text-white/70 bg-black/40">
           {getOrientationLabel(img.width, img.height)}
+          {img.width && img.height ? ` ${img.width}×${img.height}` : ''}
         </Badge>
         {/* VD compliance indicator when lane is vertical_drama */}
         {laneKey === 'vertical_drama' && (() => {
@@ -543,7 +544,11 @@ function ImageCard({
                 ? 'border-emerald-500/50 text-emerald-400'
                 : vd.level === 'portrait_only'
                   ? 'border-amber-500/50 text-amber-400'
-                  : 'border-destructive/50 text-destructive',
+                  : vd.level === 'square'
+                    ? 'border-orange-500/50 text-orange-400'
+                    : vd.level === 'unknown_unmeasured'
+                      ? 'border-muted text-muted-foreground'
+                      : 'border-destructive/50 text-destructive',
             )}>
               {vd.label}
             </Badge>
