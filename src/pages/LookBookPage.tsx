@@ -107,31 +107,19 @@ export default function LookBookPage() {
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
 
-      // Preserve user layout overrides from previous build by matching slide type
+      // Preserve valid user decisions by slide_id (not slide.type)
       if (lookBookData?.slides) {
-        const prevOverrides = new Map<string, { override: string; source: string }>();
-        lookBookData.slides.forEach(s => {
-          if (s.layoutFamilyOverride && s.layoutFamilyOverrideSource === 'user' && s.type) {
-            prevOverrides.set(s.type, {
-              override: s.layoutFamilyOverride,
-              source: 'user',
-            });
-          }
-        });
-        if (prevOverrides.size > 0) {
-          freshData.slides = freshData.slides.map(s => {
-            const prev = prevOverrides.get(s.type);
-            if (prev) {
-              return {
-                ...s,
-                layoutFamilyOverride: prev.override,
-                layoutFamilyOverrideSource: 'user' as const,
-                layoutFamilyEffective: prev.override,
-              };
-            }
-            return s;
+        const { merged, preservedCount, droppedCount, dropReasons } = mergeUserDecisions(
+          freshData.slides,
+          lookBookData.slides,
+        );
+        freshData.slides = merged;
+        if (preservedCount > 0 || droppedCount > 0) {
+          console.log('[LookBookPage] ✓ User decisions merge:', {
+            preserved: preservedCount,
+            dropped: droppedCount,
+            dropReasons,
           });
-          console.log('[LookBookPage] ✓ Preserved layout overrides for', prevOverrides.size, 'slide types');
         }
       }
 
@@ -141,6 +129,7 @@ export default function LookBookPage() {
         slideCount: freshData.slides.length,
         totalImageRefs: imageCount,
         generatedAt: freshData.generatedAt,
+        slideIds: freshData.slides.map(s => s.slide_id),
       });
 
       setLookBookData(freshData);
