@@ -270,7 +270,7 @@ function SlotApprovalRow({
 // ── Character Group Row ──
 
 function CharacterGroupRow({
-  characterName, slots, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare,
+  characterName, slots, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap,
 }: {
   characterName: string;
   slots: RequiredSlot[];
@@ -279,6 +279,7 @@ function CharacterGroupRow({
   onExpand: (img: ProjectImage) => void;
   onToggleCompare: (img: ProjectImage) => void;
   selectedForCompare: ProjectImage[];
+  identityAnchorMap?: IdentityAnchorMap;
 }) {
   // Group slots by shot type category
   const slotsByType = useMemo(() => {
