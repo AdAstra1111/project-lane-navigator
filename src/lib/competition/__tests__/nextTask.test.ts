@@ -183,6 +183,23 @@ describe('triggerNextTaskForRound', () => {
     const selInserts = insertCallLog.filter(c => c.table === 'candidate_selections');
     expect(selInserts.length).toBe(1);
     expect(selInserts[0].data.selected_candidate_version_id).toBe(CANDIDATE_ID);
+    expect(selInserts[0].data.selection_mode).toBe('auto_promoted');
+  });
+
+  it('creates exactly one auto_promoted selection per advancement', async () => {
+    setData(`competition_rounds:{"id":"${ROUND_ID}"}`, { id: ROUND_ID, group_id: GROUP_ID, status: 'active' });
+    setData(`round_promotions:{"round_id":"${ROUND_ID}"}`, {
+      id: PROMOTION_ID, round_id: ROUND_ID, promotion_status: 'promoted',
+      promoted_candidate_version_id: CANDIDATE_ID, rationale: 'all gates passed',
+      gating_snapshot_json: { policy: 'default_v1' },
+    });
+    setData(`candidate_groups:{"id":"${GROUP_ID}"}`, { id: GROUP_ID, status: 'ranked' });
+
+    await triggerNextTaskForRound({ groupId: GROUP_ID, roundId: ROUND_ID });
+    const selInserts = insertCallLog.filter(c => c.table === 'candidate_selections');
+    expect(selInserts.length).toBe(1);
+    expect(selInserts[0].data.selection_mode).toBe('auto_promoted');
+    expect(selInserts[0].data.round_id).toBe(ROUND_ID);
   });
 
   it('returns already_advanced on repeat trigger without duplicate inserts', async () => {
