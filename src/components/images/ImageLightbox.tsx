@@ -195,7 +195,6 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score }: ImageL
                 </div>
               );
             })()}
-            </div>
 
             {/* DNA traits */}
             {dnaTraits && dnaTraits.length > 0 && (
