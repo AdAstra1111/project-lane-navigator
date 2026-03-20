@@ -50,6 +50,8 @@ interface ImageComparisonViewProps {
   scores?: Record<string, number>;
   /** Identity anchor map for continuity classification */
   identityAnchorMap?: IdentityAnchorMap;
+  /** Optional per-image visual similarity results */
+  visualSimilarities?: Record<string, VisualSimilarityResult>;
 }
 
 export function ImageComparisonView({
