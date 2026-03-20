@@ -210,59 +210,64 @@ export function shouldReplace(
 }
 
 // ── Weights ──
+// identityContinuity scored for character slots; 0 weight for non-character
 
 const WEIGHTS_STANDARD = {
-  slotMatch: 0.35,
-  aspectFit: 0.15,
+  slotMatch: 0.30,
+  aspectFit: 0.12,
   verticalCompliance: 0.00,
-  curationQuality: 0.15,
-  bindingFidelity: 0.20,
-  freshness: 0.15,
+  curationQuality: 0.13,
+  bindingFidelity: 0.18,
+  freshness: 0.12,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 const WEIGHTS_VERTICAL_DRAMA = {
-  slotMatch: 0.25,
-  aspectFit: 0.10,
-  verticalCompliance: 0.25,
-  curationQuality: 0.10,
-  bindingFidelity: 0.15,
-  freshness: 0.15,
+  slotMatch: 0.22,
+  aspectFit: 0.08,
+  verticalCompliance: 0.22,
+  curationQuality: 0.08,
+  bindingFidelity: 0.13,
+  freshness: 0.12,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 const WEIGHTS_VERTICAL_DRAMA_NO_DIMS = {
-  slotMatch: 0.35,
+  slotMatch: 0.30,
   aspectFit: 0.00,
-  verticalCompliance: 0.15,
-  curationQuality: 0.15,
-  bindingFidelity: 0.25,
+  verticalCompliance: 0.12,
+  curationQuality: 0.13,
+  bindingFidelity: 0.20,
   freshness: 0.10,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 const WEIGHTS_STANDARD_NO_DIMS = {
-  slotMatch: 0.40,
+  slotMatch: 0.35,
   aspectFit: 0.00,
   verticalCompliance: 0.00,
-  curationQuality: 0.20,
-  bindingFidelity: 0.25,
-  freshness: 0.15,
+  curationQuality: 0.17,
+  bindingFidelity: 0.20,
+  freshness: 0.13,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 // Preserve-mode weight overrides — adds primarySetAlignment
 const WEIGHTS_PRESERVE_STANDARD = {
   ...WEIGHTS_STANDARD,
-  bindingFidelity: 0.15,
-  freshness: 0.10,
+  bindingFidelity: 0.13,
+  freshness: 0.08,
   primarySetAlignment: 0.10,
 };
 
 const WEIGHTS_PRESERVE_VD = {
   ...WEIGHTS_VERTICAL_DRAMA,
   freshness: 0.05,
-  primarySetAlignment: 0.15,
+  primarySetAlignment: 0.13,
 };
 
 const WEIGHTS_PRESERVE_VD_NO_DIMS = {
@@ -273,7 +278,7 @@ const WEIGHTS_PRESERVE_VD_NO_DIMS = {
 
 const WEIGHTS_PRESERVE_STANDARD_NO_DIMS = {
   ...WEIGHTS_STANDARD_NO_DIMS,
-  freshness: 0.10,
+  freshness: 0.08,
   primarySetAlignment: 0.10,
 };
 
