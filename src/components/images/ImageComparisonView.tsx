@@ -55,7 +55,7 @@ interface ImageComparisonViewProps {
 }
 
 export function ImageComparisonView({
-  images, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap,
+  images, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap, visualSimilarities,
 }: ImageComparisonViewProps) {
   const [syncZoom, setSyncZoom] = useState(true);
   const [zoom, setZoom] = useState(1);
