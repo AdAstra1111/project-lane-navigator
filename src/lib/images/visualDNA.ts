@@ -268,15 +268,21 @@ export function resolveCharacterVisualDNA(
       infers: [
         { category: 'clothing', text: 'plain, practical commoner attire', confidence: 'low' },
       ] },
-    { pattern: /\b(noble|aristocrat|royal|wealthy|upper.?class|lord|lady|duke|duchess|count|baron|gentry)\b/i,
+    { pattern: /\b(noble|aristocrat|royal|wealthy|upper.?class|lord|lady|duke|duchess|count|baron|gentry|daimyo|shogun)\b/i,
       infers: [
         { category: 'clothing', text: 'refined, status-signaling attire', confidence: 'low' },
+        { category: 'build', text: 'disciplined bearing; exact build unclear', confidence: 'low' },
       ] },
-    { pattern: /\b(soldier|warrior|knight|guard|mercenary|veteran|fighter|officer|military)\b/i,
+    { pattern: /\b(soldier|warrior|knight|guard|mercenary|veteran|fighter|officer|military|samurai|ronin|swordsman|duelist|retainer|martial\s?artist)\b/i,
       infers: [
-        { category: 'build', text: 'combat-conditioned physique', confidence: 'low' },
+        { category: 'build', text: 'trained or combat-conditioned physique', confidence: 'low' },
         { category: 'clothing', text: 'military or combat-functional attire', confidence: 'low' },
         { category: 'posture', text: 'disciplined or alert bearing', confidence: 'low' },
+      ] },
+    { pattern: /\b(impeccable posture|disciplined bearing|alert stance|formal.{0,10}composure|martial composure|hand resting on.{0,15}(?:hilt|weapon|sword|katana|blade))\b/i,
+      infers: [
+        { category: 'build', text: 'conditioned posture suggesting combat training', confidence: 'low' },
+        { category: 'posture', text: 'formal martial composure', confidence: 'low' },
       ] },
     { pattern: /\b(scholar|priest|monk|nun|cleric|scribe|teacher|professor|healer|doctor|physician|apothecary)\b/i,
       infers: [
