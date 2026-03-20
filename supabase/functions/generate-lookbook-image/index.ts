@@ -76,6 +76,161 @@ interface SectionContext {
   characterBindingBlock?: string;
   /** Bound character names from canonical binding resolution */
   boundCharacterNames?: string[];
+  /** Narrative moments pool from scene graph */
+  narrativeMoments?: NarrativeMoment[];
+}
+
+// ── Narrative Moment (from scene graph) ─────────────────────────────────────
+
+interface NarrativeMoment {
+  slugline: string;
+  summary: string;
+  characters_present: string[];
+  location: string;
+  time_of_day: string;
+  purpose: string;
+  tension_delta: number | null;
+  content_preview: string;
+  canon_location_id: string | null;
+}
+
+/** Shot-type to narrative selection strategy */
+const SHOT_NARRATIVE_STRATEGY: Partial<Record<ShotType, {
+  prefer: 'high_tension' | 'establishing' | 'multi_character' | 'emotional' | 'atmospheric' | 'any';
+  minCharacters?: number;
+}>> = {
+  wide:              { prefer: 'establishing' },
+  atmospheric:       { prefer: 'atmospheric' },
+  close_up:          { prefer: 'emotional' },
+  emotional_variant: { prefer: 'emotional' },
+  medium:            { prefer: 'any', minCharacters: 1 },
+  tableau:           { prefer: 'multi_character', minCharacters: 2 },
+  over_shoulder:     { prefer: 'any', minCharacters: 2 },
+  detail:            { prefer: 'atmospheric' },
+  time_variant:      { prefer: 'establishing' },
+};
+
+function selectNarrativeMoment(
+  moments: NarrativeMoment[],
+  shotType: ShotType | null,
+  variantIndex: number,
+): NarrativeMoment | null {
+  if (!moments.length) return null;
+  const strategy = shotType ? SHOT_NARRATIVE_STRATEGY[shotType] : null;
+  if (!strategy) {
+    // Round-robin through available moments
+    return moments[variantIndex % moments.length];
+  }
+
+  let candidates = [...moments];
+
+  // Filter by minimum characters
+  if (strategy.minCharacters) {
+    const filtered = candidates.filter(m => m.characters_present.length >= strategy.minCharacters!);
+    if (filtered.length) candidates = filtered;
+  }
+
+  // Score by preference
+  const scored = candidates.map(m => {
+    let score = 0;
+    switch (strategy.prefer) {
+      case 'high_tension':
+        score = (m.tension_delta ?? 0) > 0 ? 10 : 0;
+        if (m.purpose?.includes('climax') || m.purpose?.includes('confrontation')) score += 5;
+        break;
+      case 'establishing':
+        if (m.location && m.location.length > 3) score += 5;
+        if (m.slugline?.match(/^(INT|EXT)\./i)) score += 3;
+        if ((m.tension_delta ?? 0) <= 0) score += 2; // Calmer scenes for establishing
+        break;
+      case 'multi_character':
+        score = Math.min(m.characters_present.length, 5) * 3;
+        if ((m.tension_delta ?? 0) > 0) score += 2;
+        break;
+      case 'emotional':
+        score = Math.abs(m.tension_delta ?? 0) * 2;
+        if (m.purpose?.includes('reveal') || m.purpose?.includes('emotional')) score += 5;
+        if (m.characters_present.length >= 1) score += 3;
+        break;
+      case 'atmospheric':
+        if (m.time_of_day) score += 4;
+        if (m.location && m.location.length > 3) score += 3;
+        if (m.characters_present.length === 0) score += 2; // Prefer empty atmosphere
+        break;
+      default:
+        score = 1;
+    }
+    return { moment: m, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // Use variant index to pick from top candidates (avoid always picking the same one)
+  const topN = Math.min(scored.length, 4);
+  return scored[variantIndex % topN].moment;
+}
+
+function buildNarrativeMomentBlock(moment: NarrativeMoment): string {
+  const lines = ['[NARRATIVE MOMENT — FROM THIS PROJECT\'S SCRIPT]', ''];
+  if (moment.slugline) lines.push(`SCENE: ${moment.slugline}`);
+  if (moment.summary) lines.push(`WHAT IS HAPPENING: ${moment.summary}`);
+  if (moment.characters_present.length > 0) {
+    lines.push(`WHO IS PRESENT: ${moment.characters_present.join(', ')}`);
+  }
+  if (moment.location) lines.push(`WHERE: ${moment.location}`);
+  if (moment.time_of_day) lines.push(`TIME OF DAY: ${moment.time_of_day}`);
+  if (moment.purpose) lines.push(`DRAMATIC PURPOSE: ${moment.purpose}`);
+  lines.push('');
+  lines.push('Generate this image as if it were a frame from THIS specific scene.');
+  lines.push('Do NOT invent a generic scenario — depict THIS moment from the story.');
+  return lines.join('\n');
+}
+
+async function loadNarrativeMoments(sb: any, projectId: string): Promise<NarrativeMoment[]> {
+  // Load active scene IDs
+  const { data: scenes } = await sb
+    .from('scene_graph_scenes')
+    .select('id')
+    .eq('project_id', projectId)
+    .is('deprecated_at', null)
+    .limit(50);
+  if (!scenes?.length) return [];
+
+  const sceneIds = scenes.map((s: any) => s.id);
+
+  // Load latest version per scene (highest version_number)
+  const { data: versions } = await sb
+    .from('scene_graph_versions')
+    .select('scene_id, slugline, summary, content, characters_present, location, time_of_day, purpose, tension_delta, canon_location_id, version_number')
+    .eq('project_id', projectId)
+    .in('scene_id', sceneIds)
+    .order('version_number', { ascending: false });
+  if (!versions?.length) return [];
+
+  // Deduplicate to latest version per scene
+  const seen = new Set<string>();
+  const moments: NarrativeMoment[] = [];
+  for (const v of versions) {
+    if (seen.has(v.scene_id)) continue;
+    seen.add(v.scene_id);
+    if (!v.summary && !v.content) continue; // Skip empty scenes
+
+    const chars = Array.isArray(v.characters_present)
+      ? v.characters_present.filter((c: any) => typeof c === 'string')
+      : [];
+    moments.push({
+      slugline: v.slugline || '',
+      summary: v.summary || '',
+      characters_present: chars,
+      location: v.location || '',
+      time_of_day: v.time_of_day || '',
+      purpose: v.purpose || '',
+      tension_delta: typeof v.tension_delta === 'number' ? v.tension_delta : null,
+      content_preview: (v.content || '').slice(0, 200),
+      canon_location_id: v.canon_location_id || null,
+    });
+  }
+  return moments;
 }
 
 // ── Canonical Visual Binding Types ──────────────────────────────────────────
@@ -485,8 +640,13 @@ function buildIdentityPrompt(characterName: string, shotType: ShotType, ctx: Sec
   ].join("\n");
 }
 
-function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext): string {
+function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext, variantIndex: number = 0): string {
   const framing = SHOT_FRAMING[shotType];
+
+  // ── Narrative moment selection ──
+  const narrativeMoment = (ctx.narrativeMoments?.length)
+    ? selectNarrativeMoment(ctx.narrativeMoments, shotType, variantIndex)
+    : null;
 
   let subjectDescription = "";
   switch (assetGroup) {
@@ -494,25 +654,53 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       subjectDescription = ctx.characterName
         ? `Character: ${ctx.characterName}. ${ctx.characters || "A compelling screen presence with emotional depth."}`
         : ctx.characters || "The protagonist — a compelling screen presence with emotional depth.";
+      // Enrich with narrative moment if available
+      if (narrativeMoment?.summary && !ctx.characterName) {
+        subjectDescription += ` In this moment: ${narrativeMoment.summary}`;
+      }
       break;
     case "world":
       if (ctx.locationName) {
         subjectDescription = `Location: "${ctx.locationName}". ${ctx.locationDescription || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+      } else if (narrativeMoment?.location) {
+        subjectDescription = `Location: "${narrativeMoment.location}". ${narrativeMoment.summary || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+        if (narrativeMoment.time_of_day) subjectDescription += ` Time of day: ${narrativeMoment.time_of_day}.`;
       } else {
         subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
       }
       break;
     case "key_moment": {
-      const castLine = ctx.boundCharacterNames?.length
-        ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
-        : '';
-      subjectDescription = [
-        castLine,
-        ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.",
-        "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
-        "Symbolic meaning must emerge through staging, composition, lighting, and actor placement — NOT through illustrative, painterly, or concept-art rendering.",
-        "This must look like a production still from a theatrically released live-action film.",
-      ].filter(Boolean).join(" ");
+      // KEY MOMENT: prioritize narrative moment over generic conflict
+      if (narrativeMoment?.summary) {
+        const sceneChars = narrativeMoment.characters_present;
+        const castLine = sceneChars.length
+          ? `Characters who MUST appear: ${sceneChars.join(', ')}. `
+          : (ctx.boundCharacterNames?.length
+            ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
+            : '');
+        const locationLine = narrativeMoment.location ? `Location: ${narrativeMoment.location}. ` : '';
+        const timeLine = narrativeMoment.time_of_day ? `Time: ${narrativeMoment.time_of_day}. ` : '';
+        subjectDescription = [
+          castLine,
+          locationLine,
+          timeLine,
+          `THE MOMENT: ${narrativeMoment.summary}`,
+          narrativeMoment.purpose ? `DRAMATIC PURPOSE: ${narrativeMoment.purpose}.` : '',
+          "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
+          "This must look like a production still from a theatrically released live-action film.",
+        ].filter(Boolean).join(" ");
+      } else {
+        const castLine = ctx.boundCharacterNames?.length
+          ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
+          : '';
+        subjectDescription = [
+          castLine,
+          ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.",
+          "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
+          "Symbolic meaning must emerge through staging, composition, lighting, and actor placement — NOT through illustrative, painterly, or concept-art rendering.",
+          "This must look like a production still from a theatrically released live-action film.",
+        ].filter(Boolean).join(" ");
+      }
       break;
     }
     case "visual_language":
@@ -526,7 +714,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     'Ground all imagery in real-world production design',
   ].join('. ');
 
-  return [
+  const promptParts = [
     `A cinematic film still for "${ctx.title}".`,
     ``,
     `SHOT TYPE: ${framing}`,
@@ -534,6 +722,14 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `SUBJECT: ${subjectDescription}`,
     ``,
     `TONE: ${ctx.tone || "dramatic"}. Genre: ${ctx.genres?.join(", ") || "drama"}.`,
+  ];
+
+  // Inject full narrative moment block for non-character, non-visual_language shots
+  if (narrativeMoment && assetGroup !== 'visual_language') {
+    promptParts.push('', buildNarrativeMomentBlock(narrativeMoment));
+  }
+
+  promptParts.push(
     ``,
     `PHOTOREALISM MANDATE: ${ctx.stylePolicy.styleDirectives}`,
     ``,
@@ -545,13 +741,15 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `- Must look indistinguishable from a still frame from a theatrically released film`,
     ``,
     `TECHNICAL: Premium cinematic quality. Anamorphic lens characteristics.`,
-  ].join("\n");
+  );
+
+  return promptParts.join("\n");
 }
 
 function buildSectionPrompt(section: LookbookSection, ctx: SectionContext, variantIndex: number): string {
   const pack = SHOT_PACKS[section === "character" ? "character" : section === "world" ? "world" : section === "key_moment" ? "key_moment" : "visual_language"];
   const shotType = pack[variantIndex % pack.length];
-  return buildPackPrompt(section as AssetGroup, shotType, ctx);
+  return buildPackPrompt(section as AssetGroup, shotType, ctx, variantIndex);
 }
 
 // ── Image generation ─────────────────────────────────────────────────────────
@@ -842,6 +1040,10 @@ serve(async (req) => {
       }
     }
 
+    // ── NARRATIVE BINDING: Load scene graph moments for story-driven generation ──
+    const narrativeMoments = await loadNarrativeMoments(supabase, project_id);
+    console.log(`[narrative-binding] project=${project_id} scenes_loaded=${narrativeMoments.length}`);
+
     // ── CANONICAL VISUAL BINDING: Auto-resolve character, location, world ──
     const canonicalBindings = await resolveCanonicalBindings(
       supabase, project_id, section, canon?.canon_json || null,
@@ -872,6 +1074,7 @@ serve(async (req) => {
       locationBindingBlock: canonicalBindings.locationPromptBlock,
       characterBindingBlock: canonicalBindings.characterPromptBlock,
       boundCharacterNames: canonicalBindings.characters.map(c => c.character_name),
+      narrativeMoments,
     };
 
     // ── Resolve identity anchor signed URLs if provided ──
@@ -985,7 +1188,7 @@ serve(async (req) => {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
       } else {
         prompt = shotType
-          ? buildPackPrompt(assetGroup, shotType, ctx)
+          ? buildPackPrompt(assetGroup, shotType, ctx, i)
           : buildSectionPrompt(section, ctx, i);
       }
 
