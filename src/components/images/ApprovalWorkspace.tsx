@@ -340,7 +340,7 @@ function CharacterGroupRow({
 // ── Candidate Card ──
 
 function CandidateCard({
-  image, isRecommended, isSelectedForCompare, compact, identityContinuity,
+  image, isRecommended, isSelectedForCompare, compact, identityContinuity, rankReason,
   onApprove, onReject, onRejectReuse, onExpand, onToggleCompare,
 }: {
   image: ProjectImage;
@@ -348,6 +348,7 @@ function CandidateCard({
   isSelectedForCompare: boolean;
   compact?: boolean;
   identityContinuity?: { status: IdentityContinuityStatus; reason: string };
+  rankReason?: string;
   onApprove: () => void;
   onReject: () => void;
   onRejectReuse: () => void;
