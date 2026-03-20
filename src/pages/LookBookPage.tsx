@@ -161,7 +161,32 @@ export default function LookBookPage() {
     }
   }, [viewMode, lookBookData, generating, projectId, handleGenerate]);
 
-  const handleExportPDF = useCallback(async () => {
+  // Persist layout-family override into canonical lookbook data
+  const handleSlideLayoutOverride = useCallback((slideIndex: number, familyKey: LayoutFamilyKey | null) => {
+    setLookBookData(prev => {
+      if (!prev) return prev;
+      const updatedSlides = prev.slides.map((slide, i) => {
+        if (i !== slideIndex) return slide;
+        if (familyKey === null) {
+          // Reset to auto
+          return {
+            ...slide,
+            layoutFamilyOverride: null,
+            layoutFamilyOverrideSource: null as const,
+            layoutFamilyEffective: slide.layoutFamily || 'landscape_standard',
+          };
+        }
+        return {
+          ...slide,
+          layoutFamilyOverride: familyKey,
+          layoutFamilyOverrideSource: 'user' as const,
+          layoutFamilyEffective: familyKey,
+        };
+      });
+      return { ...prev, slides: updatedSlides };
+    });
+  }, []);
+
     if (!lookBookData || !projectId) return;
     setExporting(true);
     try {
