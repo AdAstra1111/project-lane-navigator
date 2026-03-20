@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon, Link2, Unlink2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -713,7 +714,7 @@ function LocationImageCard({
 
   return (
     <div className={cn(
-      'group relative rounded-md overflow-hidden border-2 transition-all aspect-video bg-muted',
+      `group relative rounded-md overflow-hidden border-2 transition-all ${getDisplayAspectClass(image.width, image.height)} bg-muted`,
       isPrimary ? 'border-primary ring-1 ring-primary/30' : isArchived ? 'border-border/30 opacity-50' : 'border-border/50 hover:border-primary/40',
     )}>
       {image.signedUrl ? (

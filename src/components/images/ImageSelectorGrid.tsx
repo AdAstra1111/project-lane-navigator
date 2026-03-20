@@ -22,6 +22,7 @@ import {
 import { useImageCuration } from '@/hooks/useImageCuration';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
+import { getDisplayAspectClass, getOrientationLabel } from '@/lib/images/orientationUtils';
 
 // ── Section policy model ─────────────────────────────────────────────────────
 
@@ -253,7 +254,7 @@ export function ImageSelectorGrid({
       {compareMode && compareImages.length === 2 && (
         <div className="grid grid-cols-2 gap-2 rounded-lg border border-primary/30 p-2 bg-muted/30">
           {compareImages.map(img => (
-            <div key={img.id} className="relative aspect-video rounded overflow-hidden">
+            <div key={img.id} className={cn('relative rounded overflow-hidden', getDisplayAspectClass(img.width, img.height))}>
               {img.signedUrl ? (
                 <img src={img.signedUrl} alt="" className="w-full h-full object-cover" />
               ) : (
@@ -491,7 +492,7 @@ function ImageCard({
   return (
     <div
       className={cn(
-        'group relative rounded-md overflow-hidden border-2 cursor-pointer transition-all aspect-video bg-muted',
+        `group relative rounded-md overflow-hidden border-2 cursor-pointer transition-all ${getDisplayAspectClass(img.width, img.height)} bg-muted`,
         isPrimary
           ? 'border-primary ring-2 ring-primary/40'
           : isActive
@@ -524,6 +525,10 @@ function ImageCard({
             <Check className="h-2 w-2" /> Active
           </Badge>
         )}
+        {/* Orientation badge */}
+        <Badge variant="outline" className="text-[7px] px-1 py-0 border-white/30 text-white/70 bg-black/40">
+          {getOrientationLabel(img.width, img.height)}
+        </Badge>
         {/* External indicator */}
         {showProvenance && !native && (
           <Badge variant="outline" className="text-[7px] px-1 py-0 border-amber-500/40 text-amber-400 bg-black/40">
