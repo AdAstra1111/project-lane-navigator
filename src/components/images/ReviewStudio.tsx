@@ -67,6 +67,7 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
 
   const { approveIntoCanon, rejectCandidate, batchApproveAll } = useVisualCanonReset(projectId);
   const { setCurationState } = useImageCuration(projectId);
+  const vs = useVisualSets(projectId);
 
   // Derive identity anchors
   const identityAnchorMap: IdentityAnchorMap = useMemo(
