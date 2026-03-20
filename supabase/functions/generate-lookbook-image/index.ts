@@ -71,6 +71,53 @@ interface SectionContext {
   characterName?: string;
   locationName?: string;
   locationDescription?: string;
+  worldBindingBlock?: string;
+  locationBindingBlock?: string;
+  characterBindingBlock?: string;
+}
+
+// ── Canonical Visual Binding Types ──────────────────────────────────────────
+interface CharacterBinding {
+  character_name: string;
+  dna_version_id: string | null;
+  identity_signature: Record<string, unknown> | null;
+  locked_invariants: Record<string, unknown> | null;
+  traits_summary: string;
+}
+
+interface LocationBinding {
+  location_id: string;
+  canonical_name: string;
+  description: string | null;
+  location_type: string;
+  geography: string | null;
+  interior_or_exterior: string | null;
+  era_relevance: string | null;
+  story_importance: string;
+}
+
+interface WorldBinding {
+  era: string;
+  geography: string;
+  architecture: string;
+  social_structure: string;
+  costume_language: string;
+  environmental_palette: string;
+  technology_level: string;
+  cultural_markers: string;
+  world_rules: string[];
+  bound: boolean;
+}
+
+interface CanonicalBindingResult {
+  characters: CharacterBinding[];
+  locations: LocationBinding[];
+  world: WorldBinding;
+  characterPromptBlock: string;
+  locationPromptBlock: string;
+  worldPromptBlock: string;
+  binding_status: 'bound' | 'partially_bound' | 'unbound';
+  missing: string[];
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
