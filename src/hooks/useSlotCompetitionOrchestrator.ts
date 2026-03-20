@@ -210,6 +210,97 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Rerun creation failed: ${e.message}`),
   });
 
+  // ── Explicit action: initiate repair for a group ──
+  const initiateRepair = useMutation({
+    mutationFn: async (params: {
+      groupId: string;
+      sourceRoundId: string;
+      targetCount?: number;
+      scoreThreshold?: number;
+      maxAttempts?: number;
+    }) => {
+      // 1. Check if repair is allowed
+      const repairCheck = await canRepair(params.groupId, params.maxAttempts);
+      if (!repairCheck.allowed) {
+        throw new Error(`Repair not allowed: ${repairCheck.reason} (${repairCheck.attemptCount}/${repairCheck.maxAttempts})`);
+      }
+
+      // 2. Create repair run
+      const run = await createRepairRun({
+        groupId: params.groupId,
+        sourceRoundId: params.sourceRoundId,
+        maxAttempts: params.maxAttempts,
+      });
+
+      // 3. Derive repair targets
+      const targets = await deriveRepairTargetsFromRound({
+        repairRunId: run.id,
+        groupId: params.groupId,
+        sourceRoundId: params.sourceRoundId,
+        targetCount: params.targetCount,
+        scoreThreshold: params.scoreThreshold,
+      });
+
+      if (targets.length === 0) {
+        await failRepairRun(run.id, 'no_weak_candidates');
+        return { run, targets, repairRound: null, skipped: true };
+      }
+
+      // 4. Create repair round
+      const repairRound = await createRepairRoundService({
+        repairRunId: run.id,
+        groupId: params.groupId,
+      });
+
+      return { run, targets, repairRound, skipped: false };
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: competitionKeys.groupDetail(vars.groupId) });
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: competitionKeys.groups(projectId) });
+      }
+      if (_data?.skipped) {
+        toast.info('No weak candidates found — repair skipped');
+      } else {
+        toast.success(`Repair initiated: ${_data?.targets.length} target(s)`);
+      }
+    },
+    onError: (e: Error) => toast.error(`Repair failed: ${e.message}`),
+  });
+
+  // ── Explicit action: register a repaired candidate ──
+  const registerRepaired = useMutation({
+    mutationFn: async (params: {
+      groupId: string;
+      versionRefId: string;
+      sourceCandidateVersionId: string;
+      sourceRunId?: string;
+    }) => {
+      return registerRepairedCandidate(params);
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: competitionKeys.groupDetail(vars.groupId) });
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: competitionKeys.groups(projectId) });
+      }
+    },
+    onError: (e: Error) => toast.error(`Register repaired candidate failed: ${e.message}`),
+  });
+
+  // ── Explicit action: finalize repair run ──
+  const finalizeRepair = useMutation({
+    mutationFn: async (repairRunId: string) => {
+      return finalizeRepairRun(repairRunId);
+    },
+    onSuccess: () => {
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: competitionKeys.groups(projectId) });
+      }
+      toast.success('Repair run finalized');
+    },
+    onError: (e: Error) => toast.error(`Finalize repair failed: ${e.message}`),
+  });
+
   return {
     /** DB-backed group list (query state) */
     groups: groupsQuery.data || [],
@@ -228,5 +319,11 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     selectCompetitionWinner,
     /** Explicit: create rerun round for existing group */
     createRerun,
+    /** Explicit: initiate repair for weak candidates */
+    initiateRepair,
+    /** Explicit: register a repaired candidate with lineage */
+    registerRepaired,
+    /** Explicit: finalize a completed repair run */
+    finalizeRepair,
   };
 }
