@@ -277,7 +277,7 @@ export default function LookBookPage() {
           </TabsList>
 
           {/* ── Workspace: scrollable content ── */}
-          <TabsContent value="workspace" className="mt-0 flex-1 min-h-0 overflow-y-auto pb-4">
+          <TabsContent value="workspace" className="mt-0 flex-1 min-h-0 overflow-y-auto pb-4 data-[state=active]:flex data-[state=active]:flex-col">
             {sections.length > 0 ? (
               <div className="space-y-1.5">
                 {sections.map(section => (
@@ -307,7 +307,7 @@ export default function LookBookPage() {
           </TabsContent>
 
           {/* ── Viewer: flex-fill, no scroll ── */}
-          <TabsContent value="viewer" className="mt-0 flex-1 min-h-0 flex flex-col">
+          <TabsContent value="viewer" className="mt-0 flex-1 min-h-0 data-[state=active]:flex data-[state=active]:flex-col">
             {viewerAvailable ? (
               <div className="flex flex-col flex-1 min-h-0 rounded-lg border border-border bg-card/40 overflow-hidden">
                 {projectId && (
