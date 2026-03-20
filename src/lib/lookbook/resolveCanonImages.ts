@@ -263,6 +263,7 @@ async function hydrateSignedUrls(images: ProjectImage[]): Promise<void> {
 async function fetchSectionImages(
   projectId: string,
   sectionKey: CanonicalSectionKey,
+  laneKey: string | null = null,
   limit = 12,
 ): Promise<SectionImageResult> {
   const mapping = SECTION_QUERY_MAP[sectionKey];
