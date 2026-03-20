@@ -603,8 +603,8 @@ async function generateImage(
   model: string,
   gatewayUrl: string,
   referenceImageUrls?: string[],
-  _requestedWidth?: number,
-  _requestedHeight?: number,
+  requestedWidth?: number,
+  requestedHeight?: number,
 ): Promise<ProviderImageResult> {
   const content: Array<Record<string, unknown>> = [];
   if (referenceImageUrls?.length) {
@@ -614,14 +614,24 @@ async function generateImage(
   }
   content.push({ type: "text", text: prompt });
 
+  // Build request body — include size hints when available
+  const requestBody: Record<string, unknown> = {
+    model,
+    messages: [{ role: "user", content }],
+    modalities: ["image", "text"],
+  };
+
+  // Pass explicit image size parameters to provider when available
+  // The provider may or may not honor these, which is why we measure actual output
+  if (requestedWidth && requestedHeight) {
+    requestBody.image_size = { width: requestedWidth, height: requestedHeight };
+    console.log(`[generateImage] Requesting explicit dimensions: ${requestedWidth}x${requestedHeight}`);
+  }
+
   const resp = await fetch(gatewayUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content }],
-      modalities: ["image", "text"],
-    }),
+    body: JSON.stringify(requestBody),
   });
   if (!resp.ok) {
     const errText = await resp.text();
@@ -1083,20 +1093,22 @@ FRAMING RULES:
           });
         if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
-        // ── VERTICAL COMPLIANCE: Measure ACTUAL output dimensions, not requested ──
+        // ── VERTICAL COMPLIANCE: Measure ACTUAL output dimensions ──
+        // STRICT POLICY: Only store measured dimensions. If measurement fails,
+        // store NULL so downstream compliance correctly marks as non-compliant.
         const measuredDims = measureImageDimensions(imageResult.rawBytes);
-        const storedWidth = measuredDims?.width ?? effectiveWidth;
-        const storedHeight = measuredDims?.height ?? effectiveHeight;
-        const dimsSource = measuredDims ? 'measured' : 'requested_fallback';
+        const storedWidth = measuredDims?.width ?? null;
+        const storedHeight = measuredDims?.height ?? null;
+        const dimsSource = measuredDims ? 'measured' : 'unmeasured';
         
         // Check if actual output matches requested aspect ratio
-        const actualRatio = storedWidth > 0 ? storedHeight / storedWidth : 0;
+        const actualRatio = (storedWidth && storedHeight && storedWidth > 0) ? storedHeight / storedWidth : 0;
         const requestedRatio = effectiveWidth > 0 ? effectiveHeight / effectiveWidth : 0;
-        const aspectDrift = Math.abs(actualRatio - requestedRatio);
-        const aspectCompliant = aspectDrift < 0.15;
+        const aspectDrift = actualRatio > 0 ? Math.abs(actualRatio - requestedRatio) : -1;
+        const aspectCompliant = actualRatio > 0 && aspectDrift < 0.15;
         
         if (!aspectCompliant && isVerticalDramaProject) {
-          console.warn(`[vertical-compliance] ASPECT DRIFT: requested ${effectiveWidth}x${effectiveHeight} (ratio=${requestedRatio.toFixed(2)}), got ${storedWidth}x${storedHeight} (ratio=${actualRatio.toFixed(2)}), drift=${aspectDrift.toFixed(2)}`);
+          console.warn(`[vertical-compliance] ASPECT DRIFT: requested ${effectiveWidth}x${effectiveHeight} (ratio=${requestedRatio.toFixed(2)}), got ${storedWidth}x${storedHeight} (ratio=${actualRatio.toFixed(2)}), drift=${aspectDrift.toFixed(2)}, source=${dimsSource}`);
         }
         console.log(`[vertical-compliance] dims_source=${dimsSource} actual=${storedWidth}x${storedHeight} requested=${effectiveWidth}x${effectiveHeight} compliant=${aspectCompliant}`);
 

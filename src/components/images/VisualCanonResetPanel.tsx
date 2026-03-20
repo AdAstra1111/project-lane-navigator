@@ -522,14 +522,22 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         slotsUnresolved: unresolvedSlots.length,
         unresolvedReasons: unresolvedSlots.map(r => `${r.slotKey}: ${r.noWinnerReason}`),
         isVerticalDrama,
+        complianceGateBlocked: slotResults.filter(r => r.complianceGate && !r.complianceGate.allowed).length,
         nonCompliantFiltered: isVerticalDrama ? slotResults.filter(r => r.allScored.some(s => !s.eligibleForSelection)).length : 0,
       });
 
-      // Stage 5: Select winners — attach ONLY scored winners
-      setRebuildStage('Selecting winners');
+      // Stage 5: Select winners — attach ONLY scored, compliance-gated winners
+      setRebuildStage('Attaching winners');
 
       for (const result of slotResults) {
         if (!result.winner) continue;
+
+        // COMPLIANCE GATE: Skip if gate blocked (VD enforcement)
+        if (result.complianceGate && !result.complianceGate.allowed) {
+          console.warn(`[full-canon-rebuild] Compliance gate BLOCKED attachment for ${result.slotKey}: ${result.complianceGate.reason}`);
+          continue;
+        }
+
         const winnerId = result.winner.imageId;
 
         // Clear any existing primary in this slot
@@ -565,7 +573,6 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         .filter(id => !winnerIds.has(id));
 
       if (allCandidateIds.length > 0) {
-        // Batch update in chunks of 50
         for (let i = 0; i < allCandidateIds.length; i += 50) {
           const chunk = allCandidateIds.slice(i, i + 50);
           await (supabase as any)
@@ -581,9 +588,22 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       await refetchImages();
 
-      // Stage 6: Attach to canon
-      setRebuildStage('Attaching winners');
-      toast.success(`Canon attached: ${winners.length} winner${winners.length !== 1 ? 's' : ''} selected from ${slotTargets.length} slots`);
+      // ── Honest completion messaging ──
+      const gateBlocked = slotResults.filter(r => r.complianceGate && !r.complianceGate.allowed).length;
+      const actualAttached = winners.length - gateBlocked;
+
+      if (unresolvedSlots.length > 0 || gateBlocked > 0) {
+        toast.warning(
+          `Rebuild completed with ${unresolvedSlots.length + gateBlocked} unresolved slot${(unresolvedSlots.length + gateBlocked) !== 1 ? 's' : ''} — ` +
+          `${actualAttached} of ${slotTargets.length} winners attached` +
+          (isVerticalDrama ? ' (strict 9:16 compliance enforced)' : ''),
+        );
+      } else {
+        toast.success(
+          `Canon attached: ${actualAttached} winner${actualAttached !== 1 ? 's' : ''} from ${slotTargets.length} slots` +
+          (isVerticalDrama ? ' — strict vertical compliance verified' : ''),
+        );
+      }
 
       // Stage 7: Build lookbook
       setRebuildStage('Building lookbook');
@@ -597,7 +617,6 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       // Done
       setRebuildStage('Complete');
-      toast.success('Full Canon Rebuild complete — score-selected winners attached');
     } catch (err: any) {
       console.error('[full-canon-rebuild] Error:', err);
       toast.error('Rebuild failed at stage: ' + (rebuildStage || 'unknown') + ' — ' + (err.message || 'Unknown error'));
@@ -605,7 +624,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       setFullRebuilding(false);
       setRebuildStage(null);
     }
-  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, rebuildStage, canonJson, projectId, isVerticalDrama]);
+  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, rebuildStage, canonJson, projectId, isVerticalDrama, projectFormat, projectLane]);
 
   // ── Download winners only (not all active images) ──
   const downloadWinnersOnly = useCallback(async (winnerIds: Set<string>) => {
