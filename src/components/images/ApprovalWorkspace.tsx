@@ -206,6 +206,7 @@ export function ApprovalWorkspace({
         onClose={() => setShowComparison(false)}
         onSetPrimary={onSetPrimary}
         onReject={(id) => onReject(id, false)}
+        identityAnchorMap={identityAnchorMap}
       />
     </div>
   );
