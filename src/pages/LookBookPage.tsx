@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import type { LookBookData } from '@/lib/lookbook/types';
 import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
+import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 
 type LookbookMode = 'workspace' | 'viewer';
 
