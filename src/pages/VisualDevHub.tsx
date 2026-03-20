@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Image, Film,
   Play, Layers, ChevronRight, ChevronDown, Users, Globe, RotateCcw, Palette, Grid3X3, BookOpen, Eye,
+  ScanEye,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -19,6 +20,7 @@ import { WorldLocationLookPanel } from '@/components/images/WorldLocationLookPan
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { VisualChangeStudio } from '@/components/images/VisualChangeStudio';
 import { VisualSetCurationPanel } from '@/components/images/VisualSetCurationPanel';
+import { ReviewStudio } from '@/components/images/ReviewStudio';
 import { StoryIngestionPanel } from '@/components/project/StoryIngestionPanel';
 import { VisualStyleAuthorityPanel, VisualStyleChip } from '@/components/images/VisualStyleAuthorityPanel';
 import { supabase } from '@/integrations/supabase/client';
@@ -170,6 +172,16 @@ export default function VisualDevHub() {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          {/* ═══ REVIEW STUDIO — Primary workspace ═══ */}
+          <WorkSection
+            icon={<ScanEye className="h-4 w-4" />}
+            title="Review Studio"
+            subtitle="Review, approve, reject, and compare all generated images"
+            defaultOpen={true}
+          >
+            {projectId && <ReviewStudio projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ VISUAL STYLE AUTHORITY ═══ */}
           <WorkSection
             icon={<Eye className="h-4 w-4" />}
@@ -195,7 +207,7 @@ export default function VisualDevHub() {
             icon={<Users className="h-4 w-4" />}
             title="Cast Photos & Identity"
             subtitle="Headshots, profile views, full-body anchors, and continuity lock"
-            defaultOpen={true}
+            defaultOpen={false}
           >
             {projectId && <CharacterBaseLookPanel projectId={projectId} />}
           </WorkSection>
