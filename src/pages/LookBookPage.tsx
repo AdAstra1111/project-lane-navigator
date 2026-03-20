@@ -51,6 +51,13 @@ export default function LookBookPage() {
     updateSectionStatus,
   } = useLookbookSections(projectId);
 
+  const {
+    resetSection,
+    regenerateClean,
+    resettingSection,
+    regeneratingSection,
+  } = useSectionReset(projectId || '');
+
   useEffect(() => {
     if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping) {
       bootstrap();
