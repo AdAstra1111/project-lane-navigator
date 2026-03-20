@@ -28,7 +28,7 @@ import { supabase } from '@/integrations/supabase/client';
 export type CompetitionStatus = 'open' | 'ranked' | 'winner_selected' | 'closed';
 export type SelectionMode = 'manual' | 'system_reserved_for_future';
 export type RunContextType = 'image' | 'document' | 'poster' | 'lookbook' | 'other';
-export type RoundType = 'initial' | 'rerun' | 'manual_reassessment' | 'repair_reserved';
+export type RoundType = 'initial' | 'rerun' | 'manual_reassessment' | 'repair';
 export type RoundStatus = 'active' | 'completed' | 'superseded' | 'failed';
 
 export interface CandidateGroup {
