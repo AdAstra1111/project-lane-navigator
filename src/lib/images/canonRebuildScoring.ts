@@ -22,7 +22,7 @@
  */
 
 import type { ProjectImage } from './types';
-import { SHOT_ASPECT_RATIO, type AspectRatio } from './requiredVisualSet';
+import { SHOT_ASPECT_RATIO, PORTRAIT_SHOT_OVERRIDE, type AspectRatio } from './requiredVisualSet';
 
 // ── Types ──
 
