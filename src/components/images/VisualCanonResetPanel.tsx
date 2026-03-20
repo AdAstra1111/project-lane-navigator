@@ -604,7 +604,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           (isVerticalDrama ? ' — strict vertical compliance verified' : ''),
         );
       }
-    }
+      rebuildBridge.complete();
 
     console.log('[rebuild-ui] Execution result:', {
       status: result.executionStatus,
