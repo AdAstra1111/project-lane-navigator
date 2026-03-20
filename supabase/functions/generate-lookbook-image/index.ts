@@ -1055,6 +1055,16 @@ FRAMING RULES:
         }
       }
 
+      // Step 8b: PRESTIGE STYLE — Inject lane grammar + prestige style composite
+      // This is the CORE style consistency layer. Without it, generated images
+      // lack specific lighting/palette/texture/tone direction and drift to generic AI output.
+      if (!isIdentityGeneration && prestigeComposite.promptBlock) {
+        prompt += `\n\n${prestigeComposite.promptBlock}`;
+        if (prestigeComposite.negativeBlock) {
+          prompt += `\n\nSTYLE PROHIBITIONS: ${prestigeComposite.negativeBlock}`;
+        }
+      }
+
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
