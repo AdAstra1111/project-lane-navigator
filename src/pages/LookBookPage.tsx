@@ -19,6 +19,7 @@ import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { LookBookData } from '@/lib/lookbook/types';
@@ -29,6 +30,7 @@ type LookbookMode = 'workspace' | 'viewer';
 export default function LookBookPage() {
   const { id: projectId } = useParams<{ id: string }>();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
@@ -63,18 +65,46 @@ export default function LookBookPage() {
       structureStatus,
       viewMode,
       viewerDataPresent: !!lookBookData,
+      buildEpoch: lookbookBuildEpoch,
     });
-  }, [location.pathname, projectId, sections.length, structureStatus, viewMode, lookBookData]);
+  }, [location.pathname, projectId, sections.length, structureStatus, viewMode, lookBookData, lookbookBuildEpoch]);
+
+  /**
+   * Invalidate all react-query caches that could hold stale image data.
+   * This ensures the next build resolves fresh images from DB.
+   */
+  const invalidateImageCaches = useCallback(() => {
+    if (!projectId) return;
+    // Invalidate workspace section content caches (20-min staleTime)
+    queryClient.invalidateQueries({ queryKey: ['lookbook-section-content', projectId] });
+    // Invalidate any project-images caches
+    queryClient.invalidateQueries({ queryKey: ['project-images', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
+    console.log('[LookBookPage] ✓ invalidated all image caches for fresh build');
+  }, [projectId, queryClient]);
 
   const handleGenerate = useCallback(async () => {
     if (!projectId) return;
     setGenerating(true);
     try {
+      // Invalidate all image caches before building
+      invalidateImageCaches();
+
       // Always re-resolve from DB — no stale snapshot reuse
+      console.log('[LookBookPage] Building lookbook from fresh DB state...');
       const data = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
+
+      // Log provenance for debugging stale-data issues
+      const imageCount = data.slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
+      console.log('[LookBookPage] ✓ Build complete', {
+        slideCount: data.slides.length,
+        totalImageRefs: imageCount,
+        generatedAt: data.generatedAt,
+      });
+
       setLookBookData(data);
       setLookbookBuildEpoch(Date.now());
       toast.success('Look Book generated — open Viewer to preview slides');
@@ -83,7 +113,7 @@ export default function LookBookPage() {
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding]);
+  }, [projectId, branding, invalidateImageCaches]);
 
   // Auto-rebuild when switching to viewer if no data exists yet
   useEffect(() => {
@@ -141,6 +171,7 @@ export default function LookBookPage() {
         toast.success(`Generated ${successCount} images for ${sectionKey.replace(/_/g, ' ')}`);
         await updateSectionStatus(sectionKey, { section_status: 'partially_populated' });
         // Invalidate stale lookbook data so next build picks up new images
+        invalidateImageCaches();
         setLookBookData(null);
       } else {
         toast.info('No images generated — check upstream prerequisites');
@@ -150,7 +181,7 @@ export default function LookBookPage() {
     } finally {
       setPopulatingSection(null);
     }
-  }, [projectId, updateSectionStatus]);
+  }, [projectId, updateSectionStatus, invalidateImageCaches]);
 
   if (projectLoading || sectionsLoading) {
     return (
@@ -162,14 +193,16 @@ export default function LookBookPage() {
 
   const populatedCount = sections.filter(s => s.section_status !== 'empty_but_bootstrapped').length;
   const viewerAvailable = !!lookBookData;
+  const isViewerMode = viewMode === 'viewer';
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* ── Toolbar — always shrink-0 ── */}
       <div className="px-4 py-2 border-b border-border bg-card/50 shrink-0 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen className="h-4 w-4 text-primary shrink-0" />
           <span className="text-sm font-semibold text-foreground">
-            {viewMode === 'workspace' ? 'Look Book Workspace' : 'Look Book Presentation'}
+            {isViewerMode ? 'Look Book Presentation' : 'Look Book Workspace'}
           </span>
           <Badge variant="secondary" className="text-[10px]">
             {structureStatus === 'fully_populated' ? 'Complete' :
@@ -191,9 +224,10 @@ export default function LookBookPage() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col">
+      {/* ── Main content area ── */}
+      <div className="flex-1 min-h-0 flex flex-col">
         {structureStatus === 'invalid_structure' && (
-          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-start gap-2">
+          <div className="mx-4 mt-3 mb-0 rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-start gap-2 shrink-0">
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-destructive">Lookbook structure missing or incomplete</p>
@@ -205,18 +239,23 @@ export default function LookBookPage() {
         )}
 
         {projectId && (
-          <div className="mb-4">
+          <div className="mx-4 mt-3 mb-0 shrink-0">
             <VisualCanonResetPanel projectId={projectId} />
           </div>
         )}
 
-        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as LookbookMode)} className="w-full flex-1 flex flex-col min-h-0">
-          <TabsList className="mb-4">
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => setViewMode(value as LookbookMode)}
+          className="flex-1 min-h-0 flex flex-col px-4 pt-3"
+        >
+          <TabsList className="mb-3 shrink-0">
             <TabsTrigger value="workspace">Workspace</TabsTrigger>
             <TabsTrigger value="viewer">Viewer</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="workspace" className="mt-0">
+          {/* ── Workspace: scrollable content ── */}
+          <TabsContent value="workspace" className="mt-0 flex-1 min-h-0 overflow-y-auto pb-4">
             {sections.length > 0 ? (
               <div className="space-y-1.5">
                 {sections.map(section => (
@@ -241,15 +280,21 @@ export default function LookBookPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="viewer" className="mt-0 flex-1 min-h-0">
+          {/* ── Viewer: flex-fill, no scroll ── */}
+          <TabsContent value="viewer" className="mt-0 flex-1 min-h-0 flex flex-col">
             {viewerAvailable ? (
-              <div className="flex flex-col h-full rounded-lg border border-border bg-card/40 overflow-hidden">
+              <div className="flex flex-col flex-1 min-h-0 rounded-lg border border-border bg-card/40 overflow-hidden">
                 {projectId && (
                   <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0">
                     <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
                   </div>
                 )}
-                <LookBookViewer data={lookBookData!} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1 min-h-0" />
+                <LookBookViewer
+                  data={lookBookData!}
+                  onExportPDF={handleExportPDF}
+                  isExporting={exporting}
+                  className="flex-1 min-h-0"
+                />
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
