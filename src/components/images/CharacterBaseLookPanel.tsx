@@ -8,6 +8,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye, Dna, Wand2, Download, RefreshCw } from 'lucide-react';
 import { CharacterVisualDNAPanel } from './CharacterVisualDNAPanel';
+import { IdentityAlignmentPanel } from './IdentityAlignmentPanel';
+import { useIdentityAlignmentScoring } from '@/hooks/useIdentityAlignmentScoring';
+import { resolveCharacterVisualDNA as resolveLocalDNA, deserializeBindingMarkers, deserializeEvidenceTraits } from '@/lib/images/visualDNA';
+import { computeCharacterAlignment } from '@/lib/images/identityAlignmentScoring';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -603,6 +607,33 @@ function CharacterIdentitySection({
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const { notes: savedNotes, canonCheckStatus, canonCheckMessages, isSaving, save: saveNotes } = useCharacterIdentityNotes(projectId, character.name);
 
+  // Resolve local DNA for scoring
+  const localDNAForScoring = useMemo(() => {
+    try {
+      return resolveLocalDNA(character.name, canonCharacter, canonJson, '', false);
+    } catch { return null; }
+  }, [character.name, canonCharacter, canonJson]);
+
+  // Fetch current DNA record for composite signature
+  const [dnaRecord, setDnaRecord] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('character_visual_dna')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('character_name', character.name)
+        .eq('is_current', true)
+        .maybeSingle();
+      setDnaRecord(data);
+    })();
+  }, [projectId, character.name]);
+
+  // Identity Alignment Scoring
+  const { alignment } = useIdentityAlignmentScoring(
+    projectId, character.name, identityImages, localDNAForScoring, dnaRecord,
+  );
+
   useEffect(() => {
     setLocalNotes(savedNotes);
     setLocalCanonCheck({ status: canonCheckStatus, messages: canonCheckMessages });
@@ -870,49 +901,46 @@ function CharacterIdentitySection({
     }
   }, [primaryHeadshot, primaryProfile, primaryFullBody, character.name]);
 
-  // ── Auto-fill Best Matches: pick one best primary per identity slot from existing candidates ──
+  // ── Auto-fill Best Matches: uses Identity Alignment Scoring Engine ──
   const handleAutoFillBest = useCallback(async () => {
+    if (!alignment) {
+      toast.info('No alignment data — generate candidates first');
+      return;
+    }
+
     const IDENTITY_SLOTS = ['identity_headshot', 'identity_profile', 'identity_full_body'] as const;
     let selected = 0;
 
-    for (const slotType of IDENTITY_SLOTS) {
-      const slotImages = identityImages.filter(i => i.shot_type === slotType);
+    for (const slot of IDENTITY_SLOTS) {
+      const slotImages = identityImages.filter(i => i.shot_type === slot);
       if (slotImages.length === 0) continue;
-
-      // Already has a primary — skip
       const existingPrimary = slotImages.find(i => i.is_primary);
       if (existingPrimary) continue;
 
-      // Rank: prefer active > candidate, then newest
-      const ranked = [...slotImages].sort((a, b) => {
-        const stateOrder = (s: string) => s === 'active' ? 0 : s === 'candidate' ? 1 : 2;
-        const diff = stateOrder(a.curation_state) - stateOrder(b.curation_state);
-        if (diff !== 0) return diff;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
+      // Use scoring engine recommendation
+      const slotRec = alignment.slots.find(s => s.slot === slot);
+      const best = slotRec?.bestCandidate;
+      if (!best || !best.eligible || best.confidence === 'low') continue;
 
-      const best = ranked[0];
-      if (!best) continue;
-
-      // Clear any existing primaries in this slot
+      // Clear existing primaries in this slot
       await (supabase as any)
         .from('project_images')
         .update({ is_primary: false })
         .eq('project_id', projectId)
         .eq('asset_group', 'character')
         .eq('subject', character.name)
-        .eq('shot_type', slotType)
+        .eq('shot_type', slot)
         .eq('is_primary', true);
 
-      // Set the best as primary + active, demote others to candidate
+      // Set scored best as primary
       await (supabase as any)
         .from('project_images')
         .update({ is_primary: true, curation_state: 'active', is_active: true })
-        .eq('id', best.id);
+        .eq('id', best.candidateId);
 
-      // Demote non-primary to candidate
-      const othersInSlot = slotImages.filter(i => i.id !== best.id);
-      for (const other of othersInSlot) {
+      // Demote others
+      const others = slotImages.filter(i => i.id !== best.candidateId);
+      for (const other of others) {
         await (supabase as any)
           .from('project_images')
           .update({ is_primary: false, curation_state: 'candidate', is_active: false })
@@ -925,11 +953,11 @@ function CharacterIdentitySection({
     if (selected > 0) {
       qc.invalidateQueries({ queryKey: ['project-images', projectId] });
       qc.invalidateQueries({ queryKey: ['project-images-paginated', projectId] });
-      toast.success(`Auto-selected best match for ${selected} identity slot${selected !== 1 ? 's' : ''}`);
+      toast.success(`Auto-selected best match for ${selected} identity slot${selected !== 1 ? 's' : ''} (scored)`);
     } else {
-      toast.info('All identity slots already have primaries or no candidates available');
+      toast.info('All identity slots already have primaries or no confident candidates available');
     }
-  }, [identityImages, projectId, character.name, qc]);
+  }, [identityImages, projectId, character.name, qc, alignment]);
 
   const generateButtonLabel = identityImages.length === 0
     ? 'Generate Identity Pack (headshot + profile + full body)'
@@ -1007,6 +1035,11 @@ function CharacterIdentitySection({
             </Button>
           </CardContent>
         </Card>
+      )}
+
+      {/* Identity Alignment Scoring */}
+      {alignment && identityImages.length > 0 && (
+        <IdentityAlignmentPanel alignment={alignment} />
       )}
 
       {/* Character Visual DNA Panel */}
