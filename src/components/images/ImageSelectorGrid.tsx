@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import {
   Check, Loader2, Star, Expand, ImageIcon, Archive, X, Eye,
-  MoreVertical, ArrowUp, ArrowDown, RotateCcw, Crown, Shield,
+  MoreVertical, ArrowUp, ArrowDown, RotateCcw, Crown, Shield, Link2, Unlink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
