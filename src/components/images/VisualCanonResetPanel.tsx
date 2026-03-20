@@ -91,6 +91,20 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
   const vs = useVisualSets(projectId);
 
+  const populateBridge = useProcessBridge({
+    keyPrefix: 'autopopulate',
+    type: 'Image Generation',
+    projectId,
+    href: `/projects/${projectId}/visual-dev`,
+  });
+
+  const rebuildBridge = useProcessBridge({
+    keyPrefix: 'canon-rebuild',
+    type: 'Visual Canon Rebuild',
+    projectId,
+    href: `/projects/${projectId}/visual-dev`,
+  });
+
   const { refetch: refetchImages } = useProjectImages(projectId, {
     activeOnly: false,
     curationStates: ['active', 'candidate', 'archived', 'rejected'],
