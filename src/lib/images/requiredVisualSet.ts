@@ -201,6 +201,7 @@ export function resolveRequiredVisualSet(
   characters: { name: string }[],
   locations: { name: string }[],
   existingImages: ProjectImage[],
+  isPortrait = false,
 ): RequiredVisualSet {
   const slots: RequiredSlot[] = [];
 
