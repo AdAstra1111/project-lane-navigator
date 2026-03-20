@@ -492,7 +492,7 @@ function ImageCard({
   return (
     <div
       className={cn(
-        'group relative rounded-md overflow-hidden border-2 cursor-pointer transition-all aspect-video bg-muted',
+        `group relative rounded-md overflow-hidden border-2 cursor-pointer transition-all ${getDisplayAspectClass(img.width, img.height)} bg-muted`,
         isPrimary
           ? 'border-primary ring-2 ring-primary/40'
           : isActive
