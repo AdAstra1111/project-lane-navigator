@@ -66,6 +66,7 @@ export interface SectionImageResult {
 // ── Canonical Binding Preference ─────────────────────────────────────────────
 
 type BindingStatus = 'bound' | 'partially_bound' | 'unbound' | undefined;
+type TargetingMode = 'exact' | 'derived' | 'heuristic' | undefined;
 
 function getBindingRank(img: ProjectImage): number {
   const gc = img.generation_config as Record<string, unknown> | null;
@@ -75,10 +76,16 @@ function getBindingRank(img: ProjectImage): number {
   return 2; // unbound or no provenance
 }
 
+function getTargetingRank(img: ProjectImage): number {
+  const gc = img.generation_config as Record<string, unknown> | null;
+  const mode = gc?.targeting_mode as TargetingMode;
+  if (mode === 'exact') return 0;
+  if (mode === 'derived') return 1;
+  return 2; // heuristic or no provenance
+}
+
 /**
- * Sort images so bound images appear before unbound within the same
- * primary/active tier. Preserves is_primary > created_at ordering
- * but adds binding_status as a secondary discriminator.
+ * Sort images: primary > exact-bound > derived-bound > heuristic-bound > partial > unbound > recency.
  */
 function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
   return [...images].sort((a, b) => {
@@ -86,36 +93,45 @@ function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
     const pa = a.is_primary ? 0 : 1;
     const pb = b.is_primary ? 0 : 1;
     if (pa !== pb) return pa - pb;
-    // 2. Binding preference (bound > partially_bound > unbound)
+    // 2. Binding status (bound > partially_bound > unbound)
     const ba = getBindingRank(a);
     const bb = getBindingRank(b);
     if (ba !== bb) return ba - bb;
-    // 3. Recency
+    // 3. Targeting precision (exact > derived > heuristic) within same binding tier
+    const ta = getTargetingRank(a);
+    const tb = getTargetingRank(b);
+    if (ta !== tb) return ta - tb;
+    // 4. Recency
     return (b.created_at || '').localeCompare(a.created_at || '');
   });
 }
 
 /**
- * CVBE Phase 2 — Canonical exclusion gate.
- * If ANY fully-bound images exist, exclude unbound images entirely.
- * If ANY bound or partially-bound exist, exclude unbound.
- * This prevents unbound images from silently entering canonical output.
+ * CVBE Phase 2+3 — Canonical exclusion gate.
+ * If ANY bound images exist, exclude unbound entirely.
+ * Within bound tier, exact-target images exclude heuristic-only when exact alternatives exist.
  */
 function applyCanonicalExclusionGate(images: ProjectImage[]): ProjectImage[] {
   if (images.length <= 1) return images;
   const hasBound = images.some(i => getBindingRank(i) === 0);
   const hasPartial = images.some(i => getBindingRank(i) === 1);
-  if (hasBound) {
-    // Exclude unbound; keep bound + partially_bound
-    const filtered = images.filter(i => getBindingRank(i) <= 1);
-    if (filtered.length > 0) return filtered;
-  } else if (hasPartial) {
-    // Exclude unbound; keep partially_bound
-    const filtered = images.filter(i => getBindingRank(i) <= 1);
-    if (filtered.length > 0) return filtered;
+
+  let filtered = images;
+
+  // Exclude unbound when bound/partial exist
+  if (hasBound || hasPartial) {
+    const withoutUnbound = images.filter(i => getBindingRank(i) <= 1);
+    if (withoutUnbound.length > 0) filtered = withoutUnbound;
   }
-  // All unbound — return as-is (diagnostic/legacy fallback)
-  return images;
+
+  // Within bound tier, prefer exact over heuristic if exact alternatives exist
+  const hasExact = filtered.some(i => getBindingRank(i) === 0 && getTargetingRank(i) === 0);
+  if (hasExact) {
+    const exactOrDerived = filtered.filter(i => getTargetingRank(i) <= 1);
+    if (exactOrDerived.length > 0) filtered = exactOrDerived;
+  }
+
+  return filtered;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
