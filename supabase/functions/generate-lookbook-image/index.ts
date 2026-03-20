@@ -591,11 +591,13 @@ serve(async (req) => {
     const body = await req.json();
     const {
       project_id, section, count = 4, entity_id, character_name,
+      character_names: requestedCharacterNames,
       asset_group: requestedAssetGroup, pack_mode = false,
       base_look_mode = false,
       location_name, location_description,
       location_ref_mode = false,
       location_id = null,
+      location_ids: requestedLocationIds,
       state_key = null,
       state_label = null,
       state_prompt_modifier = null,
