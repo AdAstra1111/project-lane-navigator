@@ -95,15 +95,17 @@ function normalizeSlideForRender(slide: SlideContent, slideIndex: number): Slide
   return normalizedSlide;
 }
 
-export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: SlideRendererProps) {
+export function SlideRenderer({ slide, identity, slideIndex, totalSlides, deckFormat = 'landscape' }: SlideRendererProps) {
   const normalizedSlide = normalizeSlideForRender(slide, slideIndex);
   const { colors, typography } = identity;
   const fontTitle = typography.titleFont;
   const fontBody = typography.bodyFont;
+  const isPortrait = deckFormat === 'portrait';
+  const { width: slideW, height: slideH } = getSlideDimensions(deckFormat);
 
   const baseStyle: React.CSSProperties = {
-    width: 1920,
-    height: 1080,
+    width: slideW,
+    height: slideH,
     background: `linear-gradient(160deg, ${colors.bg}, ${colors.gradientTo})`,
     color: colors.text,
     fontFamily: `"${fontBody}", sans-serif`,
@@ -117,7 +119,7 @@ export function SlideRenderer({ slide, identity, slideIndex, totalSlides }: Slid
     letterSpacing: typography.titleUppercase ? '0.12em' : '0.02em',
   };
 
-  const shared: SlideProps = { slide: normalizedSlide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides };
+  const shared: SlideProps = { slide: normalizedSlide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait };
 
   switch (normalizedSlide.type) {
     case 'cover': return <CoverSlide {...shared} />;
@@ -145,6 +147,7 @@ interface SlideProps {
   fontBody: string;
   slideIndex: number;
   totalSlides: number;
+  isPortrait: boolean;
 }
 
 function SlideNumber({ index, total, color }: { index: number; total: number; color: string }) {
