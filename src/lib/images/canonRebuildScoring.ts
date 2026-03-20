@@ -155,18 +155,48 @@ function scorePortraitSuitability(image: ProjectImage): { score: number; isPortr
   const w = (image as any).width as number | null;
   const h = (image as any).height as number | null;
 
-  if (!w || !h) return { score: 30, isPortraitSafe: false, reason: 'No dimensions — cannot determine orientation' };
+  // If dimensions exist, use pixel-based scoring
+  if (w && h) {
+    const ratio = h / w;
+    if (ratio >= 1.5) return { score: 100, isPortraitSafe: true, reason: 'Strong portrait orientation (≥3:2)' };
+    if (ratio >= 1.2) return { score: 85, isPortraitSafe: true, reason: 'Portrait orientation (≥6:5)' };
+    if (ratio >= 1.0) return { score: 65, isPortraitSafe: true, reason: 'Square-ish portrait (≥1:1)' };
+    if (ratio >= 0.8) return { score: 30, isPortraitSafe: false, reason: 'Mild landscape — not portrait-safe' };
+    return { score: 5, isPortraitSafe: false, reason: 'Strong landscape — not portrait-safe' };
+  }
 
-  const ratio = h / w;
+  // ── NULL dimensions: infer from shot_type + generation metadata ──
+  // If the image was generated with a portrait-mapped shot type, treat as portrait-safe.
+  const shotType = (image.shot_type || '').toLowerCase();
 
-  // True portrait: h > w (ratio > 1.0)
-  if (ratio >= 1.5) return { score: 100, isPortraitSafe: true, reason: 'Strong portrait orientation (≥3:2)' };
-  if (ratio >= 1.2) return { score: 85, isPortraitSafe: true, reason: 'Portrait orientation (≥6:5)' };
-  if (ratio >= 1.0) return { score: 65, isPortraitSafe: true, reason: 'Square-ish portrait (≥1:1)' };
+  // Shot types that are inherently portrait-safe (their canonical AR ≥ 1:1)
+  const PORTRAIT_NATIVE_SHOTS = new Set([
+    'identity_headshot', 'identity_profile', 'identity_full_body',
+    'close_up', 'full_body', 'profile', 'detail',
+    'texture_ref', 'color_ref',
+    'poster_theatrical', 'poster_alt',
+  ]);
 
-  // Landscape — penalized
-  if (ratio >= 0.8) return { score: 30, isPortraitSafe: false, reason: 'Mild landscape — not portrait-safe' };
-  return { score: 5, isPortraitSafe: false, reason: 'Strong landscape — not portrait-safe' };
+  // Shot types that become portrait-safe when PORTRAIT_SHOT_OVERRIDE maps them
+  const PORTRAIT_OVERRIDDEN_SHOTS = new Set(Object.keys(PORTRAIT_SHOT_OVERRIDE));
+
+  if (PORTRAIT_NATIVE_SHOTS.has(shotType)) {
+    return { score: 85, isPortraitSafe: true, reason: `Shot type "${shotType}" is inherently portrait-safe (no dims)` };
+  }
+
+  if (PORTRAIT_OVERRIDDEN_SHOTS.has(shotType)) {
+    // These were requested with portrait override dimensions during generation
+    return { score: 75, isPortraitSafe: true, reason: `Shot type "${shotType}" was portrait-overridden at generation (no dims)` };
+  }
+
+  // Unknown shot type with no dimensions — assume portrait-safe if generation_purpose suggests identity
+  const purpose = (image as any).generation_purpose as string | null;
+  if (purpose === 'character_identity') {
+    return { score: 70, isPortraitSafe: true, reason: 'Identity generation purpose implies portrait (no dims)' };
+  }
+
+  // Truly unknown — neutral but NOT portrait-safe
+  return { score: 40, isPortraitSafe: false, reason: 'No dimensions and no portrait-safe inference available' };
 }
 
 function scoreCurationQuality(image: ProjectImage): { score: number; reason: string } {
