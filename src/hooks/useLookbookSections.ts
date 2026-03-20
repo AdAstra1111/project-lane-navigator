@@ -71,6 +71,12 @@ export const SECTION_UPSTREAM_MAP: Record<CanonicalSectionKey, {
     sources: ['Curated symbolic references', 'Approved imagery with symbolic tags'],
     populateCta: 'Curate from Approved Images',
   },
+  key_moments: {
+    label: 'Key Moments',
+    icon: 'Sparkles',
+    sources: ['Tableau compositions', 'Medium shots', 'Close-ups', 'Wide establishing shots'],
+    populateCta: 'Generate Key Moment Shots',
+  },
   poster_directions: {
     label: 'Poster Directions',
     icon: 'Image',

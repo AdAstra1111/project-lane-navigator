@@ -184,6 +184,9 @@ export function useLookbookSectionContent(
     if (sectionKey === 'symbolic_motifs' && data.images.length === 0) {
       b.push({ message: 'No symbolic motif references found. Curate key moment images or generate new ones.', severity: 'soft' });
     }
+    if (sectionKey === 'key_moments' && data.images.length === 0) {
+      b.push({ message: 'No key moment shots found. Generate tableau, medium, close-up, and wide shots.', severity: 'soft' });
+    }
     if (sectionKey === 'poster_directions' && data.images.length === 0) {
       b.push({ message: 'No poster directions available. Generate posters in Poster Studio first.', severity: 'soft' });
     }
