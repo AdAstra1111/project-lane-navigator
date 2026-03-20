@@ -1265,6 +1265,11 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
 function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const imgCount = imgs.length;
+  const isPortraitFamily = !isPortrait && (
+    slide.layoutFamily === 'landscape_portrait_hero'
+    || slide.layoutFamily === 'landscape_two_up_portrait'
+    || slide.layoutFamily === 'landscape_character_portraits'
+  );
 
   const getGridStyle = (): React.CSSProperties => {
     if (isPortrait) {
