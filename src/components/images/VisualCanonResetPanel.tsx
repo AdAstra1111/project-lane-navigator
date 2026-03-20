@@ -43,7 +43,7 @@ import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ProjectImage, AssetGroup } from '@/lib/images/types';
-
+import { extractEntities } from '@/lib/images/canonRebuildExecutor';
 interface VisualCanonResetPanelProps {
   projectId: string;
   /** Optional callback to trigger lookbook rebuild after full canon rebuild */
