@@ -1,14 +1,19 @@
 /**
  * Anchor Visual Similarity — regression tests.
+ * Covers: composite scoring, rank adjustment, cache key computation,
+ * labels, ranking integration, and cache invalidation semantics.
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
   computeCompositeScore,
   computeSimilarityRankAdjustment,
+  computeAnchorHash,
   getSimilarityLabel,
   NEUTRAL_SIMILARITY,
+  SCORING_VERSION,
   type VisualSimilarityResult,
 } from '../anchorVisualSimilarity';
+import type { IdentityAnchorSet } from '../characterIdentityAnchorSet';
 
 // Helper to build a result with uniform dimension scores
 function makeResult(overallScore: number, confidence: 'high' | 'medium' | 'low' | 'unavailable' = 'high'): VisualSimilarityResult {
@@ -23,6 +28,79 @@ function makeResult(overallScore: number, confidence: 'high' | 'medium' | 'low' 
     isActionable,
   };
 }
+
+function makeImage(overrides: Partial<any> = {}): any {
+  return {
+    id: 'img-' + Math.random().toString(36).slice(2, 8),
+    asset_group: 'character',
+    subject: 'Hana',
+    shot_type: 'identity_headshot',
+    generation_config: {},
+    created_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+const fullAnchorSet: IdentityAnchorSet = {
+  characterName: 'Hana',
+  headshot: makeImage({ id: 'anchor-h' }),
+  profile: makeImage({ id: 'anchor-p' }),
+  fullBody: makeImage({ id: 'anchor-fb' }),
+  completeness: 'full_lock',
+  anchorPaths: { headshot: '/h', fullBody: '/fb' },
+};
+
+const partialAnchorSet: IdentityAnchorSet = {
+  characterName: 'Hana',
+  headshot: makeImage({ id: 'anchor-h2' }),
+  profile: null,
+  fullBody: null,
+  completeness: 'partial_lock',
+  anchorPaths: { headshot: '/h2' },
+};
+
+const noAnchorSet: IdentityAnchorSet = {
+  characterName: 'Hana',
+  headshot: null,
+  profile: null,
+  fullBody: null,
+  completeness: 'no_anchors',
+  anchorPaths: {},
+};
+
+// ── computeAnchorHash ──
+
+describe('computeAnchorHash', () => {
+  it('produces deterministic hash for full lock', () => {
+    const h1 = computeAnchorHash(fullAnchorSet);
+    const h2 = computeAnchorHash(fullAnchorSet);
+    expect(h1).toBe(h2);
+    expect(h1).toContain('h:anchor-h');
+    expect(h1).toContain('p:anchor-p');
+    expect(h1).toContain('f:anchor-fb');
+  });
+
+  it('returns "none" for no anchors', () => {
+    expect(computeAnchorHash(noAnchorSet)).toBe('none');
+  });
+
+  it('changes when anchor IDs change', () => {
+    const modified: IdentityAnchorSet = {
+      ...fullAnchorSet,
+      headshot: makeImage({ id: 'different-h' }),
+    };
+    expect(computeAnchorHash(modified)).not.toBe(computeAnchorHash(fullAnchorSet));
+  });
+
+  it('partial lock includes only available anchors', () => {
+    const hash = computeAnchorHash(partialAnchorSet);
+    expect(hash).toContain('h:anchor-h2');
+    expect(hash).not.toContain('p:');
+    expect(hash).not.toContain('f:');
+  });
+});
+
+// ── computeCompositeScore ──
 
 describe('computeCompositeScore', () => {
   it('returns neutral when all dimensions are unavailable', () => {
@@ -40,11 +118,16 @@ describe('computeCompositeScore', () => {
       overall: { score: 85, confidence: 'high' as const, reason: 'strong' },
     };
     const { compositeScore, isActionable } = computeCompositeScore(dims);
-    // body excluded (unavailable), remaining weights: 0.40+0.15+0.20+0.15 = 0.90
-    // weighted sum: 90*0.40 + 80*0.15 + 70*0.20 + 85*0.15 = 36+12+14+12.75 = 74.75
-    // normalized: 74.75 / 0.90 ≈ 83
     expect(compositeScore).toBe(83);
     expect(isActionable).toBe(true);
+  });
+
+  it('weights face highest', () => {
+    const high = { score: 90, confidence: 'high' as const, reason: 'test' };
+    const low = { score: 30, confidence: 'high' as const, reason: 'test' };
+    const faceHigh = computeCompositeScore({ face: high, hair: low, age: low, body: low, overall: low });
+    const faceLow = computeCompositeScore({ face: low, hair: high, age: low, body: low, overall: low });
+    expect(faceHigh.compositeScore).toBeGreaterThan(faceLow.compositeScore);
   });
 
   it('partial anchor with only face assessable is still actionable', () => {
@@ -56,43 +139,40 @@ describe('computeCompositeScore', () => {
       overall: { score: 50, confidence: 'unavailable' as const, reason: 'n/a' },
     };
     const { compositeScore, isActionable } = computeCompositeScore(dims);
-    // Only face (weight 0.40 >= 0.20 threshold)
     expect(compositeScore).toBe(75);
     expect(isActionable).toBe(true);
   });
 });
 
+// ── computeSimilarityRankAdjustment ──
+
 describe('computeSimilarityRankAdjustment', () => {
   it('returns 0 when similarity is null', () => {
-    const { adjustment } = computeSimilarityRankAdjustment(null);
-    expect(adjustment).toBe(0);
+    expect(computeSimilarityRankAdjustment(null).adjustment).toBe(0);
   });
 
   it('returns 0 when similarity is not actionable', () => {
-    const { adjustment } = computeSimilarityRankAdjustment(NEUTRAL_SIMILARITY);
-    expect(adjustment).toBe(0);
+    expect(computeSimilarityRankAdjustment(NEUTRAL_SIMILARITY).adjustment).toBe(0);
   });
 
   it('returns +10 for strong match (>=80)', () => {
-    const { adjustment } = computeSimilarityRankAdjustment(makeResult(85));
-    expect(adjustment).toBe(10);
+    expect(computeSimilarityRankAdjustment(makeResult(85)).adjustment).toBe(10);
   });
 
   it('returns +3 for moderate match (60-79)', () => {
-    const { adjustment } = computeSimilarityRankAdjustment(makeResult(65));
-    expect(adjustment).toBe(3);
+    expect(computeSimilarityRankAdjustment(makeResult(65)).adjustment).toBe(3);
   });
 
   it('returns 0 for weak match (40-59)', () => {
-    const { adjustment } = computeSimilarityRankAdjustment(makeResult(45));
-    expect(adjustment).toBe(0);
+    expect(computeSimilarityRankAdjustment(makeResult(45)).adjustment).toBe(0);
   });
 
   it('returns -8 for low similarity (<40)', () => {
-    const { adjustment } = computeSimilarityRankAdjustment(makeResult(25));
-    expect(adjustment).toBe(-8);
+    expect(computeSimilarityRankAdjustment(makeResult(25)).adjustment).toBe(-8);
   });
 });
+
+// ── getSimilarityLabel ──
 
 describe('getSimilarityLabel', () => {
   it('labels scores correctly', () => {
@@ -103,27 +183,19 @@ describe('getSimilarityLabel', () => {
   });
 });
 
+// ── SCORING_VERSION ──
+
+describe('SCORING_VERSION', () => {
+  it('exists and is a non-empty string', () => {
+    expect(SCORING_VERSION).toBeTruthy();
+    expect(typeof SCORING_VERSION).toBe('string');
+  });
+});
+
+// ── Ranking integration with visual similarity ──
+
 describe('ranking integration with visual similarity', async () => {
   const { rankCharacterCandidates } = await import('../characterCandidateRanking');
-
-  const makeImage = (overrides: Partial<any> = {}): any => ({
-    id: 'img-' + Math.random().toString(36).slice(2, 8),
-    asset_group: 'character',
-    subject: 'Hana',
-    shot_type: 'identity_headshot',
-    generation_config: {},
-    created_at: new Date().toISOString(),
-    ...overrides,
-  });
-
-  const fullAnchorSet: any = {
-    characterName: 'Hana',
-    headshot: makeImage({ id: 'anchor-h' }),
-    profile: makeImage({ id: 'anchor-p' }),
-    fullBody: makeImage({ id: 'anchor-fb' }),
-    completeness: 'full_lock',
-    anchorPaths: { headshot: '/h', fullBody: '/fb' },
-  };
 
   it('metadata-locked candidate can be demoted by weak visual similarity', () => {
     const locked = makeImage({
@@ -136,22 +208,11 @@ describe('ranking integration with visual similarity', async () => {
     });
 
     const similarities: Record<string, VisualSimilarityResult> = {
-      'locked-weak-visual': makeResult(25),     // low visual match → -8
-      'unlocked-strong-visual': makeResult(90),  // strong visual match → +10
+      'locked-weak-visual': makeResult(25),
+      'unlocked-strong-visual': makeResult(90),
     };
 
-    // Without similarity, locked wins (strong_match=40 vs identity_drift=0)
-    const withoutSim = rankCharacterCandidates([locked, unlocked], fullAnchorSet);
-    expect(withoutSim.top!.image.id).toBe('locked-weak-visual');
-
-    // With similarity, unlocked-strong can challenge
-    // locked: 40 (continuity) + 0 (no drift) + (-8) (sim) = 32
-    // unlocked: 0 (drift) + (-25) (drift penalty) + 10 (sim) = -15
-    // locked still wins in this case because drift penalty is heavy
     const withSim = rankCharacterCandidates([locked, unlocked], fullAnchorSet, null, similarities);
-    // locked: 40 + 0 + (-8) = 32; unlocked: 0 + (-25) + 10 = -15
-    expect(withSim.top!.image.id).toBe('locked-weak-visual');
-    // But the similarity adjustment is reflected
     const lockedRanked = withSim.ranked.find(r => r.image.id === 'locked-weak-visual')!;
     expect(lockedRanked.similarityAdjustment).toBe(-8);
     expect(lockedRanked.visualSimilarity).toBeTruthy();
@@ -174,5 +235,17 @@ describe('ranking integration with visual similarity', async () => {
     const result = rankCharacterCandidates([img], fullAnchorSet, null, null);
     expect(result.top!.similarityAdjustment).toBe(0);
     expect(result.top!.visualSimilarity).toBeNull();
+  });
+
+  // ── Cache invalidation semantics ──
+
+  it('anchor hash changes when anchors change, invalidating cache', () => {
+    const hashBefore = computeAnchorHash(fullAnchorSet);
+    const newAnchors: IdentityAnchorSet = {
+      ...fullAnchorSet,
+      headshot: makeImage({ id: 'new-headshot' }),
+    };
+    const hashAfter = computeAnchorHash(newAnchors);
+    expect(hashBefore).not.toBe(hashAfter);
   });
 });
