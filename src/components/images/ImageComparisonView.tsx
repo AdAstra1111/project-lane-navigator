@@ -189,6 +189,9 @@ export function ImageComparisonView({
               <span className="text-white/80 font-medium">
                 {recommended.image.subject || 'Candidate'} — {SHOT_TYPE_LABELS[(recommended.image.shot_type as ShotType)] || recommended.image.shot_type || 'unknown'}
               </span>
+              {ranking.topReason && (
+                <span className="text-white/40 text-[9px] italic">{ranking.topReason}</span>
+              )}
               {recommended.score != null && (
                 <span className="text-white/40 tabular-nums">({recommended.score.toFixed(2)})</span>
               )}
