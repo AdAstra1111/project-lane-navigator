@@ -784,21 +784,22 @@ export function selectSlotWinner(
   }
 
   // ── VERTICAL DRAMA HARD FILTER — no fallback ──
-  let eligiblePool = scored;
+  let eligiblePool = pool;
   if (isVerticalDrama) {
-    const compliantOnly = scored.filter(s => s.eligibleForSelection);
+    const compliantOnly = pool.filter(s => s.eligibleForSelection);
     if (compliantOnly.length > 0) {
       eligiblePool = compliantOnly;
     } else {
-      const rejectedLevels = scored.map(s => s.complianceLevel);
+      const rejectedLevels = pool.map(s => s.complianceLevel);
       return {
         slotKey: slot.key,
         winner: null,
-        allScored: scored.sort((a, b) => b.totalScore - a.totalScore),
-        noWinnerReason: `No vertical-compliant candidates (${scored.length} scored: ${rejectedLevels.join(', ')})`,
+        allScored: pool.sort((a, b) => b.totalScore - a.totalScore),
+        noWinnerReason: `No vertical-compliant candidates (${pool.length} scored: ${rejectedLevels.join(', ')})`,
         complianceGate: { allowed: false, reason: 'All candidates failed strict vertical compliance' },
         incumbentPreserved: false, incumbentReplaced: false,
         incumbentId: incumbent?.id || null,
+        matchQuality: 'weak',
       };
     }
   }
