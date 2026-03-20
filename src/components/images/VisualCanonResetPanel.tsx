@@ -247,9 +247,15 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       }
     }
     if (!identityOnly) {
-      // Phase 2: Character refs
+      // Phase 2: Character refs — only for characters with at least partial identity lock
       for (const s of candidateSlots) {
         if (s.assetGroup === 'character' && !s.isIdentity && s.shotType && CHAR_REF_PACK.includes(s.shotType)) {
+          const charName = s.subject || '';
+          const priority = shouldPrioritizeIdentityGeneration(charName, identityAnchorMap);
+          if (priority.prioritize) {
+            console.log(`[buildSlotManifest] Deferring ref slot ${s.shotType} for ${charName}: ${priority.reason}`);
+            continue; // Skip — identity anchors incomplete
+          }
           slots.push({ assetGroup: 'character', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 2, label: s.label, section: 'character' });
         }
       }
