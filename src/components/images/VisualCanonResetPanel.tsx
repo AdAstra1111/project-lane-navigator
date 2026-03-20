@@ -15,7 +15,7 @@ import { resolveIdentityAnchorsFromImages, shouldPrioritizeIdentityGeneration, t
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
-  Lock, Package, Wand2, Zap, CheckCheck, Download, Link2,
+  Lock, Unlock, Package, Wand2, Zap, CheckCheck, Download, Link2, User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getDisplayAspectClass } from '@/lib/images/orientationUtils';
