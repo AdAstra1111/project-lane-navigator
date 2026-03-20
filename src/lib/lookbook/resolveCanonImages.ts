@@ -198,37 +198,9 @@ async function fetchSectionImages(
     }
   }
 
-  // Last resort: try is_active=true (legacy) if still empty
-  if (images.length === 0) {
-    let lq = (supabase as any)
-      .from('project_images')
-      .select('*')
-      .eq('project_id', projectId)
-      .eq('is_active', true);
-
-    if (mapping.strategy_keys.length > 0) {
-      lq = lq.in('strategy_key', mapping.strategy_keys);
-    } else if (mapping.fallback_roles?.length) {
-      lq = lq.in('role', mapping.fallback_roles);
-    }
-    if (mapping.asset_groups.length > 0) {
-      lq = lq.in('asset_group', mapping.asset_groups);
-    }
-    if (shotFilter?.length) {
-      lq = lq.in('shot_type', shotFilter);
-    }
-
-    lq = lq
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    const { data: legacyRows } = await lq;
-    if (legacyRows?.length) {
-      console.warn(`[LookBook:resolveCanonImages] ${sectionKey}: using legacy is_active fallback (${legacyRows.length} images)`);
-      images = legacyRows as ProjectImage[];
-    }
-  }
+  // NOTE: Legacy is_active fallback removed — archived/reset images must not
+  // re-enter canonical resolution. Only active and candidate curation states
+  // are eligible for lookbook builds.
 
   await hydrateSignedUrls(images);
 
