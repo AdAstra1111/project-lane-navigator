@@ -258,11 +258,11 @@ export default function VisualDevHub() {
             )}
           </WorkSection>
 
-          {/* ═══ Visual Set Curation ═══ */}
+          {/* ═══ Visual Set Curation (Advanced) ═══ */}
           <WorkSection
             icon={<Grid3X3 className="h-4 w-4" />}
-            title="Visual Set Curation"
-            subtitle="Slot-based curation loop — approve, replace, lock canonical output sets"
+            title="Visual Set Curation (Advanced)"
+            subtitle="Optional — slot-based governance for structured curation and locking"
             defaultOpen={false}
           >
             {projectId && <VisualSetCurationPanel projectId={projectId} />}
