@@ -25377,6 +25377,69 @@ export type Database = {
           },
         ]
       }
+      visual_similarity_cache: {
+        Row: {
+          anchor_context: string
+          anchor_hash: string
+          anchor_image_ids: Json
+          candidate_image_id: string
+          character_name: string
+          composite_score: number
+          created_at: string
+          dimensions_json: Json
+          id: string
+          is_actionable: boolean
+          project_id: string
+          scoring_version: string
+          summary: string
+        }
+        Insert: {
+          anchor_context?: string
+          anchor_hash: string
+          anchor_image_ids?: Json
+          candidate_image_id: string
+          character_name?: string
+          composite_score?: number
+          created_at?: string
+          dimensions_json?: Json
+          id?: string
+          is_actionable?: boolean
+          project_id: string
+          scoring_version?: string
+          summary?: string
+        }
+        Update: {
+          anchor_context?: string
+          anchor_hash?: string
+          anchor_image_ids?: Json
+          candidate_image_id?: string
+          character_name?: string
+          composite_score?: number
+          created_at?: string
+          dimensions_json?: Json
+          id?: string
+          is_actionable?: boolean
+          project_id?: string
+          scoring_version?: string
+          summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_similarity_cache_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_similarity_cache_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visual_unit_candidates: {
         Row: {
           candidate_payload: Json
