@@ -981,7 +981,21 @@ serve(async (req) => {
 
       // ── VERTICAL COMPLIANCE: Inject strict aspect instruction into prompt ──
       if (isVerticalDramaProject && !isIdentityShot) {
-        prompt = `[MANDATORY ASPECT RATIO: 9:16 PORTRAIT VERTICAL]\nThis image MUST be composed in strict 9:16 vertical/portrait orientation. Frame all subjects vertically. The image height must be significantly taller than its width. Mobile-native vertical framing is REQUIRED.\n\n${prompt}`;
+        prompt = `[MANDATORY ASPECT RATIO: 9:16 PORTRAIT VERTICAL — NATIVE PHONE-SCREEN COMPOSITION]
+This image MUST be composed as a native 9:16 vertical/portrait image for mobile phone screens.
+
+FRAMING RULES:
+- The image height must be significantly taller than its width (ratio ≈ 1.78:1 height-to-width)
+- Frame all subjects vertically — tall compositions, NOT wide/landscape staging
+- Subject should fill the vertical frame naturally
+- Use vertical depth (foreground-to-background along a vertical axis)
+- Mobile-native portrait framing is MANDATORY
+- Do NOT compose a landscape/widescreen image
+- Do NOT use letterboxing, pillarboxing, or cinematic widescreen framing
+- Do NOT create a square image
+- Think of this as a phone wallpaper or Instagram Story frame
+
+\n${prompt}`;
       } else if (isVerticalDramaProject && isIdentityShot) {
         // Identity shots get their specific aspect
         const identityAspectMap: Record<string, string> = {

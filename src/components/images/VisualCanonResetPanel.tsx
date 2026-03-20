@@ -493,7 +493,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       // Build slot targets from the required visual set
       const freshEntities = extractEntities(canonJson);
-      const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, postGenImages);
+      const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, postGenImages, isVerticalDrama);
 
       const slotTargets: SlotTarget[] = freshRequired.slots.map(s => ({
         key: s.key,
