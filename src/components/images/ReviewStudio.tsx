@@ -265,6 +265,23 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
             </Button>
           </ConfirmDialog>
         )}
+
+        {/* Sync to Visual Sets — bridges render→curation gap */}
+        {syncableImages.length > 0 && (
+          <ConfirmDialog
+            title="Sync to Visual Sets"
+            description={`${syncableImages.length} image${syncableImages.length === 1 ? '' : 's'} will be wired into governed Visual Sets for structured curation. This makes them available in Visual Set slots for approval and locking.`}
+            confirmLabel={`Sync ${syncableImages.length} Images`}
+            variant="default"
+            onConfirm={handleSyncToVisualSets}
+          >
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+              disabled={syncing}>
+              <ArrowRightCircle className="h-3 w-3" />
+              {syncing ? 'Syncing…' : `Sync to Visual Sets (${syncableImages.length})`}
+            </Button>
+          </ConfirmDialog>
+        )}
       </div>
 
       {/* ── Filter bar ── */}
