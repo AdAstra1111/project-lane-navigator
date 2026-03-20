@@ -1164,6 +1164,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
               onApprove={approveIntoCanon}
               onReject={rejectCandidate}
               onSetPrimary={approveIntoCanon}
+              identityAnchorMap={identityAnchorMap}
             />
           </CardContent>
         </Card>
