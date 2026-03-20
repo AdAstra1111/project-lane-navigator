@@ -24,9 +24,9 @@ interface ImageStylePolicy {
 }
 
 const PHOTOREAL_DIRECTIVES =
-  "Photorealistic cinematic imagery. Live-action film still. Shot on ARRI Alexa or RED cinema camera with premium anamorphic lenses. Real-world materials, textures, surfaces. Believable natural or motivated cinematic lighting. Real lens behaviour including subtle flares, bokeh, and depth of field. Premium theatrical realism. No illustration, no concept art, no digital painting, no CGI render look.";
+  "Photorealistic cinematic imagery. Live-action film still. Shot on ARRI Alexa or RED cinema camera with premium anamorphic lenses. Real-world materials, textures, surfaces. Believable natural or motivated cinematic lighting. Real lens behaviour including subtle flares, bokeh, and depth of field. Premium theatrical realism. Film grain present. Imperfect real-world skin texture with pores and natural variation. No illustration, no concept art, no digital painting, no CGI render look. Avoid overly smooth, glossy, or airbrushed skin. Avoid flat even lighting. Avoid symmetrical or posed-looking staging. Must feel captured, not rendered.";
 const PHOTOREAL_NEGATIVES =
-  "painterly, illustrative, cartoon, anime, graphic-novel style, concept art rendering, abstract, surreal, watercolor, oil painting, sketch, line art, cel-shaded, pop art, storybook illustration, digital painting, CGI render look, stock photo aesthetic, 3D render, Unreal Engine, video game screenshot";
+  "painterly, illustrative, cartoon, anime, graphic-novel style, concept art rendering, abstract, surreal, watercolor, oil painting, sketch, line art, cel-shaded, pop art, storybook illustration, digital painting, CGI render look, stock photo aesthetic, 3D render, Unreal Engine, video game screenshot, airbrushed skin, overly smooth, glossy, plastic skin, symmetrical staging, concept art, AI-generated look";
 
 const ANIMATION_FORMATS = ["animation", "anim-feature", "anim-series", "animated"];
 const GRAPHIC_GENRES = ["graphic-novel", "comic", "manga"];
