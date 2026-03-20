@@ -36,7 +36,7 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 0.5;
 
-export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReason }: ImageLightboxProps) {
+export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReason, imageSet, onNavigate, onApprove, onReject }: ImageLightboxProps) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showOverlay, setShowOverlay] = useState(true);
@@ -45,11 +45,41 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReas
   const panStart = useRef({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Navigation index
+  const currentIndex = useMemo(() => {
+    if (!imageSet || !image) return -1;
+    return imageSet.findIndex(i => i.id === image.id);
+  }, [imageSet, image]);
+
+  const canPrev = currentIndex > 0;
+  const canNext = imageSet ? currentIndex < imageSet.length - 1 : false;
+
+  const goNext = useCallback(() => {
+    if (canNext && imageSet && onNavigate) onNavigate(imageSet[currentIndex + 1]);
+  }, [canNext, imageSet, currentIndex, onNavigate]);
+
+  const goPrev = useCallback(() => {
+    if (canPrev && imageSet && onNavigate) onNavigate(imageSet[currentIndex - 1]);
+  }, [canPrev, imageSet, currentIndex, onNavigate]);
+
   // Reset zoom/pan when image changes
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, [image?.id]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!open || !image) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); }
+      else if (e.key === 'a' || e.key === 'A') { e.preventDefault(); onApprove?.(image); goNext(); }
+      else if (e.key === 'd' || e.key === 'D') { e.preventDefault(); onReject?.(image.id); goNext(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, image, goPrev, goNext, onApprove, onReject]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
