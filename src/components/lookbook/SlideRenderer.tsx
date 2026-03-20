@@ -162,7 +162,7 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
   const imgs = (slotUrls.length > 0 ? slotUrls : rawImgs).slice(0, maxImages);
   if (imgs.length === 0) return null;
 
-  const family = slide.layoutFamily || 'landscape_standard';
+  const family = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
   const border = `1px solid ${colors.accentMuted}`;
 
   // ── Portrait Hero: single portrait image centered in landscape frame ──
