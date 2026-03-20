@@ -247,7 +247,7 @@ export function ImageComparisonView({
 // ── Comparison Cell ──
 
 function ComparisonCell({
-  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, rankReason, driftPenalty, onSetPrimary, onReject,
+  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, rankReason, driftPenalty, visualSimilarity, onSetPrimary, onReject,
 }: {
   image: ProjectImage;
   zoom?: number;
@@ -257,6 +257,7 @@ function ComparisonCell({
   isRecommended: boolean;
   rankReason?: string;
   driftPenalty?: number;
+  visualSimilarity?: VisualSimilarityResult | null;
   onSetPrimary?: (img: ProjectImage) => void;
   onReject?: (id: string) => void;
 }) {
