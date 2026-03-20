@@ -689,6 +689,10 @@ serve(async (req) => {
       identity_traits_block = null,
       identity_signature_block = null,
       forced_shot_type = null,
+      // ── VERTICAL COMPLIANCE: explicit aspect ratio from client ──
+      width: requestedWidth = null,
+      height: requestedHeight = null,
+      aspect_ratio: requestedAspectRatio = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -714,6 +718,9 @@ serve(async (req) => {
       identity_traits_block?: string | null;
       identity_signature_block?: string | null;
       forced_shot_type?: string | null;
+      width?: number | null;
+      height?: number | null;
+      aspect_ratio?: string | null;
     };
 
     // IEL: location_binding_write_enforcement — warn if world image without canon location_id
@@ -897,6 +904,14 @@ serve(async (req) => {
 
     const results: Array<{ image_id: string; status: string; shot_type?: string; error?: string; identity_locked?: boolean }> = [];
 
+    // ── VERTICAL COMPLIANCE: Resolve effective aspect + dimensions ──
+    // Priority: client-specified > prestige system > default
+    const isVerticalDramaProject = (project.format || "").toLowerCase().includes("vertical") || resolvedLane === "vertical_drama";
+    const effectiveAspect = requestedAspectRatio || prestigeComposite.aspectRatio || "16:9";
+    const effectiveWidth = requestedWidth || prestigeComposite.width || 1280;
+    const effectiveHeight = requestedHeight || prestigeComposite.height || 720;
+    console.log(`[vertical-compliance] isVD=${isVerticalDramaProject} effectiveAspect=${effectiveAspect} dims=${effectiveWidth}x${effectiveHeight}`);
+
     for (let i = 0; i < genCount; i++) {
       const shotType = shotsToGenerate[i] || null;
 
@@ -921,6 +936,20 @@ serve(async (req) => {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx)
           : buildSectionPrompt(section, ctx, i);
+      }
+
+      // ── VERTICAL COMPLIANCE: Inject strict aspect instruction into prompt ──
+      if (isVerticalDramaProject && !isIdentityShot) {
+        prompt = `[MANDATORY ASPECT RATIO: 9:16 PORTRAIT VERTICAL]\nThis image MUST be composed in strict 9:16 vertical/portrait orientation. Frame all subjects vertically. The image height must be significantly taller than its width. Mobile-native vertical framing is REQUIRED.\n\n${prompt}`;
+      } else if (isVerticalDramaProject && isIdentityShot) {
+        // Identity shots get their specific aspect
+        const identityAspectMap: Record<string, string> = {
+          identity_headshot: "1:1 SQUARE",
+          identity_profile: "3:4 PORTRAIT",
+          identity_full_body: "2:3 TALL PORTRAIT",
+        };
+        const aspectLabel = identityAspectMap[shotType || ""] || "PORTRAIT";
+        prompt = `[MANDATORY ASPECT RATIO: ${aspectLabel}]\nThis identity reference image must be composed in ${aspectLabel} orientation.\n\n${prompt}`;
       }
 
       // Step 2: Canon facts (highest priority data)
@@ -999,6 +1028,11 @@ serve(async (req) => {
           });
         if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
+        // ── VERTICAL COMPLIANCE: Store expected dimensions on image record ──
+        // This ensures scoring/compliance can use pixel data even before image analysis
+        const storedWidth = effectiveWidth;
+        const storedHeight = effectiveHeight;
+
         const { data: imgRecord, error: insertErr } = await supabase
           .from("project_images")
           .insert({
@@ -1013,6 +1047,8 @@ serve(async (req) => {
             canon_constraints: { source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
+            width: storedWidth,
+            height: storedHeight,
             is_primary: false,
             is_active: true,
             source_poster_id: null,
@@ -1053,6 +1089,11 @@ serve(async (req) => {
               resolved_location_names: canonicalBindings.locations.map(l => l.canonical_name),
               world_binding_active: canonicalBindings.world.bound,
               world_binding_era: canonicalBindings.world.era || null,
+              // ── VERTICAL COMPLIANCE: audit trail ──
+              requested_aspect_ratio: effectiveAspect,
+              requested_width: storedWidth,
+              requested_height: storedHeight,
+              vertical_drama_project: isVerticalDramaProject,
             },
             asset_group: assetGroup,
             subject: character_name || location_name || null,
