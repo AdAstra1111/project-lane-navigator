@@ -10,7 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
-import { classifyIdentityContinuity, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { rankCharacterCandidates } from '@/lib/images/characterCandidateRanking';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
 
 // ── Continuity display helpers ──

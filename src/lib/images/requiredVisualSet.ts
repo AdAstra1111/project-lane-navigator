@@ -183,22 +183,13 @@ function buildSlot(
   const candidates = matching.filter(i => i.curation_state === 'active' || i.curation_state === 'candidate');
   const dims = getDimensionsForShot(shotType, isPortrait);
 
-  // Identity-aware recommendation using canonical anchor helpers
+  // Identity-aware recommendation using canonical ranking helper
   let recommended: ProjectImage | null = primary;
   if (!recommended && candidates.length > 0) {
     if (assetGroup === 'character' && subject && anchorMap) {
       const anchorSet = anchorMap[subject] || null;
-      // Score each candidate: higher is better (penalty is negative)
-      const scored = candidates.map(c => {
-        const { penalty } = computeIdentityDriftPenalty(c, anchorSet);
-        return { image: c, penalty };
-      });
-      // Sort: least penalty first, then by created_at descending for recency tiebreak
-      scored.sort((a, b) => {
-        if (a.penalty !== b.penalty) return b.penalty - a.penalty; // less negative = better
-        return (b.image.created_at || '').localeCompare(a.image.created_at || '');
-      });
-      recommended = scored[0].image;
+      const ranking = rankCharacterCandidates(candidates, anchorSet);
+      recommended = ranking.top?.image ?? candidates[0];
     } else {
       recommended = candidates[0];
     }
