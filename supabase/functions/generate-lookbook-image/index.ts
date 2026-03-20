@@ -904,6 +904,14 @@ serve(async (req) => {
 
     const results: Array<{ image_id: string; status: string; shot_type?: string; error?: string; identity_locked?: boolean }> = [];
 
+    // ── VERTICAL COMPLIANCE: Resolve effective aspect + dimensions ──
+    // Priority: client-specified > prestige system > default
+    const isVerticalDramaProject = (project.format || "").toLowerCase().includes("vertical") || resolvedLane === "vertical_drama";
+    const effectiveAspect = requestedAspectRatio || prestigeComposite.aspectRatio || "16:9";
+    const effectiveWidth = requestedWidth || prestigeComposite.width || 1280;
+    const effectiveHeight = requestedHeight || prestigeComposite.height || 720;
+    console.log(`[vertical-compliance] isVD=${isVerticalDramaProject} effectiveAspect=${effectiveAspect} dims=${effectiveWidth}x${effectiveHeight}`);
+
     for (let i = 0; i < genCount; i++) {
       const shotType = shotsToGenerate[i] || null;
 
@@ -928,6 +936,20 @@ serve(async (req) => {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx)
           : buildSectionPrompt(section, ctx, i);
+      }
+
+      // ── VERTICAL COMPLIANCE: Inject strict aspect instruction into prompt ──
+      if (isVerticalDramaProject && !isIdentityShot) {
+        prompt = `[MANDATORY ASPECT RATIO: 9:16 PORTRAIT VERTICAL]\nThis image MUST be composed in strict 9:16 vertical/portrait orientation. Frame all subjects vertically. The image height must be significantly taller than its width. Mobile-native vertical framing is REQUIRED.\n\n${prompt}`;
+      } else if (isVerticalDramaProject && isIdentityShot) {
+        // Identity shots get their specific aspect
+        const identityAspectMap: Record<string, string> = {
+          identity_headshot: "1:1 SQUARE",
+          identity_profile: "3:4 PORTRAIT",
+          identity_full_body: "2:3 TALL PORTRAIT",
+        };
+        const aspectLabel = identityAspectMap[shotType || ""] || "PORTRAIT";
+        prompt = `[MANDATORY ASPECT RATIO: ${aspectLabel}]\nThis identity reference image must be composed in ${aspectLabel} orientation.\n\n${prompt}`;
       }
 
       // Step 2: Canon facts (highest priority data)
