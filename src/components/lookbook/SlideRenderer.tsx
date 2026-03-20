@@ -878,9 +878,10 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 
   // ── Landscape characters ──
   const pad = '72px 96px 72px 100px';
-  const isPortraitFamily = slide.layoutFamily === 'landscape_character_portraits'
-    || slide.layoutFamily === 'landscape_two_up_portrait'
-    || slide.layoutFamily === 'landscape_portrait_hero';
+  const charEffective = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
+  const isPortraitFamily = charEffective === 'landscape_character_portraits'
+    || charEffective === 'landscape_two_up_portrait'
+    || charEffective === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
