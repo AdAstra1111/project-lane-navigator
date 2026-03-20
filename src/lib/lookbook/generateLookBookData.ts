@@ -5,8 +5,10 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, LookBookColorSystem } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
+import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
+import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { normalizeCanonText } from './normalizeCanonText';
 
 // ── Color palettes by tone/genre ──
@@ -272,8 +274,19 @@ export async function generateLookBookData(
   branding: { companyName: string | null; companyLogoUrl: string | null },
 ): Promise<LookBookData> {
   /** Helper: is this a vertical-drama project? Checks both format and lane. */
-  const isVerticalDrama = (format: string, lane: string) =>
-    format.includes('vertical') || lane === 'vertical_drama';
+  const isVerticalDrama = (fmt: string, lane: string) =>
+    checkVD(fmt) || fmt.includes('vertical') || lane === 'vertical_drama';
+
+  // Helper: convert ResolvedImageProvenance[] → SlideImageProvenance[]
+  const toSlideProvenance = (result: SectionImageResult): SlideImageProvenance[] =>
+    result.provenance.map(p => ({
+      imageId: p.imageId,
+      source: p.source,
+      complianceClass: p.complianceClass,
+      actualWidth: p.actualWidth,
+      actualHeight: p.actualHeight,
+    }));
+
   // 1. Load project metadata
   const { data: project, error: projectErr } = await supabase
     .from('projects')
@@ -300,12 +313,6 @@ export async function generateLookBookData(
   const canon = canonicalState.state;
   const normalizedCanon = normalizeLookBookCanon(canon);
   console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source);
-  console.log('[LookBook] canon boundary normalized', {
-    world_rules_type: Array.isArray(canon.world_rules) ? 'array' : typeof canon.world_rules,
-    locations_type: Array.isArray(canon.locations) ? 'array' : typeof canon.locations,
-    timeline_type: Array.isArray(canon.timeline) ? 'array' : typeof canon.timeline,
-    tone_style_type: Array.isArray(canon.tone_style) ? 'array' : typeof canon.tone_style,
-  });
 
   // 3. Load document versions for synopsis/statement
   const { data: docs } = await supabase
@@ -351,10 +358,18 @@ export async function generateLookBookData(
     }
   }
 
-  // 4. Resolve canonical images per section — SAME logic as workspace, now lane-aware
-  // Pass effective lane: if format is vertical-drama, treat as vertical_drama for ranking
-  const effectiveLane = isVerticalDrama(format, assignedLane) ? 'vertical_drama' : (assignedLane || null);
-  const canonImages = await resolveAllCanonImages(projectId, effectiveLane);
+  // 4. Resolve canonical images per section
+  // For vertical-drama: STRICT DECK MODE — winners only, no candidate fallback
+  const isVD = isVerticalDrama(format, assignedLane);
+  const effectiveLane = isVD ? 'vertical_drama' : (assignedLane || null);
+  const canonImages = await resolveAllCanonImages(
+    projectId,
+    effectiveLane,
+    isVD, // strictDeckMode = true for VD
+    format,
+    assignedLane,
+  );
+  console.log(`[LookBook] ✓ images resolved (strictDeckMode=${isVD})`);
 
   const coverImageUrl =
     canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
@@ -403,6 +418,8 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
+    _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
+    _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
 
   // ── OVERVIEW ──
@@ -434,6 +451,8 @@ export async function generateLookBookData(
       imageUrl: worldImageUrl || undefined,
       imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.world_locations.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.world_locations),
+      _has_unresolved: canonImages.world_locations.unresolvedCount > 0,
     });
   }
 
@@ -445,6 +464,8 @@ export async function generateLookBookData(
       title: 'Characters',
       characters: normalizedCharacters,
       _debug_image_ids: canonImages.character_identity.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.character_identity),
+      _has_unresolved: canonImages.character_identity.unresolvedCount > 0,
     });
   }
 
@@ -452,8 +473,8 @@ export async function generateLookBookData(
   const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
-    // Use atmosphere + texture images for visual richness
     const themesImages = [...atmosphereImages, ...textureImages];
+    const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
     slides.push({
       type: 'themes',
       title: 'Themes & Tone',
@@ -462,6 +483,8 @@ export async function generateLookBookData(
       imageUrl: themesImages[0]?.signedUrl || undefined,
       imageUrls: themesImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds].slice(0, 4),
+      _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)].slice(0, 4),
+      _has_unresolved: themesUnresolved > 0,
     });
   }
 
@@ -476,9 +499,11 @@ export async function generateLookBookData(
     imageUrls: visualImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
     bullets: vlCopy.bullets,
     _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
+    _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)],
+    _has_unresolved: (canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount) > 0,
   });
 
-  // ── STORY ENGINE ── (motif images used as visible grid, not just wash)
+  // ── STORY ENGINE ──
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
@@ -490,10 +515,12 @@ export async function generateLookBookData(
       imageUrl: motifImages[0]?.signedUrl || undefined,
       imageUrls: motifImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 4),
+      _debug_provenance: toSlideProvenance(canonImages.symbolic_motifs).slice(0, 4),
+      _has_unresolved: canonImages.symbolic_motifs.unresolvedCount > 0,
     });
   }
 
-  // ── KEY MOMENTS ── (always present — image-dominant when images exist, text-forward fallback)
+  // ── KEY MOMENTS ──
   {
     const keyMomentBody = keyMomentImages.length > 0
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
@@ -505,6 +532,8 @@ export async function generateLookBookData(
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
       imageUrls: keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.key_moments.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.key_moments),
+      _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
     });
   }
 
@@ -538,16 +567,20 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
   });
 
-  // Debug provenance
+  // Debug provenance — strict deck mode audit
+  const unresolvedSlides = slides.filter(s => s._has_unresolved);
   const provenanceSummary = slides
     .filter(s => s._debug_image_ids?.length)
     .map(s => `${s.type}: ${s._debug_image_ids!.length} images`)
     .join(', ');
   console.log('[LookBook] ✓ generation complete — slides:', slides.length, '| images:', provenanceSummary);
+  if (isVD && unresolvedSlides.length > 0) {
+    console.warn(`[LookBook] ⚠ STRICT VD: ${unresolvedSlides.length} slides have unresolved image slots:`,
+      unresolvedSlides.map(s => s.type).join(', '));
+  }
 
-  // Determine deck format — vertical-drama format OR vertical_drama lane → portrait
-  const deckFormat = isVerticalDrama(format, assignedLane) ? 'portrait' as const : 'landscape' as const;
-  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'}, format=${format})`);
+  const deckFormat = isVD ? 'portrait' as const : 'landscape' as const;
+  console.log(`[LookBook] ✓ deck format: ${deckFormat} (strictMode=${isVD}, lane=${assignedLane || 'none'}, format=${format})`);
 
   return {
     projectId,
