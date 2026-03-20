@@ -271,6 +271,9 @@ export async function generateLookBookData(
   projectId: string,
   branding: { companyName: string | null; companyLogoUrl: string | null },
 ): Promise<LookBookData> {
+  /** Helper: is this a vertical-drama project? Checks both format and lane. */
+  const isVerticalDrama = (format: string, lane: string) =>
+    format.includes('vertical') || lane === 'vertical_drama';
   // 1. Load project metadata
   const { data: project, error: projectErr } = await supabase
     .from('projects')
