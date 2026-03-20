@@ -199,6 +199,7 @@ export function useSectionReset(projectId: string) {
         : sectionKey === 'atmosphere_lighting' ? 'visual_language'
         : sectionKey === 'texture_detail' ? 'visual_language'
         : sectionKey === 'symbolic_motifs' ? 'key_moment'
+        : sectionKey === 'key_moments' ? 'key_moment'
         : 'world';
 
       const assetGroup = mapping.asset_groups[0] || sectionParam;
