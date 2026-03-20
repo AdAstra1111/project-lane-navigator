@@ -29,6 +29,17 @@ import {
   type CompetitionGroupWithDetails,
   type CompetitionRound,
 } from '@/lib/competition/candidateCompetitionService';
+import {
+  createRepairRun,
+  deriveRepairTargetsFromRound,
+  createRepairRound as createRepairRoundService,
+  registerRepairedCandidate,
+  finalizeRepairRun,
+  failRepairRun,
+  canRepair,
+  loadRepairHistory,
+  type RepairRun,
+} from '@/lib/competition/repairLoopService';
 
 interface SlotInfo {
   key: string;
