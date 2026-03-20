@@ -38,7 +38,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   User, Globe, Sun, Layers, Sparkles, Image: ImageIcon,
 };
 
-type CurationFilter = CurationState | 'all';
+type CurationFilter = CurationState | 'all' | 'working';
 
 interface LookbookSectionPanelProps {
   projectId: string;
