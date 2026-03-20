@@ -67,7 +67,13 @@ export function ApprovalWorkspace({
   // ── Canonical competition state from DB via orchestrator hook ──
   const competition = useSlotCompetitionOrchestrator(projectId);
 
-  const pendingSlots = useMemo(() => slots.filter(s => !s.filled && s.candidates.length > 0), [slots]);
+  // Guard: filter out slots with null candidates and sanitize candidate arrays
+  const safeSlots = useMemo(() => slots.map(s => ({
+    ...s,
+    candidates: s.candidates.filter((c): c is ProjectImage => c != null && !!c.id),
+  })), [slots]);
+
+  const pendingSlots = useMemo(() => safeSlots.filter(s => !s.filled && s.candidates.length > 0), [safeSlots]);
 
   // ── Explicit action: initialize competition for all pending slots ──
   const handleInitializeCompetition = useCallback(() => {
