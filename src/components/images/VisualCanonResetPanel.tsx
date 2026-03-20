@@ -34,6 +34,8 @@ import type { ProjectImage, AssetGroup } from '@/lib/images/types';
 
 interface VisualCanonResetPanelProps {
   projectId: string;
+  /** Optional callback to trigger lookbook rebuild after full canon rebuild */
+  onLookbookRebuild?: () => Promise<void>;
 }
 
 function extractEntities(canonJson: any): { characters: { name: string }[]; locations: { name: string }[] } {

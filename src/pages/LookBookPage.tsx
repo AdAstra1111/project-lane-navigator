@@ -265,7 +265,6 @@ export default function LookBookPage() {
           <div className="mx-4 mt-3 mb-0 shrink-0">
             <VisualCanonResetPanel
               projectId={projectId}
-              isVerticalDrama={((project?.format || '').toLowerCase().includes('vertical') || (project as any)?.assigned_lane === 'vertical_drama')}
               onLookbookRebuild={handleGenerate}
             />
           </div>
