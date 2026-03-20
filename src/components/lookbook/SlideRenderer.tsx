@@ -1,7 +1,8 @@
 /**
  * SlideRenderer — Premium cinematic slide compositions.
  * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
- * Each slide type has a purpose-built editorial layout with portrait variants.
+ * Portrait mode is editorially recomposed for vertical drama —
+ * not just stacked landscape layouts.
  */
 import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
 import { getSlideDimensions } from '@/lib/lookbook/types';
@@ -25,19 +26,12 @@ function safeOptionalString(value: unknown, field: string, warnings: string[]): 
 
 function safeStringArray(value: unknown, field: string, warnings: string[]): string[] | undefined {
   if (value === null || value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    warnings.push(field);
-    return undefined;
-  }
-
-  const normalized = value
-    .map((item, index) => {
-      if (typeof item === 'string') return item;
-      warnings.push(`${field}[${index}]`);
-      return '';
-    })
-    .filter(Boolean);
-
+  if (!Array.isArray(value)) { warnings.push(field); return undefined; }
+  const normalized = value.map((item, index) => {
+    if (typeof item === 'string') return item;
+    warnings.push(`${field}[${index}]`);
+    return '';
+  }).filter(Boolean);
   return normalized.length > 0 ? normalized : undefined;
 }
 
@@ -77,21 +71,14 @@ function normalizeSlideForRender(slide: SlideContent, slideIndex: number): Slide
   const slideKey = `${slideIndex}:${slide.type}:${normalizedSlide.title || 'untitled'}`;
   if (!seenRenderDiagnostics.has(slideKey)) {
     console.info('[LookBook] Rendering slide with normalized data', {
-      slideIndex,
-      slideType: slide.type,
-      title: normalizedSlide.title || null,
+      slideIndex, slideType: slide.type, title: normalizedSlide.title || null,
       debugImageIds: normalizedSlide._debug_image_ids || [],
     });
     if (warnings.length > 0) {
-      console.warn('[LookBook] WARNING: non-string reached renderer (should not happen)', {
-        slideIndex,
-        slideType: slide.type,
-        fields: warnings,
-      });
+      console.warn('[LookBook] WARNING: non-string reached renderer', { slideIndex, slideType: slide.type, fields: warnings });
     }
     seenRenderDiagnostics.add(slideKey);
   }
-
   return normalizedSlide;
 }
 
@@ -167,23 +154,15 @@ function AccentRule({ color, width = 48 }: { color: string; width?: number }) {
 
 function SectionTag({ label, color }: { label: string; color: string }) {
   return (
-    <span
-      style={{
-        color,
-        opacity: 0.6,
-        fontSize: 11,
-        letterSpacing: '0.35em',
-        textTransform: 'uppercase',
-        display: 'block',
-        marginBottom: 12,
-      }}
-    >
+    <span style={{
+      color, opacity: 0.6, fontSize: 11, letterSpacing: '0.35em',
+      textTransform: 'uppercase', display: 'block', marginBottom: 12,
+    }}>
       {label}
     </span>
   );
 }
 
-/** Decorative vertical accent bar on left edge */
 function EdgeAccent({ color }: { color: string }) {
   return (
     <div
@@ -193,73 +172,108 @@ function EdgeAccent({ color }: { color: string }) {
   );
 }
 
-/* ═══ COVER — cinematic key art opener ═══ */
+/** Portrait text density cap — truncates body text for vertical slides */
+function capText(text: string | undefined, maxChars: number, isPortrait: boolean): string | undefined {
+  if (!text || !isPortrait) return text;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars).replace(/\s+\S*$/, '') + '…';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   COVER — full-bleed poster with bottom title lockup
+   Portrait: image fills entire frame, title at very bottom over heavy scrim
+   ═══════════════════════════════════════════════════════════════════════ */
 function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
   const hasHero = !!slide.imageUrl;
+
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        {/* Full-bleed hero — fills entire portrait frame */}
+        {hasHero && (
+          <div className="absolute inset-0">
+            <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.75) contrast(1.15)' }} />
+            {/* Strong bottom-heavy scrim for readability */}
+            <div className="absolute inset-0" style={{
+              background: `linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}f0 18%, ${colors.bg}99 40%, transparent 65%)`,
+            }} />
+          </div>
+        )}
+
+        {/* Title lockup — anchored to bottom third */}
+        <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '0 64px 96px' }}>
+          <div style={{ maxWidth: 960 }}>
+            <div style={{ width: 56, height: 3, background: colors.accent, opacity: 0.7, marginBottom: 24 }} />
+            <h1 style={{
+              ...titleStyle, fontSize: 88, fontWeight: 700,
+              lineHeight: 0.92, color: colors.text, marginBottom: 20,
+            }}>
+              {slide.title}
+            </h1>
+            {slide.subtitle && (
+              <p style={{
+                fontSize: 22, lineHeight: 1.45, color: colors.textMuted,
+                fontFamily: `"${fontBody}", sans-serif`, maxWidth: 640, marginBottom: 32,
+              }}>
+                {capText(slide.subtitle, 160, true)}
+              </p>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+              {slide.credit && (
+                <span style={{ fontSize: 13, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>
+                  {slide.credit}
+                </span>
+              )}
+              {slide.companyName && (
+                <span style={{ fontSize: 12, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>
+                  {slide.companyName}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {slide.companyLogoUrl && (
+          <div className="absolute top-14 right-14">
+            <img src={slide.companyLogoUrl} alt="" className="h-8 object-contain" style={{ opacity: 0.4, filter: 'brightness(2)' }} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Landscape cover (unchanged) ──
   return (
     <div style={baseStyle} className="slide-content">
-      {/* Full-bleed hero with strong overlay */}
       {hasHero && (
         <div className="absolute inset-0">
           <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
           <div className="absolute inset-0" style={{
-            background: isPortrait
-              ? `linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}ee 30%, transparent 60%)`
-              : `
-                linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
-                linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
-                linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
-              `,
+            background: `
+              linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
+              linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
+              linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
+            `,
           }} />
         </div>
       )}
-
-      {/* Title lockup — bottom-weighted */}
-      <div className="absolute inset-0 flex flex-col justify-end" style={{
-        padding: isPortrait ? '60px 56px 72px' : '80px 96px 88px',
-      }}>
-        <div style={{ maxWidth: isPortrait ? 960 : (hasHero ? 960 : 1200) }}>
-          <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: isPortrait ? 20 : 28 }} />
-          <h1
-            style={{
-              ...titleStyle,
-              fontSize: isPortrait ? (hasHero ? 72 : 84) : (hasHero ? 96 : 112),
-              fontWeight: 700,
-              lineHeight: 0.95,
-              color: colors.text,
-              marginBottom: 16,
-            }}
-          >
+      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
+        <div style={{ maxWidth: hasHero ? 960 : 1200 }}>
+          <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
+          <h1 style={{ ...titleStyle, fontSize: hasHero ? 96 : 112, fontWeight: 700, lineHeight: 0.95, color: colors.text, marginBottom: 16 }}>
             {slide.title}
           </h1>
           {slide.subtitle && (
-            <p style={{
-              fontSize: isPortrait ? 20 : 24,
-              lineHeight: 1.5,
-              color: colors.textMuted,
-              fontFamily: `"${fontBody}", sans-serif`,
-              maxWidth: isPortrait ? 560 : 720,
-              marginBottom: isPortrait ? 28 : 40,
-            }}>
+            <p style={{ fontSize: 24, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 720, marginBottom: 40 }}>
               {slide.subtitle}
             </p>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: isPortrait ? 20 : 32 }}>
-            {slide.credit && (
-              <span style={{ fontSize: isPortrait ? 12 : 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>
-                {slide.credit}
-              </span>
-            )}
-            {slide.companyName && (
-              <span style={{ fontSize: isPortrait ? 11 : 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>
-                {slide.companyName}
-              </span>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+            {slide.credit && <span style={{ fontSize: 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>{slide.credit}</span>}
+            {slide.companyName && <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>{slide.companyName}</span>}
           </div>
         </div>
       </div>
-
-      {/* Company logo — top right, subtle */}
       {slide.companyLogoUrl && (
         <div className="absolute top-12 right-14">
           <img src={slide.companyLogoUrl} alt="" className="h-7 object-contain" style={{ opacity: 0.4, filter: 'brightness(2)' }} />
@@ -269,65 +283,94 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
   );
 }
 
-/* ═══ OVERVIEW — editorial layout, stacked in portrait ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   OVERVIEW — project metadata
+   Portrait: full-width logline block + metadata grid below
+   ═══════════════════════════════════════════════════════════════════════ */
 function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
-  const pad = isPortrait ? '56px 48px 56px 56px' : '72px 96px 72px 100px';
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        <EdgeAccent color={colors.accent} />
+        <div style={{ padding: '72px 64px 64px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <SectionTag label="Project Overview" color={colors.accent} />
+          <AccentRule color={colors.accent} />
+          <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
+
+          {/* Logline — large, commanding */}
+          {slide.body && (
+            <p style={{
+              fontSize: 28, lineHeight: 1.4, fontWeight: 500,
+              color: colors.text, fontFamily: `"${fontBody}", sans-serif`,
+              marginBottom: 32, maxWidth: 900,
+            }}>
+              {capText(slide.body, 280, true)}
+            </p>
+          )}
+
+          {/* Synopsis — secondary */}
+          {slide.bodySecondary && (
+            <p style={{
+              fontSize: 18, lineHeight: 1.65, color: colors.textMuted,
+              fontFamily: `"${fontBody}", sans-serif`, marginBottom: 48, maxWidth: 860,
+            }}>
+              {capText(slide.bodySecondary, 400, true)}
+            </p>
+          )}
+
+          {/* Metadata — spread as a horizontal grid near bottom */}
+          {slide.bullets && slide.bullets.length > 0 && (
+            <div style={{
+              marginTop: 'auto',
+              background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`,
+              borderRadius: 10, padding: '36px 40px',
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.min(slide.bullets.length, 3)}, 1fr)`,
+              gap: 28,
+            }}>
+              {slide.bullets.map((b, i) => {
+                const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
+                return (
+                  <div key={i}>
+                    {label && <span style={{ fontSize: 11, letterSpacing: '0.3em', textTransform: 'uppercase', color: colors.accent, display: 'block', marginBottom: 8 }}>{label}</span>}
+                    <span style={{ fontSize: 20, color: colors.text, fontWeight: 500 }}>{value}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Landscape overview ──
+  const pad = '72px 96px 72px 100px';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
       <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Project Overview" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 44 : 56, fontWeight: 600, marginBottom: isPortrait ? 32 : 48, color: colors.text }}>{slide.title}</h2>
-
-        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 32 : 64, flex: 1 }}>
-          {/* Logline + synopsis */}
+        <h2 style={{ ...titleStyle, fontSize: 56, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
+        <div style={{ display: 'flex', gap: 64, flex: 1 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            {slide.body && (
-              <p style={{
-                fontSize: isPortrait ? 22 : 28,
-                lineHeight: 1.45,
-                fontWeight: 500,
-                color: colors.text,
-                fontFamily: `"${fontBody}", sans-serif`,
-                marginBottom: isPortrait ? 20 : 28,
-              }}>
-                {slide.body}
-              </p>
-            )}
-            {slide.bodySecondary && (
-              <p style={{
-                fontSize: isPortrait ? 15 : 17,
-                lineHeight: 1.7,
-                color: colors.textMuted,
-                fontFamily: `"${fontBody}", sans-serif`,
-              }}>
-                {slide.bodySecondary}
-              </p>
-            )}
+            {slide.body && <p style={{ fontSize: 28, lineHeight: 1.45, fontWeight: 500, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 28 }}>{slide.body}</p>}
+            {slide.bodySecondary && <p style={{ fontSize: 17, lineHeight: 1.7, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
           </div>
-
-          {/* Metadata panel */}
           {slide.bullets && slide.bullets.length > 0 && (
             <div style={{
-              width: isPortrait ? '100%' : 360,
-              flexShrink: 0,
-              background: colors.bgSecondary,
-              border: `1px solid ${colors.accentMuted}`,
-              borderRadius: 8,
-              padding: isPortrait ? '28px 32px' : '40px 36px',
-              display: 'flex',
-              flexDirection: isPortrait ? 'row' : 'column',
-              flexWrap: isPortrait ? 'wrap' : 'nowrap',
-              justifyContent: 'center',
-              gap: isPortrait ? 20 : 28,
+              width: 360, flexShrink: 0, background: colors.bgSecondary,
+              border: `1px solid ${colors.accentMuted}`, borderRadius: 8,
+              padding: '40px 36px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 28,
             }}>
               {slide.bullets.map((b, i) => {
                 const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
                 return (
-                  <div key={i} style={{ minWidth: isPortrait ? '40%' : undefined }}>
+                  <div key={i}>
                     {label && <span style={{ fontSize: 11, letterSpacing: '0.25em', textTransform: 'uppercase', color: colors.accent, display: 'block', marginBottom: 6 }}>{label}</span>}
-                    <span style={{ fontSize: isPortrait ? 17 : 20, color: colors.text, fontWeight: 500 }}>{value}</span>
+                    <span style={{ fontSize: 20, color: colors.text, fontWeight: 500 }}>{value}</span>
                   </div>
                 );
               })}
@@ -340,76 +383,103 @@ function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIn
   );
 }
 
-/* ═══ WORLD — immersive atmosphere ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   WORLD — immersive atmosphere
+   Portrait: hero image fills top 55%, text flows below with quote
+   ═══════════════════════════════════════════════════════════════════════ */
 function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const hasImages = imgs.length > 0;
-  const pad = isPortrait ? '56px 48px 56px 56px' : '72px 96px 72px 100px';
 
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        {/* Background wash */}
+        {(slide.imageUrl || imgs[0]) && (
+          <div className="absolute inset-0">
+            <img src={slide.imageUrl || imgs[0]} alt="" className="w-full h-full object-cover" style={{ opacity: 0.12, filter: 'saturate(0.4) blur(3px)' }} />
+            <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f0 0%, ${colors.bg}cc 40%, ${colors.bg}e0 100%)` }} />
+          </div>
+        )}
+
+        <EdgeAccent color={colors.accent} />
+        <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Hero image zone — fills top 55% */}
+          {hasImages && (
+            <div style={{
+              height: '55%', flexShrink: 0, padding: '0',
+              display: 'grid',
+              gridTemplateColumns: imgs.length === 1 ? '1fr' : imgs.length === 2 ? '1fr 1fr' : '2fr 1fr',
+              gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr',
+              gap: 6,
+            }}>
+              {imgs.slice(0, 4).map((url, i) => (
+                <div key={i} style={{
+                  overflow: 'hidden',
+                  ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
+                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+                }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Text zone — fills remaining space */}
+          <div style={{ flex: 1, padding: '36px 64px 56px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <SectionTag label="The World" color={colors.accent} />
+            <AccentRule color={colors.accent} />
+            <h2 style={{ ...titleStyle, fontSize: 48, fontWeight: 600, marginBottom: 24, color: colors.text }}>{slide.title}</h2>
+            {slide.body && (
+              <p style={{ fontSize: 19, lineHeight: 1.6, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16, maxWidth: 900 }}>
+                {capText(slide.body, 350, true)}
+              </p>
+            )}
+            {slide.bodySecondary && (
+              <p style={{ fontSize: 15, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 860 }}>
+                {capText(slide.bodySecondary, 250, true)}
+              </p>
+            )}
+            {slide.quote && (
+              <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
+                <p style={{ fontSize: 18, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.6, fontFamily: `"${fontBody}", sans-serif` }}>"{capText(slide.quote, 180, true)}"</p>
+              </div>
+            )}
+          </div>
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Landscape world ──
+  const pad = '72px 96px 72px 100px';
   return (
     <div style={baseStyle} className="slide-content">
-      {/* Background wash from first image */}
       {(slide.imageUrl || imgs[0]) && (
         <div className="absolute inset-0">
           <img src={slide.imageUrl || imgs[0]} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15, filter: 'saturate(0.4) contrast(1.1) blur(2px)' }} />
           <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f0 0%, ${colors.bg}cc 40%, ${colors.bg}e0 100%)` }} />
         </div>
       )}
-
       <EdgeAccent color={colors.accent} />
       <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="The World" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 52, fontWeight: 600, marginBottom: isPortrait ? 24 : 36, color: colors.text }}>{slide.title}</h2>
-
-        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 24 : 48, flex: 1, minHeight: 0 }}>
-          {/* Image grid — top in portrait, right in landscape */}
-          {isPortrait && hasImages && (
-            <div style={{
-              height: 560,
-              flexShrink: 0,
-              display: 'grid',
-              gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-              gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
-              gap: 8,
-            }}>
-              {imgs.slice(0, 4).map((url, i) => (
-                <div key={i} style={{
-                  borderRadius: 6, overflow: 'hidden',
-                  border: `1px solid ${colors.accentMuted}`,
-                  ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
-                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-                }}>
-                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.05)' }} />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Text column */}
+        <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
+        <div style={{ display: 'flex', gap: 48, flex: 1, minHeight: 0 }}>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
-            {slide.body && (
-              <p style={{ fontSize: isPortrait ? 17 : 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>
-                {slide.body}
-              </p>
-            )}
-            {slide.bodySecondary && (
-              <p style={{ fontSize: isPortrait ? 14 : 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>
-                {slide.bodySecondary}
-              </p>
-            )}
+            {slide.body && <p style={{ fontSize: 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>{slide.body}</p>}
+            {slide.bodySecondary && <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
             {slide.quote && (
               <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
-                <p style={{ fontSize: isPortrait ? 17 : 20, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.65, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
+                <p style={{ fontSize: 20, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.65, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
               </div>
             )}
           </div>
-
-          {/* Image grid — right in landscape */}
-          {!isPortrait && hasImages && (
+          {hasImages && (
             <div style={{
-              width: imgs.length === 1 ? 680 : 640,
-              flexShrink: 0,
+              width: imgs.length === 1 ? 680 : 640, flexShrink: 0,
               display: 'grid',
               gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
               gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
@@ -417,8 +487,7 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
             }}>
               {imgs.slice(0, 4).map((url, i) => (
                 <div key={i} style={{
-                  borderRadius: 6, overflow: 'hidden',
-                  border: `1px solid ${colors.accentMuted}`,
+                  borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
                   ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
                   ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
                 }}>
@@ -434,71 +503,110 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
   );
 }
 
-/* ═══ CHARACTERS — premium cast dossier ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   CHARACTERS — premium cast page
+   Portrait: lead character gets full-width hero card (image 55% height),
+   supporting characters in tight 2-col grid below
+   ═══════════════════════════════════════════════════════════════════════ */
 function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const chars = slide.characters || [];
   const lead = chars[0];
   const supporting = chars.slice(1);
   const isSmallCast = chars.length <= 3;
-  const pad = isPortrait ? '48px 44px 48px 52px' : '72px 96px 72px 100px';
 
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        <EdgeAccent color={colors.accent} />
+        <div style={{ padding: '48px 56px 48px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <SectionTag label="Characters" color={colors.accent} />
+          <AccentRule color={colors.accent} />
+          <h2 style={{ ...titleStyle, fontSize: 48, fontWeight: 600, marginBottom: 32, color: colors.text }}>{slide.title}</h2>
+
+          {/* Lead character — poster-style hero card */}
+          {lead && (
+            <div style={{
+              flexShrink: 0,
+              display: 'flex', gap: 0,
+              background: colors.bgSecondary,
+              border: `1px solid ${colors.accent}`,
+              borderRadius: 10, overflow: 'hidden',
+              height: supporting.length > 0 ? 440 : 700,
+            }}>
+              {lead.imageUrl ? (
+                <div style={{ width: '50%', flexShrink: 0 }}>
+                  <img src={lead.imageUrl} alt={lead.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 15%', filter: 'saturate(0.8) contrast(1.05)' }} />
+                </div>
+              ) : (
+                <div style={{ width: '35%', flexShrink: 0, background: `linear-gradient(135deg, ${colors.bgSecondary}, ${colors.bg})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 72, fontWeight: 700, color: colors.accent, opacity: 0.15, fontFamily: '"Fraunces", serif' }}>{lead.name.charAt(0)}</span>
+                </div>
+              )}
+              <div style={{ padding: '32px 36px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <h3 style={{ fontSize: 30, fontWeight: 600, color: colors.accent, fontFamily: '"Fraunces", serif', marginBottom: 6, lineHeight: 1.15 }}>{lead.name}</h3>
+                {lead.role && <span style={{ fontSize: 12, letterSpacing: '0.25em', textTransform: 'uppercase', color: colors.textMuted, marginBottom: 16, display: 'block' }}>{lead.role}</span>}
+                <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.text, opacity: 0.85, fontFamily: `"${fontBody}", sans-serif` }}>
+                  {capText(lead.description, 200, true)}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Supporting — compact portrait cards */}
+          {supporting.length > 0 && (
+            <div style={{
+              flex: 1, marginTop: 20,
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.min(supporting.length, 3)}, 1fr)`,
+              gap: 14, alignContent: 'start', minHeight: 0,
+            }}>
+              {supporting.slice(0, 6).map((c, i) => (
+                <div key={i} style={{
+                  background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`,
+                  borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                }}>
+                  {c.imageUrl ? (
+                    <div style={{ height: 200, overflow: 'hidden', flexShrink: 0 }}>
+                      <img src={c.imageUrl} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
+                    </div>
+                  ) : (
+                    <div style={{ height: 72, flexShrink: 0, background: `linear-gradient(135deg, ${colors.bgSecondary}, ${colors.bg})`, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${colors.accentMuted}` }}>
+                      <span style={{ fontSize: 28, fontWeight: 700, color: colors.accent, opacity: 0.2, fontFamily: '"Fraunces", serif' }}>{c.name.charAt(0)}</span>
+                    </div>
+                  )}
+                  <div style={{ padding: '16px 18px', flex: 1 }}>
+                    <h3 style={{ fontSize: 17, fontWeight: 600, color: colors.accent, fontFamily: '"Fraunces", serif', marginBottom: 4, lineHeight: 1.2 }}>{c.name}</h3>
+                    {c.role && <span style={{ fontSize: 10, letterSpacing: '0.2em', textTransform: 'uppercase', color: colors.textMuted, marginBottom: 8, display: 'block' }}>{c.role}</span>}
+                    <p style={{ fontSize: 13, lineHeight: 1.5, color: colors.text, opacity: 0.8, fontFamily: `"${fontBody}", sans-serif`, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>
+                      {c.description}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Landscape characters ──
+  const pad = '72px 96px 72px 100px';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
       <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Characters" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 52, fontWeight: 600, marginBottom: isPortrait ? 28 : 40, color: colors.text }}>{slide.title}</h2>
-
-        {isPortrait ? (
-          /* ── Portrait: vertical card stack ── */
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, overflow: 'hidden' }}>
-            {/* Lead — hero card */}
-            {lead && (
-              <div style={{
-                flexShrink: 0,
-                display: 'flex',
-                gap: 16,
-                background: colors.bgSecondary,
-                border: `1px solid ${colors.accent}`,
-                borderRadius: 8,
-                overflow: 'hidden',
-                minHeight: isSmallCast ? 320 : 240,
-              }}>
-                {lead.imageUrl ? (
-                  <div style={{ width: '45%', flexShrink: 0 }}>
-                    <img src={lead.imageUrl} alt={lead.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
-                  </div>
-                ) : (
-                  <div style={{ width: 120, flexShrink: 0, background: `linear-gradient(135deg, ${colors.bgSecondary}, ${colors.bg})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ fontSize: 48, fontWeight: 700, color: colors.accent, opacity: 0.2, fontFamily: '"Fraunces", serif' }}>{lead.name.charAt(0)}</span>
-                  </div>
-                )}
-                <div style={{ padding: '24px 24px 24px 0', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <h3 style={{ fontSize: 24, fontWeight: 600, color: colors.accent, fontFamily: '"Fraunces", serif', marginBottom: 4, lineHeight: 1.2 }}>{lead.name}</h3>
-                  {lead.role && <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: colors.textMuted, marginBottom: 12, display: 'block' }}>{lead.role}</span>}
-                  <p style={{ fontSize: 14, lineHeight: 1.55, color: colors.text, opacity: 0.82, fontFamily: `"${fontBody}", sans-serif`, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 5, WebkitBoxOrient: 'vertical' }}>{lead.description}</p>
-                </div>
-              </div>
-            )}
-            {/* Supporting — compact 2-col grid */}
-            {supporting.length > 0 && (
-              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, alignContent: 'start', minHeight: 0 }}>
-                {supporting.map((c, i) => (
-                  <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={false} tall={false} isPortrait />
-                ))}
-              </div>
-            )}
-          </div>
-        ) : isSmallCast ? (
-          /* ── Landscape: horizontal editorial for ≤3 ── */
+        <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
+        {isSmallCast ? (
           <div style={{ display: 'flex', gap: 28, flex: 1, minHeight: 0 }}>
             {chars.map((c, i) => (
               <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={i === 0} tall isPortrait={false} />
             ))}
           </div>
         ) : (
-          /* ── Landscape: lead + grid for 4+ ── */
           <div style={{ display: 'flex', gap: 28, flex: 1, minHeight: 0 }}>
             {lead && (
               <div style={{ width: 420, flexShrink: 0 }}>
@@ -518,121 +626,128 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
   );
 }
 
-function CharCard({ char, colors, fontBody, isLead, tall, isPortrait }: {
+/** Landscape-only character card */
+function CharCard({ char, colors, fontBody, isLead, tall }: {
   char: { name: string; role: string; description: string; imageUrl?: string };
-  colors: LookBookVisualIdentity['colors'];
-  fontBody: string;
-  isLead: boolean;
-  tall: boolean;
-  isPortrait: boolean;
+  colors: LookBookVisualIdentity['colors']; fontBody: string;
+  isLead: boolean; tall: boolean; isPortrait: boolean;
 }) {
-  const imgH = isPortrait ? (tall ? 200 : 120) : (tall ? 280 : 180);
-  const padText = isPortrait ? (tall ? '20px 24px' : '14px 16px') : (tall ? '24px 28px' : '16px 20px');
+  const imgH = tall ? 280 : 180;
+  const padText = tall ? '24px 28px' : '16px 20px';
   return (
     <div style={{
-      flex: tall && !isPortrait ? 1 : undefined,
-      background: colors.bgSecondary,
-      border: `1px solid ${colors.accentMuted}`,
-      borderRadius: 8,
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-      ...(isLead ? { borderColor: colors.accent, borderWidth: 1 } : {}),
+      flex: tall ? 1 : undefined, background: colors.bgSecondary,
+      border: `1px solid ${colors.accentMuted}`, borderRadius: 8,
+      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+      ...(isLead ? { borderColor: colors.accent } : {}),
     }}>
       {char.imageUrl ? (
         <div style={{ height: imgH, overflow: 'hidden', flexShrink: 0 }}>
           <img src={char.imageUrl} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
         </div>
       ) : (
-        <div style={{
-          height: isPortrait ? (tall ? 80 : 48) : (tall ? 140 : 80),
-          flexShrink: 0,
-          background: `linear-gradient(135deg, ${colors.bgSecondary}, ${colors.bg})`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          borderBottom: `1px solid ${colors.accentMuted}`,
-        }}>
+        <div style={{ height: tall ? 140 : 80, flexShrink: 0, background: `linear-gradient(135deg, ${colors.bgSecondary}, ${colors.bg})`, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${colors.accentMuted}` }}>
           <span style={{ fontSize: tall ? 36 : 24, fontWeight: 700, color: colors.accent, opacity: 0.2, fontFamily: '"Fraunces", serif' }}>{char.name.charAt(0)}</span>
         </div>
       )}
       <div style={{ padding: padText, flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <h3 style={{ fontSize: isLead ? (isPortrait ? 18 : 24) : (isPortrait ? 15 : 19), fontWeight: 600, color: colors.accent, fontFamily: '"Fraunces", serif', marginBottom: 4, lineHeight: 1.2 }}>{char.name}</h3>
-        {char.role && <span style={{ fontSize: isPortrait ? 10 : 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: colors.textMuted, marginBottom: 8, display: 'block' }}>{char.role}</span>}
-        <p style={{ fontSize: isPortrait ? (tall ? 13 : 12) : (tall ? 15 : 13), lineHeight: 1.55, color: colors.text, opacity: 0.82, fontFamily: `"${fontBody}", sans-serif`, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: isPortrait ? (tall ? 4 : 3) : (tall ? 6 : 4), WebkitBoxOrient: 'vertical' }}>{char.description}</p>
+        <h3 style={{ fontSize: isLead ? 24 : 19, fontWeight: 600, color: colors.accent, fontFamily: '"Fraunces", serif', marginBottom: 4, lineHeight: 1.2 }}>{char.name}</h3>
+        {char.role && <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: colors.textMuted, marginBottom: 8, display: 'block' }}>{char.role}</span>}
+        <p style={{ fontSize: tall ? 15 : 13, lineHeight: 1.55, color: colors.text, opacity: 0.82, fontFamily: `"${fontBody}", sans-serif`, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: tall ? 6 : 4, WebkitBoxOrient: 'vertical' }}>{char.description}</p>
       </div>
     </div>
   );
 }
 
-/* ═══ THEMES — editorial with atmospheric imagery ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   THEMES — atmosphere-led editorial
+   Portrait: single hero image fills top 50%, text below with atmosphere
+   ═══════════════════════════════════════════════════════════════════════ */
 function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const hasImages = imgs.length > 0;
-  const pad = isPortrait ? '48px 44px 48px 52px' : '80px 100px';
+  const heroImg = slide.imageUrl || imgs[0];
 
-  return (
-    <div style={baseStyle} className="slide-content">
-      {(slide.imageUrl || imgs[0]) && (
-        <div className="absolute inset-0">
-          <img src={slide.imageUrl || imgs[0]} alt="" className="w-full h-full object-cover" style={{ opacity: 0.12, filter: 'saturate(0.3) blur(4px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f2 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-        </div>
-      )}
-
-      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: isPortrait ? 'column' : 'row' }}>
-        {/* In portrait, images on top */}
-        {isPortrait && hasImages && (
-          <div style={{
-            height: 640,
-            flexShrink: 0,
-            padding: '48px 44px 12px 44px',
-            display: 'grid',
-            gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-            gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
-            gap: 10,
-          }}>
-            {imgs.slice(0, 4).map((url, i) => (
-              <div key={i} style={{
-                borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-              }}>
-                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.7) contrast(1.1)' }} />
-              </div>
-            ))}
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        {/* Atmospheric full-bleed hero */}
+        {heroImg && (
+          <div className="absolute inset-0">
+            <img src={heroImg} alt="" className="w-full h-full object-cover" style={{ opacity: 0.2, filter: 'saturate(0.35) blur(3px)' }} />
+            <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${colors.bg}e8 0%, ${colors.bg}cc 35%, ${colors.bg}f5 100%)` }} />
           </div>
         )}
 
-        {/* Text panel */}
-        <div style={{
-          flex: 1,
-          display: 'flex', flexDirection: 'column',
-          alignItems: !hasImages && !isPortrait ? 'center' : 'flex-start',
-          justifyContent: 'center',
-          padding: isPortrait ? '24px 44px 48px 52px' : (hasImages ? '80px 48px 80px 100px' : pad),
-          textAlign: !hasImages && !isPortrait ? 'center' : 'left',
-        }}>
-          <SectionTag label="Themes & Tone" color={colors.accent} />
-          <AccentRule color={colors.accent} width={40} />
-          <h2 style={{ ...titleStyle, fontSize: isPortrait ? 36 : 52, fontWeight: 600, marginBottom: isPortrait ? 24 : 40, color: colors.text }}>{slide.title}</h2>
-          <div style={{ maxWidth: isPortrait ? 960 : 720 }}>
-            {slide.body && <p style={{ fontSize: isPortrait ? 18 : 22, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20 }}>{slide.body}</p>}
-            {slide.bodySecondary && <p style={{ fontSize: isPortrait ? 14 : 16, lineHeight: 1.65, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
+        <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Image zone — top half if images exist */}
+          {hasImages && (
+            <div style={{
+              height: '48%', flexShrink: 0,
+              display: 'grid',
+              gridTemplateColumns: imgs.length === 1 ? '1fr' : imgs.length <= 3 ? '1fr 1fr' : '2fr 1fr',
+              gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr',
+              gap: 6,
+            }}>
+              {imgs.slice(0, 4).map((url, i) => (
+                <div key={i} style={{
+                  overflow: 'hidden',
+                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+                  ...(imgs.length === 1 ? { gridColumn: '1 / -1' } : {}),
+                }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.7) contrast(1.1)' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Text — fills remaining vertical space */}
+          <div style={{
+            flex: 1, padding: '40px 64px 56px', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+          }}>
+            <SectionTag label="Themes & Tone" color={colors.accent} />
+            <AccentRule color={colors.accent} width={40} />
+            <h2 style={{ ...titleStyle, fontSize: 48, fontWeight: 600, marginBottom: 28, color: colors.text }}>{slide.title}</h2>
+            {slide.body && (
+              <p style={{ fontSize: 20, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20, maxWidth: 900 }}>
+                {capText(slide.body, 350, true)}
+              </p>
+            )}
+            {slide.bodySecondary && (
+              <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 860 }}>
+                {capText(slide.bodySecondary, 280, true)}
+              </p>
+            )}
           </div>
         </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
 
-        {/* Landscape: image strip on right */}
-        {!isPortrait && hasImages && (
-          <div style={{
-            width: '50%', padding: '48px 56px 48px 0',
-            display: 'grid',
-            gridTemplateColumns: imgs.length === 1 ? '1fr' : '1fr 1fr',
-            gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr',
-            gap: 10,
-          }}>
+  // ── Landscape themes ──
+  return (
+    <div style={baseStyle} className="slide-content">
+      {heroImg && (
+        <div className="absolute inset-0">
+          <img src={heroImg} alt="" className="w-full h-full object-cover" style={{ opacity: 0.12, filter: 'saturate(0.3) blur(4px)' }} />
+          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f2 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
+        </div>
+      )}
+      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: !hasImages ? 'center' : 'flex-start', justifyContent: 'center', padding: hasImages ? '80px 48px 80px 100px' : '80px 100px', textAlign: !hasImages ? 'center' : 'left' }}>
+          <SectionTag label="Themes & Tone" color={colors.accent} />
+          <AccentRule color={colors.accent} width={40} />
+          <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
+          <div style={{ maxWidth: 720 }}>
+            {slide.body && <p style={{ fontSize: 22, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20 }}>{slide.body}</p>}
+            {slide.bodySecondary && <p style={{ fontSize: 16, lineHeight: 1.65, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
+          </div>
+        </div>
+        {hasImages && (
+          <div style={{ width: '50%', padding: '48px 56px 48px 0', display: 'grid', gridTemplateColumns: imgs.length === 1 ? '1fr' : '1fr 1fr', gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr', gap: 10 }}>
             {imgs.slice(0, 4).map((url, i) => (
-              <div key={i} style={{
-                borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-              }}>
+              <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`, ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}) }}>
                 <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.7) contrast(1.1)' }} />
               </div>
             ))}
@@ -644,75 +759,92 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
   );
 }
 
-/* ═══ VISUAL LANGUAGE — aesthetic thesis with evidence ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   VISUAL LANGUAGE — aesthetic thesis with evidence
+   Portrait: evidence strip across top 45%, thesis text below
+   ═══════════════════════════════════════════════════════════════════════ */
 function VisualLanguageSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const hasImages = imgs.length > 0;
-  const pad = isPortrait ? '48px 44px 48px 52px' : '72px 56px 72px 100px';
 
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        <EdgeAccent color={colors.accent} />
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Evidence strip — 45% of portrait height */}
+          {hasImages && (
+            <div style={{
+              height: '45%', flexShrink: 0,
+              display: 'grid',
+              gridTemplateColumns: imgs.length === 1 ? '1fr' : imgs.length === 2 ? '1fr 1fr' : '2fr 1fr',
+              gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr',
+              gap: 6,
+            }}>
+              {imgs.slice(0, 4).map((url, i) => (
+                <div key={i} style={{
+                  overflow: 'hidden',
+                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+                  ...(imgs.length === 1 ? { gridColumn: '1 / -1' } : {}),
+                }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.05)' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Thesis text */}
+          <div style={{ flex: 1, padding: '36px 64px 52px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <SectionTag label="Visual Language" color={colors.accent} />
+            <AccentRule color={colors.accent} />
+            <h2 style={{ ...titleStyle, fontSize: 44, fontWeight: 600, marginBottom: 24, color: colors.text }}>{slide.title}</h2>
+            {slide.body && (
+              <p style={{ fontSize: 18, lineHeight: 1.6, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 24, maxWidth: 900 }}>
+                {capText(slide.body, 320, true)}
+              </p>
+            )}
+            {(slide.bullets || []).length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                {slide.bullets!.slice(0, 4).map((b, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 14 }}>
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, flexShrink: 0, marginTop: 6, opacity: 0.7 }} />
+                    <span style={{ fontSize: 15, lineHeight: 1.5, color: colors.text, opacity: 0.82 }}>{capText(b, 120, true)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Landscape visual language ──
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
-
-      <div style={{ height: '100%', display: 'flex', flexDirection: isPortrait ? 'column' : 'row' }}>
-        {/* Portrait: images on top */}
-        {isPortrait && hasImages && (
-          <div style={{
-            height: 620,
-            flexShrink: 0,
-            padding: '48px 44px 12px',
-            display: 'grid',
-            gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-            gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
-            gap: 10,
-          }}>
-            {imgs.slice(0, 4).map((url, i) => (
-              <div key={i} style={{
-                borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-              }}>
-                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.05)' }} />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Text panel */}
-        <div style={{
-          flex: 1,
-          padding: isPortrait ? '24px 44px 48px 52px' : pad,
-          display: 'flex', flexDirection: 'column', justifyContent: 'center',
-        }}>
+      <div style={{ height: '100%', display: 'flex' }}>
+        <div style={{ flex: 1, padding: '72px 56px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Visual Language" color={colors.accent} />
           <AccentRule color={colors.accent} />
-          <h2 style={{ ...titleStyle, fontSize: isPortrait ? 36 : 48, fontWeight: 600, marginBottom: isPortrait ? 20 : 32, color: colors.text }}>{slide.title}</h2>
-          {slide.body && <p style={{ fontSize: isPortrait ? 16 : 18, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20, maxWidth: isPortrait ? 960 : 620 }}>{slide.body}</p>}
+          <h2 style={{ ...titleStyle, fontSize: 48, fontWeight: 600, marginBottom: 32, color: colors.text }}>{slide.title}</h2>
+          {slide.body && <p style={{ fontSize: 18, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20, maxWidth: 620 }}>{slide.body}</p>}
           {(slide.bullets || []).length > 0 && (
             <div style={{ marginTop: 8 }}>
               {slide.bullets!.map((b, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 12 }}>
                   <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, flexShrink: 0, marginTop: 4, opacity: 0.7 }} />
-                  <span style={{ fontSize: isPortrait ? 14 : 16, lineHeight: 1.5, color: colors.text, opacity: 0.82 }}>{b}</span>
+                  <span style={{ fontSize: 16, lineHeight: 1.5, color: colors.text, opacity: 0.82 }}>{b}</span>
                 </div>
               ))}
             </div>
           )}
         </div>
-
-        {/* Landscape: image panel right */}
-        {!isPortrait && hasImages && (
-          <div style={{
-            width: '55%', padding: '40px 48px 40px 0',
-            display: 'grid',
-            gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-            gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
-            gap: 10,
-          }}>
+        {hasImages && (
+          <div style={{ width: '55%', padding: '40px 48px 40px 0', display: 'grid', gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)', gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)', gap: 10 }}>
             {imgs.slice(0, 4).map((url, i) => (
-              <div key={i} style={{
-                borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-              }}>
+              <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`, ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}) }}>
                 <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.05)' }} />
               </div>
             ))}
@@ -724,13 +856,81 @@ function VisualLanguageSlide({ slide, colors, titleStyle, baseStyle, fontBody, s
   );
 }
 
-/* ═══ STORY ENGINE — narrative propulsion with visual evidence ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   STORY ENGINE — narrative propulsion
+   Portrait: top image strip (40%), text + numbered beats below
+   ═══════════════════════════════════════════════════════════════════════ */
 function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const hasImages = imgs.length > 0;
   const bullets = slide.bullets || [];
-  const pad = isPortrait ? '48px 44px 48px 52px' : '72px 96px 72px 100px';
 
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        {slide.imageUrl && (
+          <div className="absolute inset-0">
+            <img src={slide.imageUrl} alt="" className="w-full h-full object-cover" style={{ opacity: 0.06, filter: 'saturate(0.3) blur(4px)' }} />
+            <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f5 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
+          </div>
+        )}
+        <EdgeAccent color={colors.accent} />
+        <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Image strip — 40% */}
+          {hasImages && (
+            <div style={{
+              height: '40%', flexShrink: 0,
+              display: 'grid',
+              gridTemplateColumns: imgs.length === 1 ? '1fr' : imgs.length === 2 ? '1fr 1fr' : '2fr 1fr',
+              gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr',
+              gap: 6,
+            }}>
+              {imgs.slice(0, 4).map((url, i) => (
+                <div key={i} style={{
+                  overflow: 'hidden',
+                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+                  ...(imgs.length === 1 ? { gridColumn: '1 / -1' } : {}),
+                }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.8) contrast(1.05)' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Text + beats */}
+          <div style={{ flex: 1, padding: '36px 64px 52px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <SectionTag label="Story Engine" color={colors.accent} />
+            <AccentRule color={colors.accent} />
+            <h2 style={{ ...titleStyle, fontSize: 44, fontWeight: 600, marginBottom: 24, color: colors.text }}>{slide.title}</h2>
+            {slide.body && (
+              <p style={{ fontSize: 18, lineHeight: 1.6, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20, maxWidth: 900 }}>
+                {capText(slide.body, 300, true)}
+              </p>
+            )}
+            {slide.bodySecondary && (
+              <p style={{ fontSize: 15, lineHeight: 1.55, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20, maxWidth: 860 }}>
+                {capText(slide.bodySecondary, 200, true)}
+              </p>
+            )}
+            {bullets.length > 0 && (
+              <div style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`, borderRadius: 8, padding: '24px 28px', marginTop: 8 }}>
+                {bullets.slice(0, 4).map((b, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: i < bullets.length - 1 ? 14 : 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: colors.accent, opacity: 0.5, fontFamily: `"${fontBody}", sans-serif`, minWidth: 22, paddingTop: 2 }}>{String(i + 1).padStart(2, '0')}</span>
+                    <span style={{ fontSize: 15, lineHeight: 1.5, color: colors.text, opacity: 0.85 }}>{capText(b, 120, true)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Landscape story engine ──
+  const pad = '72px 96px 72px 100px';
   return (
     <div style={baseStyle} className="slide-content">
       {slide.imageUrl && (
@@ -739,75 +939,39 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
           <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f5 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
         </div>
       )}
-
       <EdgeAccent color={colors.accent} />
       <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Story Engine" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 36 : 52, fontWeight: 600, marginBottom: isPortrait ? 24 : 36, color: colors.text }}>{slide.title}</h2>
-
-        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 24 : 40, flex: 1, minHeight: 0 }}>
-          {/* Portrait: images on top */}
-          {isPortrait && hasImages && (
-            <div style={{
-              height: 440,
-              flexShrink: 0,
-              display: 'grid',
-              gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-              gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
-              gap: 8,
-            }}>
-              {imgs.slice(0, 4).map((url, i) => (
-                <div key={i} style={{
-                  borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-                }}>
-                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.8) contrast(1.05)' }} />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Text + bullets */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: isPortrait ? 960 : (hasImages ? 640 : 780) }}>
-            {slide.body && <p style={{ fontSize: isPortrait ? 16 : 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20 }}>{slide.body}</p>}
-            {slide.bodySecondary && <p style={{ fontSize: isPortrait ? 13 : 15, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>{slide.bodySecondary}</p>}
+        <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
+        <div style={{ display: 'flex', gap: 40, flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: hasImages ? 640 : 780 }}>
+            {slide.body && <p style={{ fontSize: 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20 }}>{slide.body}</p>}
+            {slide.bodySecondary && <p style={{ fontSize: 15, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>{slide.bodySecondary}</p>}
             {bullets.length > 0 && (
-              <div style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`, borderRadius: 8, padding: isPortrait ? '20px 24px' : '24px 28px', marginTop: 8 }}>
+              <div style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`, borderRadius: 8, padding: '24px 28px', marginTop: 8 }}>
                 {bullets.map((b, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: i < bullets.length - 1 ? 12 : 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: colors.accent, opacity: 0.5, fontFamily: `"${fontBody}", sans-serif`, minWidth: 22, paddingTop: 2 }}>{String(i + 1).padStart(2, '0')}</span>
-                    <span style={{ fontSize: isPortrait ? 13 : 15, lineHeight: 1.5, color: colors.text, opacity: 0.85 }}>{b}</span>
+                    <span style={{ fontSize: 15, lineHeight: 1.5, color: colors.text, opacity: 0.85 }}>{b}</span>
                   </div>
                 ))}
               </div>
             )}
           </div>
-
-          {/* Landscape: images right */}
-          {!isPortrait && hasImages && (
-            <div style={{
-              width: 440, flexShrink: 0,
-              display: 'grid',
-              gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-              gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
-              gap: 8,
-            }}>
+          {hasImages && (
+            <div style={{ width: 440, flexShrink: 0, display: 'grid', gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)', gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)', gap: 8 }}>
               {imgs.slice(0, 4).map((url, i) => (
-                <div key={i} style={{
-                  borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                  ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-                }}>
+                <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`, ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}) }}>
                   <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.8) contrast(1.05)' }} />
                 </div>
               ))}
             </div>
           )}
         </div>
-
         {slide.quote && (
-          <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: `1px solid ${colors.accentMuted}`, maxWidth: isPortrait ? 960 : 700 }}>
-            <p style={{ fontSize: isPortrait ? 15 : 17, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.6, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
+          <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: `1px solid ${colors.accentMuted}`, maxWidth: 700 }}>
+            <p style={{ fontSize: 17, fontStyle: 'italic', lineHeight: 1.5, color: colors.accent, opacity: 0.6, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
           </div>
         )}
       </div>
@@ -816,7 +980,10 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   );
 }
 
-/* ═══ KEY MOMENTS — cinematic image showcase ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   KEY MOMENTS — cinematic image showcase (kept strong — this works)
+   Portrait: full-bleed mosaic with compact header
+   ═══════════════════════════════════════════════════════════════════════ */
 function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const imgCount = imgs.length;
@@ -847,31 +1014,28 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
     return {};
   };
 
-  const headerPad = isPortrait ? '40px 44px 16px 52px' : '48px 100px 24px';
-
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
-
       {imgCount === 0 ? (
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: isPortrait ? '60px 52px' : '80px 100px' }}>
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: isPortrait ? '60px 64px' : '80px 100px' }}>
           <SectionTag label="Key Moments" color={colors.accent} />
           <AccentRule color={colors.accent} />
-          <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
-          {slide.body && <p style={{ fontSize: isPortrait ? 17 : 20, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 800 }}>{slide.body}</p>}
+          <h2 style={{ ...titleStyle, fontSize: isPortrait ? 48 : 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
+          {slide.body && <p style={{ fontSize: isPortrait ? 19 : 20, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 800 }}>{slide.body}</p>}
         </div>
       ) : (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: headerPad, flexShrink: 0 }}>
+          <div style={{ padding: isPortrait ? '36px 56px 12px' : '48px 100px 24px', flexShrink: 0 }}>
             <SectionTag label="Key Moments" color={colors.accent} />
             <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', alignItems: isPortrait ? 'flex-start' : 'baseline', gap: isPortrait ? 8 : 32 }}>
-              <h2 style={{ ...titleStyle, fontSize: isPortrait ? 36 : 44, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
+              <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 44, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
               {slide.body && <p style={{ fontSize: isPortrait ? 14 : 15, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 500 }}>{slide.body}</p>}
             </div>
           </div>
-
           <div style={{
-            flex: 1, padding: isPortrait ? '0 36px 40px' : '0 48px 48px', display: 'grid', ...getGridStyle(), gap: isPortrait ? 8 : 10, minHeight: 0,
+            flex: 1, padding: isPortrait ? '0 28px 36px' : '0 48px 48px',
+            display: 'grid', ...getGridStyle(), gap: isPortrait ? 6 : 10, minHeight: 0,
           }}>
             {imgs.slice(0, 6).map((url, i) => (
               <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`, ...getSpanStyle(i) }}>
@@ -886,84 +1050,63 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
   );
 }
 
-/* ═══ CONTENT — generic fallback ═══ */
-function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
-  const pad = isPortrait ? '48px 44px 48px 52px' : '72px 96px 72px 100px';
-  return (
-    <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <SectionTag label={slide.type.replace(/_/g, ' ')} color={colors.accent} />
-        <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 52, fontWeight: 600, marginBottom: isPortrait ? 28 : 40, color: colors.text }}>{slide.title}</h2>
-
-        <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', gap: isPortrait ? 24 : 48, flex: 1 }}>
-          <div style={{ flex: 1, maxWidth: isPortrait ? 960 : 780 }}>
-            {slide.body && <p style={{ fontSize: isPortrait ? 16 : 19, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 24 }}>{slide.body}</p>}
-            {slide.bodySecondary && <p style={{ fontSize: isPortrait ? 14 : 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
-          </div>
-          {slide.bullets && slide.bullets.length > 0 && (
-            <div style={{ width: isPortrait ? '100%' : 420, flexShrink: 0 }}>
-              {slide.bullets.map((b, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 16 }}>
-                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, flexShrink: 0, marginTop: 8, opacity: 0.6 }} />
-                  <span style={{ fontSize: isPortrait ? 14 : 16, lineHeight: 1.55, color: colors.text, opacity: 0.82 }}>{b}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {slide.quote && (
-          <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
-            <p style={{ fontSize: isPortrait ? 15 : 17, fontStyle: 'italic', color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
-          </div>
-        )}
-      </div>
-      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
-    </div>
-  );
-}
-
-/* ═══ COMPARABLES — market positioning ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   COMPARABLES — market positioning
+   Portrait: single-column stack with larger cards
+   ═══════════════════════════════════════════════════════════════════════ */
 function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const comps = slide.comparables || [];
-  const pad = isPortrait ? '48px 44px 48px 52px' : '72px 96px 72px 100px';
+
+  if (isPortrait) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        <EdgeAccent color={colors.accent} />
+        <div style={{ padding: '56px 64px 52px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <SectionTag label="Market Positioning" color={colors.accent} />
+          <AccentRule color={colors.accent} />
+          <h2 style={{ ...titleStyle, fontSize: 44, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
+
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 20, justifyContent: 'center' }}>
+            {comps.slice(0, 4).map((c, i) => (
+              <div key={i} style={{
+                background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`,
+                borderRadius: 10, padding: '28px 32px',
+                display: 'flex', alignItems: 'flex-start', gap: 20,
+              }}>
+                <span style={{
+                  fontSize: 32, fontWeight: 700, color: colors.accent, opacity: 0.2,
+                  fontFamily: `"${fontBody}", sans-serif`, lineHeight: 1, minWidth: 44,
+                }}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div>
+                  <h3 style={{ fontSize: 22, fontWeight: 600, color: colors.text, marginBottom: 8, fontFamily: '"Fraunces", serif' }}>{c.title}</h3>
+                  {c.reason && <p style={{ fontSize: 15, lineHeight: 1.55, color: colors.textMuted }}>{capText(c.reason, 180, true)}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Landscape comparables ──
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
-      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Market Positioning" color={colors.accent} />
         <AccentRule color={colors.accent} />
-        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 36 : 52, fontWeight: 600, marginBottom: isPortrait ? 32 : 48, color: colors.text }}>{slide.title}</h2>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: isPortrait ? '1fr' : 'repeat(2, 1fr)',
-          gap: isPortrait ? 20 : 32,
-          flex: 1,
-          alignContent: 'center',
-        }}>
+        <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 32, flex: 1, alignContent: 'center' }}>
           {comps.map((c, i) => (
-            <div key={i} style={{
-              background: colors.bgSecondary,
-              border: `1px solid ${colors.accentMuted}`,
-              borderRadius: 8,
-              padding: isPortrait ? '24px 28px' : '28px 32px',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: isPortrait ? 16 : 20,
-            }}>
-              <span style={{
-                fontSize: isPortrait ? 28 : 36,
-                fontWeight: 700, color: colors.accent, opacity: 0.25,
-                fontFamily: `"${fontBody}", sans-serif`, lineHeight: 1, minWidth: isPortrait ? 36 : 48,
-              }}>
-                {String(i + 1).padStart(2, '0')}
-              </span>
+            <div key={i} style={{ background: colors.bgSecondary, border: `1px solid ${colors.accentMuted}`, borderRadius: 8, padding: '28px 32px', display: 'flex', alignItems: 'flex-start', gap: 20 }}>
+              <span style={{ fontSize: 36, fontWeight: 700, color: colors.accent, opacity: 0.25, fontFamily: `"${fontBody}", sans-serif`, lineHeight: 1, minWidth: 48 }}>{String(i + 1).padStart(2, '0')}</span>
               <div>
-                <h3 style={{ fontSize: isPortrait ? 18 : 22, fontWeight: 600, color: colors.text, marginBottom: 8, fontFamily: '"Fraunces", serif' }}>{c.title}</h3>
-                {c.reason && <p style={{ fontSize: isPortrait ? 13 : 15, lineHeight: 1.55, color: colors.textMuted }}>{c.reason}</p>}
+                <h3 style={{ fontSize: 22, fontWeight: 600, color: colors.text, marginBottom: 8, fontFamily: '"Fraunces", serif' }}>{c.title}</h3>
+                {c.reason && <p style={{ fontSize: 15, lineHeight: 1.55, color: colors.textMuted }}>{c.reason}</p>}
               </div>
             </div>
           ))}
@@ -974,21 +1117,31 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   );
 }
 
-/* ═══ CREATIVE STATEMENT — centred, authoritative ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   CREATIVE STATEMENT — centred, authoritative
+   Portrait: vertically centered with generous spacing
+   ═══════════════════════════════════════════════════════════════════════ */
 function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   return (
     <div style={baseStyle} className="slide-content">
-      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isPortrait ? '60px 56px' : '80px 180px' }}>
+      <div style={{
+        height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: isPortrait ? '80px 72px' : '80px 180px',
+      }}>
         <div style={{ maxWidth: isPortrait ? 880 : 920, textAlign: 'center' }}>
           <AccentRule color={colors.accent} width={40} />
-          <h2 style={{ ...titleStyle, fontSize: isPortrait ? 38 : 48, fontWeight: 600, marginBottom: isPortrait ? 28 : 40, color: colors.text }}>{slide.title}</h2>
+          <h2 style={{ ...titleStyle, fontSize: isPortrait ? 44 : 48, fontWeight: 600, marginBottom: isPortrait ? 36 : 40, color: colors.text }}>{slide.title}</h2>
           {slide.body && (
-            <p style={{ fontSize: isPortrait ? 17 : 19, lineHeight: 1.7, color: colors.text, opacity: 0.88, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 36 }}>
-              {slide.body}
+            <p style={{
+              fontSize: isPortrait ? 20 : 19, lineHeight: 1.7,
+              color: colors.text, opacity: 0.88,
+              fontFamily: `"${fontBody}", sans-serif`, marginBottom: 40,
+            }}>
+              {capText(slide.body, 450, isPortrait)}
             </p>
           )}
           {slide.credit && (
-            <p style={{ fontSize: isPortrait ? 13 : 14, letterSpacing: '0.1em', color: colors.accent, opacity: 0.65 }}>— {slide.credit}</p>
+            <p style={{ fontSize: isPortrait ? 14 : 14, letterSpacing: '0.1em', color: colors.accent, opacity: 0.65 }}>— {slide.credit}</p>
           )}
         </div>
       </div>
@@ -997,33 +1150,80 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
   );
 }
 
-/* ═══ CLOSING — minimal, authoritative ═══ */
+/* ═══════════════════════════════════════════════════════════════════════
+   CLOSING — minimal, authoritative
+   Portrait: vertically centered with premium spacing
+   ═══════════════════════════════════════════════════════════════════════ */
 function ClosingSlide({ slide, colors, titleStyle, baseStyle, isPortrait }: SlideProps) {
   return (
     <div style={baseStyle} className="slide-content">
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ width: 40, height: 2, background: colors.accent, opacity: 0.5, marginBottom: isPortrait ? 28 : 36 }} />
-        <h1 style={{ ...titleStyle, fontSize: isPortrait ? 56 : 72, fontWeight: 700, marginBottom: 16, color: colors.text, textAlign: 'center', padding: isPortrait ? '0 40px' : undefined }}>
+        <div style={{ width: 48, height: 3, background: colors.accent, opacity: 0.5, marginBottom: isPortrait ? 36 : 36 }} />
+        <h1 style={{
+          ...titleStyle, fontSize: isPortrait ? 68 : 72, fontWeight: 700,
+          marginBottom: 20, color: colors.text, textAlign: 'center',
+          padding: isPortrait ? '0 56px' : undefined,
+        }}>
           {slide.title}
         </h1>
         {slide.subtitle && (
-          <p style={{ fontSize: isPortrait ? 18 : 21, lineHeight: 1.5, maxWidth: isPortrait ? 600 : 700, textAlign: 'center', color: colors.textMuted, marginBottom: isPortrait ? 36 : 48, padding: isPortrait ? '0 32px' : undefined }}>
-            {slide.subtitle}
+          <p style={{
+            fontSize: isPortrait ? 20 : 21, lineHeight: 1.5,
+            maxWidth: isPortrait ? 700 : 700, textAlign: 'center',
+            color: colors.textMuted, marginBottom: isPortrait ? 44 : 48,
+            padding: isPortrait ? '0 48px' : undefined,
+          }}>
+            {capText(slide.subtitle, 160, isPortrait)}
           </p>
         )}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
           {slide.credit && (
-            <span style={{ fontSize: isPortrait ? 13 : 14, letterSpacing: '0.12em', color: colors.accent }}>{slide.credit}</span>
+            <span style={{ fontSize: isPortrait ? 14 : 14, letterSpacing: '0.12em', color: colors.accent }}>{slide.credit}</span>
           )}
           {slide.companyLogoUrl ? (
-            <img src={slide.companyLogoUrl} alt="" style={{ height: isPortrait ? 24 : 28, objectFit: 'contain', opacity: 0.45, filter: 'brightness(2)', marginTop: 12 }} />
+            <img src={slide.companyLogoUrl} alt="" style={{ height: isPortrait ? 28 : 28, objectFit: 'contain', opacity: 0.45, filter: 'brightness(2)', marginTop: 14 }} />
           ) : slide.companyName ? (
-            <span style={{ fontSize: 12, letterSpacing: '0.25em', textTransform: 'uppercase', color: colors.textMuted, opacity: 0.4, marginTop: 12 }}>
+            <span style={{ fontSize: 12, letterSpacing: '0.25em', textTransform: 'uppercase', color: colors.textMuted, opacity: 0.4, marginTop: 14 }}>
               {slide.companyName}
             </span>
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═══ CONTENT — generic fallback ═══ */
+function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
+  const pad = isPortrait ? '56px 64px' : '72px 96px 72px 100px';
+  return (
+    <div style={baseStyle} className="slide-content">
+      <EdgeAccent color={colors.accent} />
+      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <SectionTag label={slide.type.replace(/_/g, ' ')} color={colors.accent} />
+        <AccentRule color={colors.accent} />
+        <h2 style={{ ...titleStyle, fontSize: isPortrait ? 48 : 52, fontWeight: 600, marginBottom: isPortrait ? 32 : 40, color: colors.text }}>{slide.title}</h2>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: isPortrait ? 900 : 780 }}>
+          {slide.body && <p style={{ fontSize: isPortrait ? 19 : 19, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 24 }}>{capText(slide.body, 400, isPortrait)}</p>}
+          {slide.bodySecondary && <p style={{ fontSize: isPortrait ? 16 : 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{capText(slide.bodySecondary, 300, isPortrait)}</p>}
+        </div>
+        {slide.bullets && slide.bullets.length > 0 && (
+          <div style={{ marginTop: 'auto' }}>
+            {slide.bullets.map((b, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 16 }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: colors.accent, flexShrink: 0, marginTop: 8, opacity: 0.6 }} />
+                <span style={{ fontSize: isPortrait ? 15 : 16, lineHeight: 1.55, color: colors.text, opacity: 0.82 }}>{b}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {slide.quote && (
+          <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
+            <p style={{ fontSize: isPortrait ? 17 : 17, fontStyle: 'italic', color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>"{slide.quote}"</p>
+          </div>
+        )}
+      </div>
+      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
     </div>
   );
 }
