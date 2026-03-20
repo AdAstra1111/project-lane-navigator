@@ -877,6 +877,9 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 
   // ── Landscape characters ──
   const pad = '72px 96px 72px 100px';
+  const isPortraitFamily = slide.layoutFamily === 'landscape_character_portraits'
+    || slide.layoutFamily === 'landscape_two_up_portrait'
+    || slide.layoutFamily === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
@@ -887,19 +890,19 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
         {isSmallCast ? (
           <div style={{ display: 'flex', gap: 28, flex: 1, minHeight: 0 }}>
             {chars.map((c, i) => (
-              <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={i === 0} tall isPortrait={false} />
+              <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={i === 0} tall useContain={isPortraitFamily} isPortrait={false} />
             ))}
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 28, flex: 1, minHeight: 0 }}>
             {lead && (
               <div style={{ width: 420, flexShrink: 0 }}>
-                <CharCard char={lead} colors={colors} fontBody={fontBody} isLead tall isPortrait={false} />
+                <CharCard char={lead} colors={colors} fontBody={fontBody} isLead tall useContain={isPortraitFamily} isPortrait={false} />
               </div>
             )}
             <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignContent: 'start' }}>
               {supporting.map((c, i) => (
-                <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={false} tall={false} isPortrait={false} />
+                <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={false} tall={false} useContain={isPortraitFamily} isPortrait={false} />
               ))}
             </div>
           </div>
