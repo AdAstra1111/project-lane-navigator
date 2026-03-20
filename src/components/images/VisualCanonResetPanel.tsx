@@ -535,10 +535,10 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
         console.log(`[preserve-rebuild] ${weakSlotKeys.size} of ${freshRequired.slots.length} slots targeted for regeneration`);
 
-        // Generate only weak/missing slots
+        // Generate only weak/missing slots — scoped to weakSlotKeys
         if (weakSlotKeys.size > 0) {
           setRebuildStage('Generating missing slots');
-          await handleAutoPopulate(false);
+          await handleAutoPopulate(false, weakSlotKeys);
           await new Promise(r => setTimeout(r, 500));
         }
       } else {
