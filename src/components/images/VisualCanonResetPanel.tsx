@@ -587,13 +587,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       rebuildBridge.complete();
       toast.info('No weak slots detected — no generation performed');
     } else {
-      const { resolvedSlots, unresolvedSlots, attachedWinnerCount, preservedPrimaryCount, replacedPrimaryCount, totalSlots } = result.rebuildResult;
+      const { resolvedSlots, unresolvedSlots, attachedWinnerCount, preservedPrimaryCount, replacedPrimaryCount, totalSlots, fallbackMatchCount } = result.rebuildResult;
       const modeLabel = isPreserve ? 'Preserve rebuild' : 'Reset rebuild';
+      const fallbackNote = fallbackMatchCount > 0 ? ` (${fallbackMatchCount} fallback matches — improvable)` : '';
 
       if (unresolvedSlots > 0) {
         toast.warning(
           `${modeLabel}: ${unresolvedSlots} unresolved slot${unresolvedSlots !== 1 ? 's' : ''} — ` +
-          `${attachedWinnerCount} of ${totalSlots} attached` +
+          `${attachedWinnerCount} of ${totalSlots} attached${fallbackNote}` +
           (isPreserve ? ` (${preservedPrimaryCount} preserved, ${replacedPrimaryCount} replaced)` : '') +
           (isVerticalDrama ? ' — strict 9:16 enforced' : ''),
         );
