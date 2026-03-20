@@ -43,6 +43,10 @@ const SECTION_QUERY_MAP: Record<CanonicalSectionKey, {
     strategy_keys: ['lookbook_key_moment'],
     asset_groups: ['key_moment'],
   },
+  key_moments: {
+    strategy_keys: ['lookbook_key_moment'],
+    asset_groups: ['key_moment'],
+  },
   poster_directions: {
     strategy_keys: [],
     asset_groups: ['poster'],
@@ -53,6 +57,7 @@ const SECTION_QUERY_MAP: Record<CanonicalSectionKey, {
 const SECTION_SHOT_FILTER: Partial<Record<CanonicalSectionKey, string[]>> = {
   atmosphere_lighting: ['atmospheric', 'time_variant', 'lighting_ref'],
   texture_detail: ['texture_ref', 'detail', 'composition_ref', 'color_ref'],
+  key_moments: ['tableau', 'medium', 'close_up', 'wide'],
 };
 
 export interface SectionResetResult {
@@ -194,6 +199,7 @@ export function useSectionReset(projectId: string) {
         : sectionKey === 'atmosphere_lighting' ? 'visual_language'
         : sectionKey === 'texture_detail' ? 'visual_language'
         : sectionKey === 'symbolic_motifs' ? 'key_moment'
+        : sectionKey === 'key_moments' ? 'key_moment'
         : 'world';
 
       const assetGroup = mapping.asset_groups[0] || sectionParam;

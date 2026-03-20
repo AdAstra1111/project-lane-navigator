@@ -28,6 +28,7 @@ const CANONICAL_SECTION_KEYS = [
   'atmosphere_lighting',
   'texture_detail',
   'symbolic_motifs',
+  'key_moments',
   'poster_directions',
 ] as const;
 
@@ -69,6 +70,12 @@ export const SECTION_UPSTREAM_MAP: Record<CanonicalSectionKey, {
     icon: 'Sparkles',
     sources: ['Curated symbolic references', 'Approved imagery with symbolic tags'],
     populateCta: 'Curate from Approved Images',
+  },
+  key_moments: {
+    label: 'Key Moments',
+    icon: 'Sparkles',
+    sources: ['Tableau compositions', 'Medium shots', 'Close-ups', 'Wide establishing shots'],
+    populateCta: 'Generate Key Moment Shots',
   },
   poster_directions: {
     label: 'Poster Directions',
