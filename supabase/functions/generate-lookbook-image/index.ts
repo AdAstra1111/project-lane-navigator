@@ -320,7 +320,7 @@ const SHOT_FRAMING: Record<ShotType, string> = {
   profile: "Profile view, side-on. Dramatic rim lighting. Strong silhouette against atmospheric background. Contemplative mood.",
   over_shoulder: "Over-the-shoulder perspective. Looking past one figure toward another or toward the scene. Creates depth and narrative tension.",
   detail: "Macro or detail shot. Close focus on a specific texture, object, or environmental detail. Shallow depth of field, rich texture.",
-  tableau: "Tableau composition. Multiple figures arranged in a dramatic, almost painterly arrangement. Stage-like, deliberate blocking.",
+  tableau: "Tableau composition. Multiple figures arranged in deliberate, cinematic blocking — as staged for a real camera on a real film set. Precise spatial relationships, motivated positioning. Shot as a wide or mid-wide with cinema lens. Real actors, real environment, real physics. NOT a painting or illustration.",
   emotional_variant: "Same character, different emotional state. Raw emotional expression — tension, vulnerability, determination, or joy. Character-defining moment.",
   atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling.",
   time_variant: "Same location, different time of day. Dawn/dusk/night variant. Dramatic lighting shift. Temporal contrast.",
