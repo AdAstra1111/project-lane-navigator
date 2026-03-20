@@ -36,6 +36,7 @@ export default function LookBookPage() {
   const [exporting, setExporting] = useState(false);
   const [populatingSection, setPopulatingSection] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
+  const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
 
   const {
     sections,
@@ -69,11 +70,13 @@ export default function LookBookPage() {
     if (!projectId) return;
     setGenerating(true);
     try {
+      // Always re-resolve from DB — no stale snapshot reuse
       const data = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
       setLookBookData(data);
+      setLookbookBuildEpoch(Date.now());
       toast.success('Look Book generated — open Viewer to preview slides');
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
@@ -81,6 +84,13 @@ export default function LookBookPage() {
       setGenerating(false);
     }
   }, [projectId, branding]);
+
+  // Auto-rebuild when switching to viewer if no data exists yet
+  useEffect(() => {
+    if (viewMode === 'viewer' && !lookBookData && !generating && projectId) {
+      handleGenerate();
+    }
+  }, [viewMode, lookBookData, generating, projectId, handleGenerate]);
 
   const handleExportPDF = useCallback(async () => {
     if (!lookBookData || !projectId) return;
@@ -130,6 +140,8 @@ export default function LookBookPage() {
       if (successCount > 0) {
         toast.success(`Generated ${successCount} images for ${sectionKey.replace(/_/g, ' ')}`);
         await updateSectionStatus(sectionKey, { section_status: 'partially_populated' });
+        // Invalidate stale lookbook data so next build picks up new images
+        setLookBookData(null);
       } else {
         toast.info('No images generated — check upstream prerequisites');
       }
@@ -179,7 +191,7 @@ export default function LookBookPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col">
         {structureStatus === 'invalid_structure' && (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
@@ -198,7 +210,7 @@ export default function LookBookPage() {
           </div>
         )}
 
-        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as LookbookMode)} className="w-full">
+        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as LookbookMode)} className="w-full flex-1 flex flex-col min-h-0">
           <TabsList className="mb-4">
             <TabsTrigger value="workspace">Workspace</TabsTrigger>
             <TabsTrigger value="viewer">Viewer</TabsTrigger>
@@ -229,15 +241,15 @@ export default function LookBookPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="viewer" className="mt-0">
+          <TabsContent value="viewer" className="mt-0 flex-1 min-h-0">
             {viewerAvailable ? (
-              <div className="overflow-hidden rounded-lg border border-border bg-card/40">
+              <div className="flex flex-col h-full rounded-lg border border-border bg-card/40 overflow-hidden">
                 {projectId && (
-                  <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
+                  <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0">
                     <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
                   </div>
                 )}
-                <LookBookViewer data={lookBookData!} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1" />
+                <LookBookViewer data={lookBookData!} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1 min-h-0" />
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
