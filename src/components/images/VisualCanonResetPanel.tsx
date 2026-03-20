@@ -610,7 +610,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         { mode, anchors, incumbentsBySlotKey: isPreserve ? incumbentsBySlotKey : undefined },
       );
 
-      const rebuildResult = buildRebuildResult(mode, slotResults, postGenImages.length);
+      const rebuildResult = buildRebuildResult(mode, slotResults, newlyGeneratedCount);
       setLastRebuildResult(rebuildResult);
 
       const winnerIds = new Set(rebuildResult.winnerIds);
