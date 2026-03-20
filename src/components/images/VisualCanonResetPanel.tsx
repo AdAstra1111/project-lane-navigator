@@ -510,17 +510,19 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         imagesBySlotKey.set(slot.key, slot.candidates);
       }
 
-      // Run deterministic scoring
-      const slotResults = scoreAndSelectAllSlots(slotTargets, imagesBySlotKey, isVerticalDrama);
+      // Run deterministic scoring with project context for vertical compliance
+      const slotResults = scoreAndSelectAllSlots(slotTargets, imagesBySlotKey, isVerticalDrama, projectFormat, projectLane);
       const winners = slotResults.filter(r => r.winner !== null);
       const winnerIds = new Set(winners.map(r => r.winner!.imageId));
+      const unresolvedSlots = slotResults.filter(r => !r.winner);
 
       console.log('[full-canon-rebuild] Scoring complete:', {
         totalSlots: slotTargets.length,
         slotsWithWinners: winners.length,
-        slotsWithoutWinners: slotResults.filter(r => !r.winner).length,
+        slotsUnresolved: unresolvedSlots.length,
+        unresolvedReasons: unresolvedSlots.map(r => `${r.slotKey}: ${r.noWinnerReason}`),
         isVerticalDrama,
-        portraitFilteredOut: isVerticalDrama ? slotResults.filter(r => r.allScored.some(s => !s.isPortraitSafe && s.eligible)).length : 0,
+        nonCompliantFiltered: isVerticalDrama ? slotResults.filter(r => r.allScored.some(s => !s.eligibleForSelection)).length : 0,
       });
 
       // Stage 5: Select winners — attach ONLY scored winners

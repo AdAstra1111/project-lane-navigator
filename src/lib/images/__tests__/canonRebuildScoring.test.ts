@@ -1,5 +1,5 @@
 /**
- * Canon Rebuild Scoring Engine — Tests for NULL-dimension handling and VD enforcement.
+ * Canon Rebuild Scoring Engine — Tests for vertical compliance and winner selection.
  */
 import { describe, it, expect } from 'vitest';
 import { scoreCandidateForSlot, selectSlotWinner, type SlotTarget } from '../canonRebuildScoring';
@@ -59,55 +59,54 @@ function makeSlot(overrides: Partial<SlotTarget> = {}): SlotTarget {
   };
 }
 
-describe('scoreCandidateForSlot — NULL dimensions', () => {
-  it('NULL-dimension identity image is portrait-safe via shot-type inference', () => {
+describe('scoreCandidateForSlot — vertical compliance', () => {
+  it('NULL-dimension identity image is compliant via shot-type inference', () => {
     const img = makeImage({ width: null as any, height: null as any, shot_type: 'identity_headshot' });
     const slot = makeSlot();
-    const result = scoreCandidateForSlot(img, slot, [img], true);
-    expect(result.isPortraitSafe).toBe(true);
+    const result = scoreCandidateForSlot(img, slot, [img], true, 'vertical-drama', 'vertical_drama');
+    expect(result.eligibleForSelection).toBe(true);
     expect(result.eligible).toBe(true);
     expect(result.totalScore).toBeGreaterThan(50);
   });
 
-  it('NULL-dimension landscape shot with portrait override is portrait-safe', () => {
+  it('NULL-dimension landscape shot with portrait override is compliant', () => {
     const img = makeImage({ shot_type: 'wide', asset_group: 'world', subject: 'Forest', generation_purpose: 'lookbook_world' as any });
     const slot = makeSlot({ key: 'world:Forest:wide', assetGroup: 'world', subject: 'Forest', shotType: 'wide', expectedAspectRatio: '9:16', isIdentity: false });
-    const result = scoreCandidateForSlot(img, slot, [img], true);
-    expect(result.isPortraitSafe).toBe(true);
+    const result = scoreCandidateForSlot(img, slot, [img], true, 'vertical-drama', 'vertical_drama');
+    expect(result.eligibleForSelection).toBe(true);
   });
 
-  it('NULL-dimension unknown shot type is NOT portrait-safe', () => {
+  it('NULL-dimension unknown shot type is NOT compliant', () => {
     const img = makeImage({ shot_type: null as any, generation_purpose: 'lookbook_world' as any });
-    const slot = makeSlot();
-    const result = scoreCandidateForSlot(img, slot, [img], true);
-    expect(result.isPortraitSafe).toBe(false);
+    const slot = makeSlot({ shotType: 'wide', expectedAspectRatio: '9:16', isIdentity: false });
+    const result = scoreCandidateForSlot(img, slot, [img], true, 'vertical-drama', 'vertical_drama');
+    expect(result.eligibleForSelection).toBe(false);
   });
 
   it('uses redistributed weights when dims are NULL for VD', () => {
     const img = makeImage({ shot_type: 'identity_headshot' });
     const slot = makeSlot();
-    const result = scoreCandidateForSlot(img, slot, [img], true);
-    // slotMatch should be 100 * 0.35 = 35 (boosted weight for no-dims VD)
+    const result = scoreCandidateForSlot(img, slot, [img], true, 'vertical-drama', 'vertical_drama');
     expect(result.components.slotMatch).toBe(100);
     expect(result.totalScore).toBeGreaterThan(60);
   });
 });
 
-describe('selectSlotWinner — VD portrait filtering', () => {
-  it('selects portrait-safe winner even with NULL dimensions', () => {
+describe('selectSlotWinner — VD strict filtering', () => {
+  it('selects compliant winner even with NULL dimensions', () => {
     const img1 = makeImage({ id: 'aaa', shot_type: 'identity_headshot' });
     const img2 = makeImage({ id: 'bbb', shot_type: 'identity_headshot', created_at: '2025-01-02T00:00:00Z' });
     const slot = makeSlot();
-    const result = selectSlotWinner([img1, img2], slot, true);
+    const result = selectSlotWinner([img1, img2], slot, true, 'vertical-drama', 'vertical_drama');
     expect(result.winner).not.toBeNull();
-    expect(result.winner!.isPortraitSafe).toBe(true);
+    expect(result.winner!.eligibleForSelection).toBe(true);
   });
 
-  it('exact slot match beats cross-shot match in winner selection', () => {
+  it('exact slot match beats cross-shot match', () => {
     const exact = makeImage({ id: 'exact', shot_type: 'identity_headshot' });
     const cross = makeImage({ id: 'cross', shot_type: 'close_up', created_at: '2025-01-05T00:00:00Z' });
     const slot = makeSlot();
-    const result = selectSlotWinner([exact, cross], slot, true);
+    const result = selectSlotWinner([exact, cross], slot, true, 'vertical-drama', 'vertical_drama');
     expect(result.winner!.imageId).toBe('exact');
   });
 
@@ -115,16 +114,31 @@ describe('selectSlotWinner — VD portrait filtering', () => {
     const right = makeImage({ id: 'right', subject: 'Hana', shot_type: 'identity_headshot' });
     const wrong = makeImage({ id: 'wrong', subject: 'Kenji', shot_type: 'identity_headshot', created_at: '2025-01-05T00:00:00Z' });
     const slot = makeSlot();
-    const result = selectSlotWinner([right, wrong], slot, true);
+    const result = selectSlotWinner([right, wrong], slot, true, 'vertical-drama', 'vertical_drama');
     expect(result.winner!.imageId).toBe('right');
   });
 
-  it('with pixel dims, landscape image excluded from VD winner pool', () => {
-    const portrait = makeImage({ id: 'portrait', width: 720 as any, height: 1280 as any, shot_type: 'identity_headshot' });
-    const landscape = makeImage({ id: 'landscape', width: 1280 as any, height: 720 as any, shot_type: 'identity_headshot', created_at: '2025-01-05T00:00:00Z' });
-    const slot = makeSlot();
-    const result = selectSlotWinner([portrait, landscape], slot, true);
-    expect(result.winner!.imageId).toBe('portrait');
-    expect(result.winner!.isPortraitSafe).toBe(true);
+  it('landscape image HARD EXCLUDED — slot unresolved if only landscape available', () => {
+    const landscape = makeImage({ id: 'landscape', width: 1280 as any, height: 720 as any, shot_type: 'wide', asset_group: 'world' });
+    const slot = makeSlot({ key: 'world:Forest:wide', assetGroup: 'world', subject: 'Forest', shotType: 'wide', expectedAspectRatio: '9:16', isIdentity: false });
+    const result = selectSlotWinner([landscape], slot, true, 'vertical-drama', 'vertical_drama');
+    // Should NOT fall back to landscape — slot must be unresolved
+    expect(result.winner).toBeNull();
+    expect(result.noWinnerReason).toContain('No vertical-compliant');
+  });
+
+  it('portrait-only (3:4) excluded from strict 9:16 slot', () => {
+    const portraitish = makeImage({ id: 'p34', width: 896 as any, height: 1152 as any, shot_type: 'wide', asset_group: 'world' });
+    const slot = makeSlot({ key: 'world:Forest:wide', assetGroup: 'world', subject: 'Forest', shotType: 'wide', expectedAspectRatio: '9:16', isIdentity: false });
+    const result = selectSlotWinner([portraitish], slot, true, 'vertical-drama', 'vertical_drama');
+    expect(result.winner).toBeNull();
+  });
+
+  it('9:16 image wins over 3:4 image in strict VD slot', () => {
+    const vertical = makeImage({ id: 'v916', width: 720 as any, height: 1280 as any, shot_type: 'wide', asset_group: 'world' });
+    const portraitish = makeImage({ id: 'p34', width: 896 as any, height: 1152 as any, shot_type: 'wide', asset_group: 'world', created_at: '2025-01-05T00:00:00Z' });
+    const slot = makeSlot({ key: 'world:Forest:wide', assetGroup: 'world', subject: 'Forest', shotType: 'wide', expectedAspectRatio: '9:16', isIdentity: false });
+    const result = selectSlotWinner([vertical, portraitish], slot, true, 'vertical-drama', 'vertical_drama');
+    expect(result.winner!.imageId).toBe('v916');
   });
 });
