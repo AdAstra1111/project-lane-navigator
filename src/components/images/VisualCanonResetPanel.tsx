@@ -343,8 +343,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         currentPhase: PHASE_LABELS[slot.phase] || null,
       } : prev);
 
-      // Build request body with enforced aspect ratio dimensions
-      const dims = getDimensionsForShot(slot.shotType);
+      // Build request body with enforced aspect ratio dimensions (portrait for vertical drama)
+      const dims = getDimensionsForShot(slot.shotType, isVerticalDrama);
       const genBody: Record<string, any> = {
         project_id: projectId,
         section: slot.section,
