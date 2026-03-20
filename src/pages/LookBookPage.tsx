@@ -354,6 +354,7 @@ export default function LookBookPage() {
                   onExportPDF={handleExportPDF}
                   isExporting={exporting}
                   className="flex-1 min-h-0"
+                  onSlideLayoutOverride={handleSlideLayoutOverride}
                 />
               </div>
             ) : (
