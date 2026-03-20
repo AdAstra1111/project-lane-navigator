@@ -70,7 +70,7 @@ export function LookbookSectionPanel({
   const { images, total, isLoading, blockers } = useLookbookSectionContent(
     projectId,
     sectionKey,
-    { curationFilter: filter === 'all' ? 'all' : filter, pageSize: 12 },
+    { curationFilter: filter === 'all' ? 'all' : filter === 'working' ? 'working' : filter, pageSize: 12 },
   );
 
   const hasImages = images.length > 0;
