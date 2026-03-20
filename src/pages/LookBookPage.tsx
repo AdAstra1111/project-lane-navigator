@@ -285,6 +285,10 @@ export default function LookBookPage() {
                     section={section}
                     onPopulate={handlePopulate}
                     isPopulating={populatingSection === section.section_key}
+                    onResetSection={handleResetSection}
+                    isResettingSection={resettingSection === section.section_key}
+                    onRegenerateClean={handleRegenerateClean}
+                    isRegeneratingSection={regeneratingSection === section.section_key}
                   />
                 ))}
               </div>
