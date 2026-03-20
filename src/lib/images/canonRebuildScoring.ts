@@ -47,6 +47,14 @@ export interface SlotTarget {
   isIdentity: boolean;
 }
 
+/** Identity continuity classification for a candidate relative to character anchors */
+export type IdentityContinuityClass =
+  | 'strong_match'       // generated with identity lock, anchors used
+  | 'partial_match'      // generated with partial anchors or same model/provider
+  | 'no_anchor_context'  // no locked anchors existed at generation time
+  | 'identity_drift'     // generated without anchors despite anchors existing
+  | 'not_character';     // non-character slot, N/A
+
 export interface ScoredSlotCandidate {
   imageId: string;
   slotKey: string;
@@ -59,12 +67,15 @@ export interface ScoredSlotCandidate {
     bindingFidelity: number;
     freshness: number;
     primarySetAlignment: number;
+    identityContinuity: number;
   };
   /** Strict VD compliance classification */
   complianceLevel: VerticalComplianceLevel;
   /** Whether this image is eligible for winner selection in current project context */
   eligibleForSelection: boolean;
   eligible: boolean;
+  /** Identity continuity classification for character slots */
+  identityContinuityClass: IdentityContinuityClass;
   reasons: string[];
 }
 
