@@ -178,12 +178,20 @@ async function fetchSectionImages(
 
   if (mapping.strategy_keys.length > 0) {
     q = q.in('strategy_key', mapping.strategy_keys);
-  } else if (mapping.fallback_roles?.length) {
-    q = q.in('role', mapping.fallback_roles);
   }
 
   if (mapping.asset_groups.length > 0) {
-    q = q.in('asset_group', mapping.asset_groups);
+    if (mapping.strategy_keys.length > 0) {
+      q = q.in('asset_group', mapping.asset_groups);
+    } else if (mapping.fallback_roles?.length) {
+      q = q.or(
+        `asset_group.in.(${mapping.asset_groups.join(',')}),role.in.(${mapping.fallback_roles.join(',')})`
+      );
+    } else {
+      q = q.in('asset_group', mapping.asset_groups);
+    }
+  } else if (mapping.fallback_roles?.length) {
+    q = q.in('role', mapping.fallback_roles);
   }
 
   if (shotFilter?.length) {
