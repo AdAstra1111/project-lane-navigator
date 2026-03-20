@@ -418,6 +418,8 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
+    _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
+    _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
 
   // ── OVERVIEW ──
@@ -449,6 +451,8 @@ export async function generateLookBookData(
       imageUrl: worldImageUrl || undefined,
       imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.world_locations.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.world_locations),
+      _has_unresolved: canonImages.world_locations.unresolvedCount > 0,
     });
   }
 
@@ -460,6 +464,8 @@ export async function generateLookBookData(
       title: 'Characters',
       characters: normalizedCharacters,
       _debug_image_ids: canonImages.character_identity.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.character_identity),
+      _has_unresolved: canonImages.character_identity.unresolvedCount > 0,
     });
   }
 
@@ -467,8 +473,8 @@ export async function generateLookBookData(
   const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
-    // Use atmosphere + texture images for visual richness
     const themesImages = [...atmosphereImages, ...textureImages];
+    const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
     slides.push({
       type: 'themes',
       title: 'Themes & Tone',
@@ -477,6 +483,8 @@ export async function generateLookBookData(
       imageUrl: themesImages[0]?.signedUrl || undefined,
       imageUrls: themesImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds].slice(0, 4),
+      _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)].slice(0, 4),
+      _has_unresolved: themesUnresolved > 0,
     });
   }
 
@@ -491,9 +499,11 @@ export async function generateLookBookData(
     imageUrls: visualImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
     bullets: vlCopy.bullets,
     _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
+    _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)],
+    _has_unresolved: (canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount) > 0,
   });
 
-  // ── STORY ENGINE ── (motif images used as visible grid, not just wash)
+  // ── STORY ENGINE ──
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
@@ -505,10 +515,12 @@ export async function generateLookBookData(
       imageUrl: motifImages[0]?.signedUrl || undefined,
       imageUrls: motifImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 4),
+      _debug_provenance: toSlideProvenance(canonImages.symbolic_motifs).slice(0, 4),
+      _has_unresolved: canonImages.symbolic_motifs.unresolvedCount > 0,
     });
   }
 
-  // ── KEY MOMENTS ── (always present — image-dominant when images exist, text-forward fallback)
+  // ── KEY MOMENTS ──
   {
     const keyMomentBody = keyMomentImages.length > 0
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
@@ -520,6 +532,8 @@ export async function generateLookBookData(
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
       imageUrls: keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.key_moments.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.key_moments),
+      _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
     });
   }
 
