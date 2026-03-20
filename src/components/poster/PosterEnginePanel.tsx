@@ -176,7 +176,7 @@ export default function PosterEnginePanel() {
   const { id: projectId } = useParams<{ id: string }>();
   const { project } = useProject(projectId || "");
   const { data: branding } = useProjectBranding(projectId);
-  const { data: posters, isLoading } = useProjectPosters(projectId);
+  const { data: posters, isLoading, refetch: refetchPosters } = useProjectPosters(projectId);
   const { data: activePoster } = useActivePoster(projectId);
   const { data: posterCredits } = usePosterCredits(projectId);
   const updateCredits = useUpdatePosterCredits(projectId);
@@ -218,6 +218,17 @@ export default function PosterEnginePanel() {
   const isGenerating = generatePoster.isPending;
   const isUploading = uploadPoster.isPending;
   const isBusy = isGenerating || isUploading || isEditing;
+
+  useEffect(() => {
+    if (!isGenerating) return;
+
+    refetchPosters();
+    const interval = window.setInterval(() => {
+      refetchPosters();
+    }, 2500);
+
+    return () => window.clearInterval(interval);
+  }, [isGenerating, refetchPosters]);
 
   // Build credits data for compositor
   const [liveCredits, setLiveCredits] = useState<PosterCreditsData | null>(null);
