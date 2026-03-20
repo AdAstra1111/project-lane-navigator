@@ -140,6 +140,8 @@ export default function LookBookPage() {
       if (successCount > 0) {
         toast.success(`Generated ${successCount} images for ${sectionKey.replace(/_/g, ' ')}`);
         await updateSectionStatus(sectionKey, { section_status: 'partially_populated' });
+        // Invalidate stale lookbook data so next build picks up new images
+        setLookBookData(null);
       } else {
         toast.info('No images generated — check upstream prerequisites');
       }
