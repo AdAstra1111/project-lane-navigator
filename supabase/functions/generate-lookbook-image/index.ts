@@ -640,8 +640,13 @@ function buildIdentityPrompt(characterName: string, shotType: ShotType, ctx: Sec
   ].join("\n");
 }
 
-function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext): string {
+function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext, variantIndex: number = 0): string {
   const framing = SHOT_FRAMING[shotType];
+
+  // ── Narrative moment selection ──
+  const narrativeMoment = (ctx.narrativeMoments?.length)
+    ? selectNarrativeMoment(ctx.narrativeMoments, shotType, variantIndex)
+    : null;
 
   let subjectDescription = "";
   switch (assetGroup) {
@@ -649,25 +654,53 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       subjectDescription = ctx.characterName
         ? `Character: ${ctx.characterName}. ${ctx.characters || "A compelling screen presence with emotional depth."}`
         : ctx.characters || "The protagonist — a compelling screen presence with emotional depth.";
+      // Enrich with narrative moment if available
+      if (narrativeMoment?.summary && !ctx.characterName) {
+        subjectDescription += ` In this moment: ${narrativeMoment.summary}`;
+      }
       break;
     case "world":
       if (ctx.locationName) {
         subjectDescription = `Location: "${ctx.locationName}". ${ctx.locationDescription || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+      } else if (narrativeMoment?.location) {
+        subjectDescription = `Location: "${narrativeMoment.location}". ${narrativeMoment.summary || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+        if (narrativeMoment.time_of_day) subjectDescription += ` Time of day: ${narrativeMoment.time_of_day}.`;
       } else {
         subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
       }
       break;
     case "key_moment": {
-      const castLine = ctx.boundCharacterNames?.length
-        ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
-        : '';
-      subjectDescription = [
-        castLine,
-        ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.",
-        "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
-        "Symbolic meaning must emerge through staging, composition, lighting, and actor placement — NOT through illustrative, painterly, or concept-art rendering.",
-        "This must look like a production still from a theatrically released live-action film.",
-      ].filter(Boolean).join(" ");
+      // KEY MOMENT: prioritize narrative moment over generic conflict
+      if (narrativeMoment?.summary) {
+        const sceneChars = narrativeMoment.characters_present;
+        const castLine = sceneChars.length
+          ? `Characters who MUST appear: ${sceneChars.join(', ')}. `
+          : (ctx.boundCharacterNames?.length
+            ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
+            : '');
+        const locationLine = narrativeMoment.location ? `Location: ${narrativeMoment.location}. ` : '';
+        const timeLine = narrativeMoment.time_of_day ? `Time: ${narrativeMoment.time_of_day}. ` : '';
+        subjectDescription = [
+          castLine,
+          locationLine,
+          timeLine,
+          `THE MOMENT: ${narrativeMoment.summary}`,
+          narrativeMoment.purpose ? `DRAMATIC PURPOSE: ${narrativeMoment.purpose}.` : '',
+          "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
+          "This must look like a production still from a theatrically released live-action film.",
+        ].filter(Boolean).join(" ");
+      } else {
+        const castLine = ctx.boundCharacterNames?.length
+          ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
+          : '';
+        subjectDescription = [
+          castLine,
+          ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.",
+          "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
+          "Symbolic meaning must emerge through staging, composition, lighting, and actor placement — NOT through illustrative, painterly, or concept-art rendering.",
+          "This must look like a production still from a theatrically released live-action film.",
+        ].filter(Boolean).join(" ");
+      }
       break;
     }
     case "visual_language":
@@ -681,7 +714,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     'Ground all imagery in real-world production design',
   ].join('. ');
 
-  return [
+  const promptParts = [
     `A cinematic film still for "${ctx.title}".`,
     ``,
     `SHOT TYPE: ${framing}`,
@@ -689,6 +722,14 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `SUBJECT: ${subjectDescription}`,
     ``,
     `TONE: ${ctx.tone || "dramatic"}. Genre: ${ctx.genres?.join(", ") || "drama"}.`,
+  ];
+
+  // Inject full narrative moment block for non-character, non-visual_language shots
+  if (narrativeMoment && assetGroup !== 'visual_language') {
+    promptParts.push('', buildNarrativeMomentBlock(narrativeMoment));
+  }
+
+  promptParts.push(
     ``,
     `PHOTOREALISM MANDATE: ${ctx.stylePolicy.styleDirectives}`,
     ``,
@@ -700,7 +741,9 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `- Must look indistinguishable from a still frame from a theatrically released film`,
     ``,
     `TECHNICAL: Premium cinematic quality. Anamorphic lens characteristics.`,
-  ].join("\n");
+  );
+
+  return promptParts.join("\n");
 }
 
 function buildSectionPrompt(section: LookbookSection, ctx: SectionContext, variantIndex: number): string {
