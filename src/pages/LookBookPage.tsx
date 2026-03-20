@@ -48,6 +48,7 @@ export default function LookBookPage() {
     structureStatus,
     bootstrap,
     isBootstrapping,
+    bootstrapFailed,
     updateSectionStatus,
   } = useLookbookSections(projectId);
 
@@ -59,10 +60,10 @@ export default function LookBookPage() {
   } = useSectionReset(projectId || '');
 
   useEffect(() => {
-    if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping) {
+    if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping && !bootstrapFailed) {
       bootstrap();
     }
-  }, [sectionsLoading, isBootstrapped, projectId, isBootstrapping, bootstrap]);
+  }, [sectionsLoading, isBootstrapped, projectId, isBootstrapping, bootstrapFailed, bootstrap]);
 
   useEffect(() => {
     console.info('[LookBookPage] render_state', {

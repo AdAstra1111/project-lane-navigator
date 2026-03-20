@@ -141,8 +141,11 @@ export function useLookbookSections(projectId: string | undefined) {
   });
 
   const bootstrap = useCallback(() => {
-    bootstrapMutation.mutate();
-  }, [bootstrapMutation]);
+    if (!bootstrapMutation.isPending) {
+      bootstrapMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const updateSectionStatus = useCallback(async (
     sectionKey: string,
@@ -170,6 +173,7 @@ export function useLookbookSections(projectId: string | undefined) {
     structureStatus,
     bootstrap,
     isBootstrapping: bootstrapMutation.isPending,
+    bootstrapFailed: bootstrapMutation.isError,
     updateSectionStatus,
   };
 }
