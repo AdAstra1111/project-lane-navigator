@@ -50,26 +50,8 @@ interface VisualCanonResetPanelProps {
   onLookbookRebuild?: () => Promise<void>;
 }
 
-function extractEntities(canonJson: any): { characters: { name: string }[]; locations: { name: string }[] } {
-  const characters: { name: string }[] = [];
-  const locations: { name: string }[] = [];
 
-  if (canonJson?.characters && Array.isArray(canonJson.characters)) {
-    for (const c of canonJson.characters) {
-      const name = typeof c === 'string' ? c.trim() : (c.name || c.character_name || '').trim();
-      if (name && name !== 'Unknown') characters.push({ name });
-    }
-  }
 
-  if (canonJson?.locations && Array.isArray(canonJson.locations)) {
-    for (const l of canonJson.locations) {
-      const name = typeof l === 'string' ? l.trim() : (l.name || l.location_name || '').trim();
-      if (name) locations.push({ name });
-    }
-  }
-
-  return { characters: characters.slice(0, 10), locations: locations.slice(0, 10) };
-}
 
 export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCanonResetPanelProps) {
   const [canonJson, setCanonJson] = useState<any>(null);
