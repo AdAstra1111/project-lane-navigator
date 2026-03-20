@@ -485,7 +485,7 @@ export async function generateLookBookData(
   const motifImages = canonImages.symbolic_motifs.images;
   const keyMomentImages = canonImages.key_moments.images;
 
-  // Build character image maps
+  // Build character image maps — pick ONE best image per character (primary preferred)
   const charImages = canonImages.character_identity.images;
   const characterImageMap = new Map<string, string>();
   for (const img of charImages) {
@@ -493,10 +493,20 @@ export async function generateLookBookData(
       characterImageMap.set(img.entity_id, img.signedUrl);
     }
   }
+  // Name-based map: prefer primary close_up/medium/full_body for best card representation
   const characterNameImageMap = new Map<string, string>();
+  const charNameScoreMap = new Map<string, number>();
+  const PREFERRED_CARD_SHOTS = ['close_up', 'medium', 'full_body', 'emotional_variant', 'profile'];
   for (const img of charImages) {
-    if (img.subject && img.signedUrl && !characterNameImageMap.has(img.subject.toLowerCase())) {
-      characterNameImageMap.set(img.subject.toLowerCase(), img.signedUrl);
+    if (!img.subject || !img.signedUrl) continue;
+    const key = img.subject.toLowerCase();
+    const isPrimary = img.is_primary ? 2 : 0;
+    const shotBonus = PREFERRED_CARD_SHOTS.includes(img.shot_type || '') ? 1 : 0;
+    const score = isPrimary + shotBonus;
+    const prev = charNameScoreMap.get(key) ?? -1;
+    if (score > prev) {
+      characterNameImageMap.set(key, img.signedUrl);
+      charNameScoreMap.set(key, score);
     }
   }
 

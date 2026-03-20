@@ -263,7 +263,7 @@ async function fetchSectionImages(
   q = q
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: false })
-    .limit(limit);
+    .limit(effectiveLimit);
 
   const { data: rows, error } = await q;
   if (error) {
