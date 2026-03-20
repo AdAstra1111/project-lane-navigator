@@ -60,6 +60,9 @@ export interface SlotWinnerResult {
 }
 
 // ── Weights ──
+// When dimensions are available, use full weight set.
+// When dimensions are NULL (common with generated images), redistribute
+// portrait/aspect weights to slotMatch and binding since we can't measure pixels.
 
 const WEIGHTS_STANDARD = {
   slotMatch: 0.35,
@@ -76,6 +79,25 @@ const WEIGHTS_VERTICAL_DRAMA = {
   portraitSuitability: 0.25, // heavily weighted for VD
   curationQuality: 0.10,
   bindingFidelity: 0.15,
+  freshness: 0.15,
+};
+
+// Redistributed weights when no pixel dimensions are available
+const WEIGHTS_VERTICAL_DRAMA_NO_DIMS = {
+  slotMatch: 0.35,        // boost slot correctness
+  aspectFit: 0.00,        // can't score without dims
+  portraitSuitability: 0.15, // use shot-type inference instead
+  curationQuality: 0.15,
+  bindingFidelity: 0.25,  // boost canon fidelity
+  freshness: 0.10,
+};
+
+const WEIGHTS_STANDARD_NO_DIMS = {
+  slotMatch: 0.40,
+  aspectFit: 0.00,
+  portraitSuitability: 0.00,
+  curationQuality: 0.20,
+  bindingFidelity: 0.25,
   freshness: 0.15,
 };
 
