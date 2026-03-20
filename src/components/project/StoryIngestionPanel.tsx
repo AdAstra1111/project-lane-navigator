@@ -479,9 +479,42 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
 
+  const INGESTION_STAGES = [
+    'Resolving source document',
+    'Parsing scenes and structure',
+    'Extracting characters, locations, props',
+    'Building state transitions',
+    'Resolving participation',
+    'Finalizing ingestion',
+  ];
+
+  const bridge = useProcessBridge({
+    keyPrefix: 'ingestion',
+    type: 'Story Ingestion',
+    projectId,
+    href: `/projects/${projectId}/visual-dev`,
+    stages: INGESTION_STAGES,
+  });
+
   useEffect(() => {
     fetchStatus().then(r => setRuns(r));
   }, [fetchStatus]);
+
+  const handleRunIngestion = useCallback(async () => {
+    const processId = bridge.register({
+      stageDescription: 'Resolving source document and preparing parse…',
+    });
+    try {
+      const result = await runIngestion({ force: true });
+      if (result) {
+        bridge.complete();
+      } else {
+        bridge.fail('Ingestion returned no result');
+      }
+    } catch (err: any) {
+      bridge.fail(err?.message || 'Ingestion failed');
+    }
+  }, [runIngestion, bridge]);
 
   const manifest = latestRun?.manifest_json;
   const parseQuality = latestRun?.parse_quality_json;
