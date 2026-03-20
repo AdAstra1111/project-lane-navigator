@@ -534,10 +534,15 @@ function ImageCard({
         {showProvenance && (() => {
           const gc = img.generation_config as Record<string, unknown> | null;
           const status = gc?.canonical_binding_status as string | undefined;
+          const targeting = gc?.targeting_mode as string | undefined;
           if (!status) return null;
+
+          // Resolve display label from provenance
+          const charNames = (gc?.resolved_character_names as string[]) || (gc?.bound_character_names as string[]) || [];
+          const locNames = (gc?.resolved_location_names as string[]) || (gc?.bound_location_names as string[]) || [];
+          const targetPrefix = targeting === 'exact' ? '⎯' : targeting === 'derived' ? '~' : '';
+
           if (status === 'bound') {
-            const charNames = (gc?.bound_character_names as string[]) || [];
-            const locNames = (gc?.bound_location_names as string[]) || [];
             const label = charNames.length > 0
               ? charNames.slice(0, 2).join(', ')
               : locNames.length > 0
@@ -545,14 +550,14 @@ function ImageCard({
                 : 'Bound';
             return (
               <Badge variant="outline" className="text-[7px] px-1 py-0 border-emerald-500/60 text-emerald-400 bg-black/40 gap-0.5">
-                <Link2 className="h-2 w-2" /> {label}
+                <Link2 className="h-2 w-2" /> {targetPrefix}{label}
               </Badge>
             );
           }
           if (status === 'partially_bound') {
             return (
               <Badge variant="outline" className="text-[7px] px-1 py-0 border-yellow-500/50 text-yellow-400 bg-black/40 gap-0.5">
-                <Link2 className="h-2 w-2" /> Partial
+                <Link2 className="h-2 w-2" /> {targetPrefix || ''}Partial
               </Badge>
             );
           }

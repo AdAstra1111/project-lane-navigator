@@ -118,6 +118,7 @@ interface CanonicalBindingResult {
   worldPromptBlock: string;
   binding_status: 'bound' | 'partially_bound' | 'unbound';
   missing: string[];
+  targeting_mode: 'exact' | 'derived' | 'heuristic';
 }
 // ── Section → canonical entity mapping ──────────────────────────────────────
 const SECTION_BINDING_RELEVANCE: Record<string, { characters: boolean; locations: boolean; world: boolean }> = {
@@ -128,7 +129,8 @@ const SECTION_BINDING_RELEVANCE: Record<string, { characters: boolean; locations
 };
 
 async function resolveCharacterBindings(
-  sb: any, projectId: string, sectionKey: string, explicitCharacterName?: string,
+  sb: any, projectId: string, sectionKey: string,
+  explicitCharacterName?: string, explicitCharacterNames?: string[],
 ): Promise<CharacterBinding[]> {
   if (!SECTION_BINDING_RELEVANCE[sectionKey]?.characters) return [];
   const { data: dnaRows } = await sb
@@ -137,9 +139,19 @@ async function resolveCharacterBindings(
     .eq("project_id", projectId).eq("is_current", true)
     .order("character_name").limit(10);
   if (!dnaRows?.length) return [];
+
+  // Build exact target set from explicit params
+  const exactTargets = new Set<string>();
+  if (explicitCharacterName) exactTargets.add(explicitCharacterName.toLowerCase());
+  if (explicitCharacterNames?.length) {
+    for (const n of explicitCharacterNames) exactTargets.add(n.toLowerCase());
+  }
+
   const bindings: CharacterBinding[] = [];
   for (const dna of dnaRows) {
-    if (explicitCharacterName && dna.character_name?.toLowerCase() !== explicitCharacterName.toLowerCase()) continue;
+    const nameLC = dna.character_name?.toLowerCase() || '';
+    // If exact targets specified, only bind those exact characters
+    if (exactTargets.size > 0 && !exactTargets.has(nameLC)) continue;
     const sig = dna.identity_signature as Record<string, unknown> | null;
     const locked = dna.locked_invariants as Record<string, unknown> | null;
     const traitParts: string[] = [];
@@ -153,15 +165,35 @@ async function resolveCharacterBindings(
       if (entries.length) traitParts.push(`Locked: ${entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('; ')}`);
     }
     bindings.push({ character_name: dna.character_name, dna_version_id: dna.id, identity_signature: sig, locked_invariants: locked, traits_summary: traitParts.join('. ') || `${dna.character_name}` });
-    if (!explicitCharacterName && bindings.length >= 3) break;
+    // If no exact targets, cap at 3 (heuristic mode)
+    if (exactTargets.size === 0 && bindings.length >= 3) break;
   }
   return bindings;
 }
 
 async function resolveLocationBindings(
-  sb: any, projectId: string, sectionKey: string, explicitLocationId?: string | null, explicitLocationName?: string,
+  sb: any, projectId: string, sectionKey: string,
+  explicitLocationId?: string | null, explicitLocationName?: string,
+  explicitLocationIds?: string[],
 ): Promise<LocationBinding[]> {
   if (!SECTION_BINDING_RELEVANCE[sectionKey]?.locations) return [];
+
+  // If exact IDs provided, query those specifically
+  if (explicitLocationIds?.length) {
+    const { data: exactRows } = await sb.from("canon_locations")
+      .select("id, canonical_name, description, location_type, geography, interior_or_exterior, era_relevance, story_importance")
+      .eq("project_id", projectId).eq("active", true)
+      .in("id", explicitLocationIds);
+    if (exactRows?.length) {
+      return exactRows.map((loc: any) => ({
+        location_id: loc.id, canonical_name: loc.canonical_name, description: loc.description,
+        location_type: loc.location_type || 'unspecified', geography: loc.geography,
+        interior_or_exterior: loc.interior_or_exterior, era_relevance: loc.era_relevance,
+        story_importance: loc.story_importance || 'secondary',
+      }));
+    }
+  }
+
   let q = sb.from("canon_locations")
     .select("id, canonical_name, description, location_type, geography, interior_or_exterior, era_relevance, story_importance")
     .eq("project_id", projectId).eq("active", true);
@@ -249,10 +281,15 @@ function buildWorldBindingBlock(world: WorldBinding): string {
 async function resolveCanonicalBindings(
   sb: any, projectId: string, sectionKey: string, canonJson: any,
   explicitCharacterName?: string, explicitLocationId?: string | null, explicitLocationName?: string,
+  explicitCharacterNames?: string[], explicitLocationIds?: string[],
 ): Promise<CanonicalBindingResult> {
+  // Determine if caller provided exact targets
+  const hasExactCharTarget = !!(explicitCharacterName || explicitCharacterNames?.length);
+  const hasExactLocTarget = !!(explicitLocationId || explicitLocationIds?.length);
+
   const [characters, locations] = await Promise.all([
-    resolveCharacterBindings(sb, projectId, sectionKey, explicitCharacterName),
-    resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName),
+    resolveCharacterBindings(sb, projectId, sectionKey, explicitCharacterName, explicitCharacterNames),
+    resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName, explicitLocationIds),
   ]);
   const world = resolveWorldBinding(canonJson);
   const characterPromptBlock = buildCharacterBindingBlock(characters);
@@ -264,8 +301,15 @@ async function resolveCanonicalBindings(
   if (rel.locations && !locations.length) missing.push('missing_location_binding');
   if (rel.world && !world.bound) missing.push('missing_world_binding');
   const binding_status = missing.length === 0 ? 'bound' : missing.length < 3 ? 'partially_bound' : 'unbound';
-  console.log(`[CanonicalBinding] section=${sectionKey} chars=${characters.length} locs=${locations.length} world=${world.bound} status=${binding_status}`);
-  return { characters, locations, world, characterPromptBlock, locationPromptBlock, worldPromptBlock, binding_status, missing };
+
+  // Compute targeting_mode: exact if caller specified targets, derived if section-rules resolved, heuristic if broad fallback
+  const targeting_mode: 'exact' | 'derived' | 'heuristic' =
+    (hasExactCharTarget || hasExactLocTarget) ? 'exact'
+    : (characters.length > 0 || locations.length > 0) ? 'derived'
+    : 'heuristic';
+
+  console.log(`[CanonicalBinding] section=${sectionKey} chars=${characters.length} locs=${locations.length} world=${world.bound} status=${binding_status} targeting=${targeting_mode}`);
+  return { characters, locations, world, characterPromptBlock, locationPromptBlock, worldPromptBlock, binding_status, missing, targeting_mode };
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
@@ -547,11 +591,13 @@ serve(async (req) => {
     const body = await req.json();
     const {
       project_id, section, count = 4, entity_id, character_name,
+      character_names: requestedCharacterNames,
       asset_group: requestedAssetGroup, pack_mode = false,
       base_look_mode = false,
       location_name, location_description,
       location_ref_mode = false,
       location_id = null,
+      location_ids: requestedLocationIds,
       state_key = null,
       state_label = null,
       state_prompt_modifier = null,
@@ -568,6 +614,7 @@ serve(async (req) => {
       count?: number;
       entity_id?: string;
       character_name?: string;
+      character_names?: string[];
       asset_group?: AssetGroup;
       pack_mode?: boolean;
       base_look_mode?: boolean;
@@ -575,6 +622,7 @@ serve(async (req) => {
       location_description?: string;
       location_ref_mode?: boolean;
       location_id?: string | null;
+      location_ids?: string[];
       state_key?: string | null;
       state_label?: string | null;
       state_prompt_modifier?: string | null;
@@ -659,6 +707,7 @@ serve(async (req) => {
     const canonicalBindings = await resolveCanonicalBindings(
       supabase, project_id, section, canon?.canon_json || null,
       character_name, location_id, location_name,
+      requestedCharacterNames, requestedLocationIds,
     );
 
     const stylePolicy = resolveStylePolicy(project.format || "film", project.genres || []);
@@ -911,10 +960,13 @@ serve(async (req) => {
               // Canonical Visual Binding provenance
               canonical_binding_status: canonicalBindings.binding_status,
               canonical_binding_missing: canonicalBindings.missing,
-              bound_character_names: canonicalBindings.characters.map(c => c.character_name),
+              targeting_mode: canonicalBindings.targeting_mode,
+              requested_character_names: requestedCharacterNames || (character_name ? [character_name] : []),
+              resolved_character_names: canonicalBindings.characters.map(c => c.character_name),
               bound_dna_version_ids: canonicalBindings.characters.map(c => c.dna_version_id).filter(Boolean),
-              bound_location_ids: canonicalBindings.locations.map(l => l.location_id),
-              bound_location_names: canonicalBindings.locations.map(l => l.canonical_name),
+              requested_location_ids: requestedLocationIds || (location_id ? [location_id] : []),
+              resolved_location_ids: canonicalBindings.locations.map(l => l.location_id),
+              resolved_location_names: canonicalBindings.locations.map(l => l.canonical_name),
               world_binding_active: canonicalBindings.world.bound,
               world_binding_era: canonicalBindings.world.era || null,
             },
