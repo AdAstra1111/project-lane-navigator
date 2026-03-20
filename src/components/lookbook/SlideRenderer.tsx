@@ -747,7 +747,7 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 }
 
 /** Landscape-only character card */
-function CharCard({ char, colors, fontBody, isLead, tall }: {
+function CharCard({ char, colors, fontBody, isLead, tall, isPortrait }: {
   char: { name: string; role: string; description: string; imageUrl?: string };
   colors: LookBookVisualIdentity['colors']; fontBody: string;
   isLead: boolean; tall: boolean; isPortrait: boolean;
