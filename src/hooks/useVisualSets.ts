@@ -391,7 +391,7 @@ export function useVisualSets(projectId: string | undefined) {
           }
         }
 
-        // APPROVE
+        // APPROVE — update visual_set_slots
         await (supabase as any)
           .from('visual_set_slots')
           .update({ state: 'approved', evaluation_status: eval_.governance_verdict })
@@ -402,6 +402,12 @@ export function useVisualSets(projectId: string | undefined) {
           .update({ producer_decision: 'approved' })
           .eq('visual_set_slot_id', slot.id)
           .eq('selected_for_slot', true);
+
+        // CANONICAL WRITE-BACK — promote approved image into project_images
+        await (supabase as any)
+          .from('project_images')
+          .update({ curation_state: 'active', is_active: true })
+          .eq('id', slot.selected_image_id);
 
         approvedCount++;
       }
