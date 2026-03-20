@@ -264,7 +264,10 @@ export function scoreCandidateForSlot(
   allSlotCandidates: ProjectImage[],
   isVerticalDrama: boolean,
 ): ScoredSlotCandidate {
-  const weights = isVerticalDrama ? WEIGHTS_VERTICAL_DRAMA : WEIGHTS_STANDARD;
+  const hasDims = !!((image as any).width && (image as any).height);
+  const weights = isVerticalDrama
+    ? (hasDims ? WEIGHTS_VERTICAL_DRAMA : WEIGHTS_VERTICAL_DRAMA_NO_DIMS)
+    : (hasDims ? WEIGHTS_STANDARD : WEIGHTS_STANDARD_NO_DIMS);
   const reasons: string[] = [];
 
   const slotMatch = scoreSlotMatch(image.shot_type, slot.shotType);
