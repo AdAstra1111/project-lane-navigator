@@ -1096,35 +1096,87 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           )}
 
           {/* Last rebuild result diagnostics strip */}
-          {lastRebuildResult && !fullRebuilding && (
-            <div className="mb-2 p-2 rounded border border-border/40 bg-muted/20 text-[9px] space-y-0.5">
-              <div className="flex items-center gap-1">
-                {lastRebuildResult.unresolvedSlots > 0
-                  ? <AlertTriangle className="h-3 w-3 text-amber-500" />
-                  : <CheckCircle className="h-3 w-3 text-green-600" />}
-                <span className="font-semibold">
-                  {lastRebuildResult.mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' ? 'Preserve' : 'Reset'} rebuild
-                </span>
+          {lastRebuildResult && !fullRebuilding && (() => {
+            const r = lastRebuildResult;
+            const isPreserveMode = r.mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
+            const modeLabel = isPreserveMode ? 'Preserve' : 'Reset';
+            const isZeroTarget = isPreserveMode && r.generatedCount === 0 && r.replacedPrimaryCount === 0;
+            const severity = r.unresolvedSlots === 0 ? 'success' : 'warning';
+            const severityBorder = severity === 'success' ? 'border-green-600/30' : 'border-amber-500/30';
+            const severityBg = severity === 'success' ? 'bg-green-50/50 dark:bg-green-950/20' : 'bg-amber-50/50 dark:bg-amber-950/20';
+
+            return (
+              <div className={`mb-2 rounded-md border ${severityBorder} ${severityBg} text-[10px]`}>
+                {/* Header */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-border/20">
+                  {severity === 'success'
+                    ? <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                    : <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                  <span className="font-semibold text-foreground">{modeLabel} rebuild</span>
+                  <span className="ml-auto text-muted-foreground">
+                    {r.resolvedSlots}/{r.totalSlots} resolved
+                  </span>
+                </div>
+
+                {/* Metrics grid */}
+                <div className="grid grid-cols-3 gap-x-3 gap-y-1 px-2.5 py-1.5">
+                  <div className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{r.generatedCount}</span> generated
+                  </div>
+                  <div className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{r.compliantCount}</span> compliant
+                  </div>
+                  <div className="text-muted-foreground">
+                    <span className="font-medium text-foreground">{r.attachedWinnerCount}</span> attached
+                  </div>
+                  {isPreserveMode && (
+                    <>
+                      <div className="text-muted-foreground">
+                        <span className="font-medium text-foreground">{r.preservedPrimaryCount}</span> preserved
+                      </div>
+                      <div className="text-muted-foreground">
+                        <span className="font-medium text-foreground">{r.replacedPrimaryCount}</span> replaced
+                      </div>
+                    </>
+                  )}
+                  {r.rejectedNonCompliantCount > 0 && (
+                    <div className="text-amber-600 dark:text-amber-400">
+                      <span className="font-medium">{r.rejectedNonCompliantCount}</span> rejected
+                    </div>
+                  )}
+                  {r.unresolvedSlots > 0 && (
+                    <div className="text-amber-600 dark:text-amber-400">
+                      <span className="font-medium">{r.unresolvedSlots}</span> unresolved
+                    </div>
+                  )}
+                </div>
+
+                {/* Zero-target preserve message */}
+                {isZeroTarget && (
+                  <div className="px-2.5 pb-1.5 text-muted-foreground italic">
+                    No weak slots detected — no generation performed
+                  </div>
+                )}
+
+                {/* Unresolved reasons expander */}
+                {r.unresolvedReasons.length > 0 && (
+                  <details className="border-t border-border/20">
+                    <summary className="cursor-pointer px-2.5 py-1.5 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 select-none">
+                      {r.unresolvedReasons.length} unresolved slot{r.unresolvedReasons.length !== 1 ? 's' : ''} — details
+                    </summary>
+                    <ul className="px-2.5 pb-1.5 space-y-0.5 text-muted-foreground">
+                      {r.unresolvedReasons.map((ur, i) => (
+                        <li key={ur.slotKey || i} className="flex gap-1">
+                          <span className="text-foreground/70 font-medium shrink-0">{ur.slotKey}:</span>
+                          <span>{ur.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
-              <div className="text-muted-foreground">
-                {lastRebuildResult.resolvedSlots}/{lastRebuildResult.totalSlots} resolved
-                {lastRebuildResult.preservedPrimaryCount > 0 && ` · ${lastRebuildResult.preservedPrimaryCount} preserved`}
-                {lastRebuildResult.replacedPrimaryCount > 0 && ` · ${lastRebuildResult.replacedPrimaryCount} replaced`}
-                {lastRebuildResult.unresolvedSlots > 0 && ` · ${lastRebuildResult.unresolvedSlots} unresolved`}
-                {lastRebuildResult.rejectedNonCompliantCount > 0 && ` · ${lastRebuildResult.rejectedNonCompliantCount} rejected (compliance)`}
-              </div>
-              {lastRebuildResult.unresolvedReasons.length > 0 && (
-                <details className="mt-1">
-                  <summary className="cursor-pointer text-amber-600">Unresolved slots</summary>
-                  <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
-                    {lastRebuildResult.unresolvedReasons.map((r, i) => (
-                      <li key={i}>• {r.slotKey}: {r.reason}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </div>
-          )}
+            );
+          })()}
 
           <Button
             size="sm"
