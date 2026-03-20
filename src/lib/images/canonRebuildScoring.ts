@@ -22,7 +22,7 @@
  */
 
 import type { ProjectImage } from './types';
-import { SHOT_ASPECT_RATIO, type AspectRatio } from './requiredVisualSet';
+import { SHOT_ASPECT_RATIO, PORTRAIT_SHOT_OVERRIDE, type AspectRatio } from './requiredVisualSet';
 
 // ── Types ──
 
@@ -60,6 +60,9 @@ export interface SlotWinnerResult {
 }
 
 // ── Weights ──
+// When dimensions are available, use full weight set.
+// When dimensions are NULL (common with generated images), redistribute
+// portrait/aspect weights to slotMatch and binding since we can't measure pixels.
 
 const WEIGHTS_STANDARD = {
   slotMatch: 0.35,
@@ -76,6 +79,25 @@ const WEIGHTS_VERTICAL_DRAMA = {
   portraitSuitability: 0.25, // heavily weighted for VD
   curationQuality: 0.10,
   bindingFidelity: 0.15,
+  freshness: 0.15,
+};
+
+// Redistributed weights when no pixel dimensions are available
+const WEIGHTS_VERTICAL_DRAMA_NO_DIMS = {
+  slotMatch: 0.35,        // boost slot correctness
+  aspectFit: 0.00,        // can't score without dims
+  portraitSuitability: 0.15, // use shot-type inference instead
+  curationQuality: 0.15,
+  bindingFidelity: 0.25,  // boost canon fidelity
+  freshness: 0.10,
+};
+
+const WEIGHTS_STANDARD_NO_DIMS = {
+  slotMatch: 0.40,
+  aspectFit: 0.00,
+  portraitSuitability: 0.00,
+  curationQuality: 0.20,
+  bindingFidelity: 0.25,
   freshness: 0.15,
 };
 
@@ -116,7 +138,13 @@ function scoreSlotMatch(imageShotType: string | null, targetShotType: string): {
 function scoreAspectFit(image: ProjectImage, expectedAR: AspectRatio): { score: number; reason: string } {
   const w = (image as any).width as number | null;
   const h = (image as any).height as number | null;
-  if (!w || !h) return { score: 50, reason: 'No dimensions — neutral aspect score' };
+  if (!w || !h) {
+    // Infer from shot_type: if the image's shot_type has a known canonical AR that matches expected, score higher
+    const shotAR = SHOT_ASPECT_RATIO[(image.shot_type || '') as string];
+    if (shotAR === expectedAR) return { score: 80, reason: `No dims but shot_type "${image.shot_type}" matches expected AR ${expectedAR}` };
+    if (shotAR) return { score: 40, reason: `No dims; shot_type AR ${shotAR} ≠ expected ${expectedAR}` };
+    return { score: 50, reason: 'No dimensions — neutral aspect score' };
+  }
 
   const imageRatio = w / h;
   const [arW, arH] = expectedAR.split(':').map(Number);
@@ -133,18 +161,48 @@ function scorePortraitSuitability(image: ProjectImage): { score: number; isPortr
   const w = (image as any).width as number | null;
   const h = (image as any).height as number | null;
 
-  if (!w || !h) return { score: 30, isPortraitSafe: false, reason: 'No dimensions — cannot determine orientation' };
+  // If dimensions exist, use pixel-based scoring
+  if (w && h) {
+    const ratio = h / w;
+    if (ratio >= 1.5) return { score: 100, isPortraitSafe: true, reason: 'Strong portrait orientation (≥3:2)' };
+    if (ratio >= 1.2) return { score: 85, isPortraitSafe: true, reason: 'Portrait orientation (≥6:5)' };
+    if (ratio >= 1.0) return { score: 65, isPortraitSafe: true, reason: 'Square-ish portrait (≥1:1)' };
+    if (ratio >= 0.8) return { score: 30, isPortraitSafe: false, reason: 'Mild landscape — not portrait-safe' };
+    return { score: 5, isPortraitSafe: false, reason: 'Strong landscape — not portrait-safe' };
+  }
 
-  const ratio = h / w;
+  // ── NULL dimensions: infer from shot_type + generation metadata ──
+  // If the image was generated with a portrait-mapped shot type, treat as portrait-safe.
+  const shotType = (image.shot_type || '').toLowerCase();
 
-  // True portrait: h > w (ratio > 1.0)
-  if (ratio >= 1.5) return { score: 100, isPortraitSafe: true, reason: 'Strong portrait orientation (≥3:2)' };
-  if (ratio >= 1.2) return { score: 85, isPortraitSafe: true, reason: 'Portrait orientation (≥6:5)' };
-  if (ratio >= 1.0) return { score: 65, isPortraitSafe: true, reason: 'Square-ish portrait (≥1:1)' };
+  // Shot types that are inherently portrait-safe (their canonical AR ≥ 1:1)
+  const PORTRAIT_NATIVE_SHOTS = new Set([
+    'identity_headshot', 'identity_profile', 'identity_full_body',
+    'close_up', 'full_body', 'profile', 'detail',
+    'texture_ref', 'color_ref',
+    'poster_theatrical', 'poster_alt',
+  ]);
 
-  // Landscape — penalized
-  if (ratio >= 0.8) return { score: 30, isPortraitSafe: false, reason: 'Mild landscape — not portrait-safe' };
-  return { score: 5, isPortraitSafe: false, reason: 'Strong landscape — not portrait-safe' };
+  // Shot types that become portrait-safe when PORTRAIT_SHOT_OVERRIDE maps them
+  const PORTRAIT_OVERRIDDEN_SHOTS = new Set(Object.keys(PORTRAIT_SHOT_OVERRIDE));
+
+  if (PORTRAIT_NATIVE_SHOTS.has(shotType)) {
+    return { score: 85, isPortraitSafe: true, reason: `Shot type "${shotType}" is inherently portrait-safe (no dims)` };
+  }
+
+  if (PORTRAIT_OVERRIDDEN_SHOTS.has(shotType)) {
+    // These were requested with portrait override dimensions during generation
+    return { score: 75, isPortraitSafe: true, reason: `Shot type "${shotType}" was portrait-overridden at generation (no dims)` };
+  }
+
+  // Unknown shot type with no dimensions — assume portrait-safe if generation_purpose suggests identity
+  const purpose = (image as any).generation_purpose as string | null;
+  if (purpose === 'character_identity') {
+    return { score: 70, isPortraitSafe: true, reason: 'Identity generation purpose implies portrait (no dims)' };
+  }
+
+  // Truly unknown — neutral but NOT portrait-safe
+  return { score: 40, isPortraitSafe: false, reason: 'No dimensions and no portrait-safe inference available' };
 }
 
 function scoreCurationQuality(image: ProjectImage): { score: number; reason: string } {
@@ -212,7 +270,10 @@ export function scoreCandidateForSlot(
   allSlotCandidates: ProjectImage[],
   isVerticalDrama: boolean,
 ): ScoredSlotCandidate {
-  const weights = isVerticalDrama ? WEIGHTS_VERTICAL_DRAMA : WEIGHTS_STANDARD;
+  const hasDims = !!((image as any).width && (image as any).height);
+  const weights = isVerticalDrama
+    ? (hasDims ? WEIGHTS_VERTICAL_DRAMA : WEIGHTS_VERTICAL_DRAMA_NO_DIMS)
+    : (hasDims ? WEIGHTS_STANDARD : WEIGHTS_STANDARD_NO_DIMS);
   const reasons: string[] = [];
 
   const slotMatch = scoreSlotMatch(image.shot_type, slot.shotType);
