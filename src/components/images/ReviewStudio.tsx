@@ -308,11 +308,15 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
         </div>
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox with navigation + approve/reject */}
       <ImageLightbox
         image={lightboxImage}
         open={!!lightboxImage}
         onClose={() => setLightboxImage(null)}
+        imageSet={filteredImages}
+        onNavigate={setLightboxImage}
+        onApprove={handleApprove}
+        onReject={handleReject}
       />
 
       {/* Comparison */}
