@@ -47,6 +47,9 @@ export interface SlotTarget {
   isIdentity: boolean;
 }
 
+/** Match quality classification for slot resolution */
+export type SlotMatchQuality = 'exact' | 'fallback' | 'weak';
+
 /** Identity continuity classification for a candidate relative to character anchors */
 export type IdentityContinuityClass =
   | 'strong_match'       // generated with identity lock, anchors used
