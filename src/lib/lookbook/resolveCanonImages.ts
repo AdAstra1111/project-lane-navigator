@@ -2,6 +2,8 @@
  * resolveCanonImages — Resolves active canonical images per lookbook section.
  * Uses the SAME query logic as useLookbookSectionContent (workspace)
  * to ensure presentation and workspace share a single source of truth.
+ *
+ * CVBE Phase 2: Bound images are preferred over unbound images within each tier.
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from '@/lib/images/types';
@@ -60,6 +62,40 @@ export interface SectionImageResult {
   images: ProjectImage[];
   imageIds: string[];
 }
+
+// ── Canonical Binding Preference ─────────────────────────────────────────────
+
+type BindingStatus = 'bound' | 'partially_bound' | 'unbound' | undefined;
+
+function getBindingRank(img: ProjectImage): number {
+  const gc = img.generation_config as Record<string, unknown> | null;
+  const status = gc?.canonical_binding_status as BindingStatus;
+  if (status === 'bound') return 0;
+  if (status === 'partially_bound') return 1;
+  return 2; // unbound or no provenance
+}
+
+/**
+ * Sort images so bound images appear before unbound within the same
+ * primary/active tier. Preserves is_primary > created_at ordering
+ * but adds binding_status as a secondary discriminator.
+ */
+function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
+  return [...images].sort((a, b) => {
+    // 1. Primary first
+    const pa = a.is_primary ? 0 : 1;
+    const pb = b.is_primary ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    // 2. Binding preference (bound > partially_bound > unbound)
+    const ba = getBindingRank(a);
+    const bb = getBindingRank(b);
+    if (ba !== bb) return ba - bb;
+    // 3. Recency
+    return (b.created_at || '').localeCompare(a.created_at || '');
+  });
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function hydrateSignedUrls(images: ProjectImage[]): Promise<void> {
   const bucketGroups = new Map<string, ProjectImage[]>();
@@ -202,10 +238,18 @@ async function fetchSectionImages(
   // re-enter canonical resolution. Only active and candidate curation states
   // are eligible for lookbook builds.
 
+  // ── CVBE Phase 2: sort bound images before unbound within each tier ──
+  images = sortWithBindingPreference(images);
+
   await hydrateSignedUrls(images);
 
   console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images`,
-    images.map(i => ({ id: i.id, curation: (i as any).curation_state, primary: (i as any).is_primary })));
+    images.map(i => ({
+      id: i.id,
+      curation: (i as any).curation_state,
+      primary: (i as any).is_primary,
+      binding: (i.generation_config as any)?.canonical_binding_status || 'unknown',
+    })));
 
   return {
     sectionKey,
@@ -226,6 +270,7 @@ export interface ResolvedCanonImages {
 /**
  * Resolves all canonical lookbook section images in parallel.
  * Uses identical query logic to the workspace panels.
+ * Bound images are sorted ahead of unbound within each curation tier.
  */
 export async function resolveAllCanonImages(projectId: string): Promise<ResolvedCanonImages> {
   const sections: CanonicalSectionKey[] = [
