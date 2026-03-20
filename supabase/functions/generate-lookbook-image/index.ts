@@ -71,6 +71,201 @@ interface SectionContext {
   characterName?: string;
   locationName?: string;
   locationDescription?: string;
+  worldBindingBlock?: string;
+  locationBindingBlock?: string;
+  characterBindingBlock?: string;
+}
+
+// ── Canonical Visual Binding Types ──────────────────────────────────────────
+interface CharacterBinding {
+  character_name: string;
+  dna_version_id: string | null;
+  identity_signature: Record<string, unknown> | null;
+  locked_invariants: Record<string, unknown> | null;
+  traits_summary: string;
+}
+
+interface LocationBinding {
+  location_id: string;
+  canonical_name: string;
+  description: string | null;
+  location_type: string;
+  geography: string | null;
+  interior_or_exterior: string | null;
+  era_relevance: string | null;
+  story_importance: string;
+}
+
+interface WorldBinding {
+  era: string;
+  geography: string;
+  architecture: string;
+  social_structure: string;
+  costume_language: string;
+  environmental_palette: string;
+  technology_level: string;
+  cultural_markers: string;
+  world_rules: string[];
+  bound: boolean;
+}
+
+interface CanonicalBindingResult {
+  characters: CharacterBinding[];
+  locations: LocationBinding[];
+  world: WorldBinding;
+  characterPromptBlock: string;
+  locationPromptBlock: string;
+  worldPromptBlock: string;
+  binding_status: 'bound' | 'partially_bound' | 'unbound';
+  missing: string[];
+}
+// ── Section → canonical entity mapping ──────────────────────────────────────
+const SECTION_BINDING_RELEVANCE: Record<string, { characters: boolean; locations: boolean; world: boolean }> = {
+  character: { characters: true, locations: false, world: true },
+  world: { characters: false, locations: true, world: true },
+  key_moment: { characters: true, locations: true, world: true },
+  visual_language: { characters: false, locations: true, world: true },
+};
+
+async function resolveCharacterBindings(
+  sb: any, projectId: string, sectionKey: string, explicitCharacterName?: string,
+): Promise<CharacterBinding[]> {
+  if (!SECTION_BINDING_RELEVANCE[sectionKey]?.characters) return [];
+  const { data: dnaRows } = await sb
+    .from("character_visual_dna")
+    .select("id, character_name, locked_invariants, identity_signature, version_number")
+    .eq("project_id", projectId).eq("is_current", true)
+    .order("character_name").limit(10);
+  if (!dnaRows?.length) return [];
+  const bindings: CharacterBinding[] = [];
+  for (const dna of dnaRows) {
+    if (explicitCharacterName && dna.character_name?.toLowerCase() !== explicitCharacterName.toLowerCase()) continue;
+    const sig = dna.identity_signature as Record<string, unknown> | null;
+    const locked = dna.locked_invariants as Record<string, unknown> | null;
+    const traitParts: string[] = [];
+    if (sig) {
+      for (const k of ['face', 'body', 'silhouette', 'wardrobe']) {
+        if (sig[k]) traitParts.push(`${k}: ${typeof sig[k] === 'string' ? sig[k] : JSON.stringify(sig[k])}`);
+      }
+    }
+    if (locked) {
+      const entries = Object.entries(locked).filter(([_, v]) => v);
+      if (entries.length) traitParts.push(`Locked: ${entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('; ')}`);
+    }
+    bindings.push({ character_name: dna.character_name, dna_version_id: dna.id, identity_signature: sig, locked_invariants: locked, traits_summary: traitParts.join('. ') || `${dna.character_name}` });
+    if (!explicitCharacterName && bindings.length >= 3) break;
+  }
+  return bindings;
+}
+
+async function resolveLocationBindings(
+  sb: any, projectId: string, sectionKey: string, explicitLocationId?: string | null, explicitLocationName?: string,
+): Promise<LocationBinding[]> {
+  if (!SECTION_BINDING_RELEVANCE[sectionKey]?.locations) return [];
+  let q = sb.from("canon_locations")
+    .select("id, canonical_name, description, location_type, geography, interior_or_exterior, era_relevance, story_importance")
+    .eq("project_id", projectId).eq("active", true);
+  if (explicitLocationId) q = q.eq("id", explicitLocationId);
+  q = q.order("story_importance", { ascending: true }).limit(6);
+  const { data: locRows } = await q;
+  if (!locRows?.length) return [];
+  let filtered = locRows;
+  if (explicitLocationName && !explicitLocationId) {
+    const norm = explicitLocationName.toLowerCase();
+    const match = locRows.filter((l: any) => l.canonical_name?.toLowerCase().includes(norm));
+    if (match.length) filtered = match;
+  }
+  return filtered.map((loc: any) => ({
+    location_id: loc.id, canonical_name: loc.canonical_name, description: loc.description,
+    location_type: loc.location_type || 'unspecified', geography: loc.geography,
+    interior_or_exterior: loc.interior_or_exterior, era_relevance: loc.era_relevance,
+    story_importance: loc.story_importance || 'secondary',
+  }));
+}
+
+function resolveWorldBinding(canonJson: any): WorldBinding {
+  if (!canonJson) return { era: '', geography: '', architecture: '', social_structure: '', costume_language: '', environmental_palette: '', technology_level: '', cultural_markers: '', world_rules: [], bound: false };
+  const cj = canonJson;
+  const worldRules: string[] = [];
+  if (Array.isArray(cj.world_rules)) worldRules.push(...cj.world_rules.filter((r: any) => typeof r === 'string'));
+  else if (typeof cj.world_rules === 'string' && cj.world_rules.trim()) worldRules.push(cj.world_rules);
+  const worldDesc = cj.world_description || cj.setting || '';
+  return {
+    era: cj.era || cj.period || cj.time_period || '',
+    geography: cj.geography || '', architecture: cj.architecture || '',
+    social_structure: cj.social_structure || cj.class_structure || '',
+    costume_language: cj.costume_language || cj.wardrobe || '',
+    environmental_palette: cj.color_palette || cj.palette || '',
+    technology_level: cj.technology_level || cj.technology || '',
+    cultural_markers: cj.cultural_markers || cj.culture || '',
+    world_rules: worldRules,
+    bound: !!(worldDesc || cj.era || cj.period || worldRules.length > 0),
+  };
+}
+
+function buildCharacterBindingBlock(chars: CharacterBinding[]): string {
+  if (!chars.length) return '';
+  const lines = ['[CANONICAL CHARACTER BINDING — IDENTITY CONTINUITY REQUIRED]', ''];
+  for (const c of chars) {
+    lines.push(`CHARACTER: "${c.character_name}"`);
+    if (c.traits_summary) lines.push(`  ${c.traits_summary}`);
+    lines.push(`  ENFORCE: Maintain identical facial structure, build, proportions, skin tone, hair.`);
+    lines.push(`  REJECT: Different face, different age, different build, generic substitution.`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+function buildLocationBindingBlock(locs: LocationBinding[]): string {
+  if (!locs.length) return '';
+  const lines = ['[CANONICAL LOCATION BINDING — ARCHITECTURAL CONTINUITY REQUIRED]', ''];
+  for (const l of locs) {
+    lines.push(`LOCATION: "${l.canonical_name}" (${l.location_type}${l.interior_or_exterior ? `, ${l.interior_or_exterior}` : ''})`);
+    if (l.description) lines.push(`  ${l.description}`);
+    if (l.geography) lines.push(`  Geography: ${l.geography}`);
+    if (l.era_relevance) lines.push(`  Era: ${l.era_relevance}`);
+    lines.push(`  ENFORCE: Preserve recognizable architectural identity, geography, layout.`);
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+function buildWorldBindingBlock(world: WorldBinding): string {
+  if (!world.bound) return '';
+  const lines = ['[CANONICAL WORLD BINDING — PROJECT UNIVERSE COHERENCE REQUIRED]', ''];
+  if (world.era) lines.push(`ERA/PERIOD: ${world.era}`);
+  if (world.geography) lines.push(`GEOGRAPHY: ${world.geography}`);
+  if (world.architecture) lines.push(`ARCHITECTURE: ${world.architecture}`);
+  if (world.social_structure) lines.push(`SOCIAL STRUCTURE: ${world.social_structure}`);
+  if (world.costume_language) lines.push(`COSTUME/MATERIAL: ${world.costume_language}`);
+  if (world.environmental_palette) lines.push(`PALETTE: ${world.environmental_palette}`);
+  if (world.technology_level) lines.push(`TECHNOLOGY: ${world.technology_level}`);
+  if (world.cultural_markers) lines.push(`CULTURAL MARKERS: ${world.cultural_markers}`);
+  if (world.world_rules.length > 0) { lines.push(`WORLD RULES:`); for (const r of world.world_rules.slice(0, 5)) lines.push(`  - ${r}`); }
+  lines.push('', `ENFORCE: All imagery must belong to THIS project's world. No generic fantasy substitution.`);
+  return lines.join('\n');
+}
+
+async function resolveCanonicalBindings(
+  sb: any, projectId: string, sectionKey: string, canonJson: any,
+  explicitCharacterName?: string, explicitLocationId?: string | null, explicitLocationName?: string,
+): Promise<CanonicalBindingResult> {
+  const [characters, locations] = await Promise.all([
+    resolveCharacterBindings(sb, projectId, sectionKey, explicitCharacterName),
+    resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName),
+  ]);
+  const world = resolveWorldBinding(canonJson);
+  const characterPromptBlock = buildCharacterBindingBlock(characters);
+  const locationPromptBlock = buildLocationBindingBlock(locations);
+  const worldPromptBlock = buildWorldBindingBlock(world);
+  const missing: string[] = [];
+  const rel = SECTION_BINDING_RELEVANCE[sectionKey] || { characters: false, locations: false, world: true };
+  if (rel.characters && !characters.length) missing.push('missing_character_binding');
+  if (rel.locations && !locations.length) missing.push('missing_location_binding');
+  if (rel.world && !world.bound) missing.push('missing_world_binding');
+  const binding_status = missing.length === 0 ? 'bound' : missing.length < 3 ? 'partially_bound' : 'unbound';
+  console.log(`[CanonicalBinding] section=${sectionKey} chars=${characters.length} locs=${locations.length} world=${world.bound} status=${binding_status}`);
+  return { characters, locations, world, characterPromptBlock, locationPromptBlock, worldPromptBlock, binding_status, missing };
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
@@ -460,6 +655,12 @@ serve(async (req) => {
       }
     }
 
+    // ── CANONICAL VISUAL BINDING: Auto-resolve character, location, world ──
+    const canonicalBindings = await resolveCanonicalBindings(
+      supabase, project_id, section, canon?.canon_json || null,
+      character_name, location_id, location_name,
+    );
+
     const stylePolicy = resolveStylePolicy(project.format || "film", project.genres || []);
     const imageRole = SECTION_TO_ROLE[section] as ImageRole;
     const styleMode = stylePolicy.mode as ImageStyleMode;
@@ -479,6 +680,9 @@ serve(async (req) => {
       characterName: character_name,
       locationName: location_name,
       locationDescription: location_description,
+      worldBindingBlock: canonicalBindings.worldPromptBlock,
+      locationBindingBlock: canonicalBindings.locationPromptBlock,
+      characterBindingBlock: canonicalBindings.characterPromptBlock,
     };
 
     // ── Resolve identity anchor signed URLs if provided ──
@@ -626,6 +830,22 @@ serve(async (req) => {
         }
       }
 
+      // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
+      // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
+      if (!isIdentityGeneration) {
+        // For non-identity shots, inject all relevant bindings
+        if (canonicalBindings.characterPromptBlock) {
+          prompt += `\n\n${canonicalBindings.characterPromptBlock}`;
+        }
+        if (canonicalBindings.locationPromptBlock) {
+          prompt += `\n\n${canonicalBindings.locationPromptBlock}`;
+        }
+      }
+      // World binding always applies (even to identity shots — grounds the project universe)
+      if (canonicalBindings.worldPromptBlock) {
+        prompt += `\n\n${canonicalBindings.worldPromptBlock}`;
+      }
+
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
@@ -688,6 +908,15 @@ serve(async (req) => {
               identity_signature_used: !!identity_signature_block,
               identity_lock_strength: (headshotAnchorUsed && fullBodyAnchorUsed) ? 'strong' : (headshotAnchorUsed || fullBodyAnchorUsed) ? 'partial' : 'none',
               state_variant_used: !!state_prompt_modifier,
+              // Canonical Visual Binding provenance
+              canonical_binding_status: canonicalBindings.binding_status,
+              canonical_binding_missing: canonicalBindings.missing,
+              bound_character_ids: canonicalBindings.characters.map(c => c.character_name),
+              bound_dna_version_ids: canonicalBindings.characters.map(c => c.dna_version_id).filter(Boolean),
+              bound_location_ids: canonicalBindings.locations.map(l => l.location_id),
+              bound_location_names: canonicalBindings.locations.map(l => l.canonical_name),
+              world_binding_active: canonicalBindings.world.bound,
+              world_binding_era: canonicalBindings.world.era || null,
             },
             asset_group: assetGroup,
             subject: character_name || location_name || null,
@@ -729,7 +958,16 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ section, asset_group: assetGroup, results }), {
+    return new Response(JSON.stringify({
+      section, asset_group: assetGroup, results,
+      canonical_binding: {
+        status: canonicalBindings.binding_status,
+        characters_bound: canonicalBindings.characters.length,
+        locations_bound: canonicalBindings.locations.length,
+        world_bound: canonicalBindings.world.bound,
+        missing: canonicalBindings.missing,
+      },
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
