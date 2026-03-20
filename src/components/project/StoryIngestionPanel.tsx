@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, Zap, CheckCircle2, AlertTriangle, BookOpen, Shield, FileText,
   ChevronDown, ChevronRight, Eye, ThumbsUp, ThumbsDown, AlertCircle, Info,
@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { InlineProcessBar } from '@/components/system/InlineProcessBar';
+import { useProcessBridge } from '@/hooks/useProcessBridge';
 import {
   useStoryIngestion,
   IngestionRun,
@@ -477,9 +479,42 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
 
+  const INGESTION_STAGES = [
+    'Resolving source document',
+    'Parsing scenes and structure',
+    'Extracting characters, locations, props',
+    'Building state transitions',
+    'Resolving participation',
+    'Finalizing ingestion',
+  ];
+
+  const bridge = useProcessBridge({
+    keyPrefix: 'ingestion',
+    type: 'Story Ingestion',
+    projectId,
+    href: `/projects/${projectId}/visual-dev`,
+    stages: INGESTION_STAGES,
+  });
+
   useEffect(() => {
     fetchStatus().then(r => setRuns(r));
   }, [fetchStatus]);
+
+  const handleRunIngestion = useCallback(async () => {
+    const processId = bridge.register({
+      stageDescription: 'Resolving source document and preparing parse…',
+    });
+    try {
+      const result = await runIngestion({ force: true });
+      if (result) {
+        bridge.complete();
+      } else {
+        bridge.fail('Ingestion returned no result');
+      }
+    } catch (err: any) {
+      bridge.fail(err?.message || 'Ingestion failed');
+    }
+  }, [runIngestion, bridge]);
 
   const manifest = latestRun?.manifest_json;
   const parseQuality = latestRun?.parse_quality_json;
@@ -570,12 +605,14 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
           </div>
         )}
 
-        {/* ── Running state ── */}
+        {/* ── Running state with inline progress ── */}
         {isRunning && (
-          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2 animate-pulse">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            <span className="text-[11px] text-primary">Ingesting story… scenes → entities → states → distribution</span>
-          </div>
+          <InlineProcessBar
+            status="running"
+            stage="Story Ingestion"
+            description="Parsing scenes, extracting characters, locations, props, and state variants…"
+            className="rounded-md border border-primary/30 bg-primary/5 p-3"
+          />
         )}
 
         {/* ── Actions ── */}
@@ -584,7 +621,7 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
             size="sm"
             className="h-8 text-xs gap-1.5"
             disabled={isRunning}
-            onClick={() => runIngestion({ force: true })}
+            onClick={handleRunIngestion}
           >
             {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
             {latestRun?.status === 'completed' ? 'Re-Ingest Story' : 'Ingest Story Package'}

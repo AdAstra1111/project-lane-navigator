@@ -12,6 +12,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { CorpusIntegrityBanner } from "@/components/corpus/CorpusIntegrityBanner";
 import { UIModeProvider } from "@/hooks/useUIMode";
+import { ProcessingProvider } from "@/lib/processing/ProcessingContext";
 
 // Eagerly load landing + auth (first paint)
 import Index from "./pages/Index";
@@ -251,6 +252,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
     <UIModeProvider>
+    <ProcessingProvider>
     <ThemeProvider>
     <TooltipProvider>
       <Toaster />
@@ -263,6 +265,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
     </ThemeProvider>
+    </ProcessingProvider>
     </UIModeProvider>
     </AuthProvider>
   </QueryClientProvider>

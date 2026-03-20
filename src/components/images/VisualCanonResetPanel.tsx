@@ -13,6 +13,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { resolveIdentityAnchorsFromImages, shouldPrioritizeIdentityGeneration, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import { useVisualSimilarityCache } from '@/hooks/useVisualSimilarityCache';
+import { useProcessBridge } from '@/hooks/useProcessBridge';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
@@ -89,6 +90,20 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   } = useVisualCanonReset(projectId);
 
   const vs = useVisualSets(projectId);
+
+  const populateBridge = useProcessBridge({
+    keyPrefix: 'autopopulate',
+    type: 'Image Generation',
+    projectId,
+    href: `/projects/${projectId}/visual-dev`,
+  });
+
+  const rebuildBridge = useProcessBridge({
+    keyPrefix: 'canon-rebuild',
+    type: 'Visual Canon Rebuild',
+    projectId,
+    href: `/projects/${projectId}/visual-dev`,
+  });
 
   const { refetch: refetchImages } = useProjectImages(projectId, {
     activeOnly: false,
@@ -320,6 +335,12 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     abortRef.current = false;
     setPopulating(true);
+    populateBridge.register({
+      total: slots.length,
+      processed: 0,
+      percent: 0,
+      stageDescription: `Generating candidate images for ${slots.length} slots…`,
+    });
     setPopulateProgress({
       generated: 0, total: slots.length, failed: 0,
       currentSlot: slots[0]?.label || null,
@@ -452,11 +473,19 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       }
 
       // Progressive update — refresh images and update counts after each slot
+      const pct = Math.round(((i + 1) / slots.length) * 100);
       setPopulateProgress({
         generated, total: slots.length, failed,
         currentSlot: i < slots.length - 1 ? slots[i + 1]?.label || null : null,
         currentPhase: i < slots.length - 1 ? PHASE_LABELS[slots[i + 1]?.phase] || null : null,
         completedSlots: [...completedSlots],
+      });
+      populateBridge.update({
+        processed: i + 1,
+        percent: pct,
+        stageDescription: i < slots.length - 1
+          ? `Generating: ${slots[i + 1]?.label || 'next slot'}…`
+          : 'Finalizing…',
       });
 
       // Refresh image queries so Approval Queue / Required Visual Set update live
@@ -467,11 +496,13 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     vs.invalidate(); // Refresh visual sets after autopopulate
 
     if (generated > 0) {
+      populateBridge.complete();
       toast.success(`Generated ${generated} candidate image${generated !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`);
     } else {
+      populateBridge.fail(`Generation failed for all ${failed} slots`);
       toast.error(`Generation failed for all ${failed} slots`);
     }
-  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama]);
+  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama, populateBridge]);
 
   // ── Full Canon Rebuild — score-based end-to-end pipeline ──
   const REBUILD_STAGES_RESET = [
@@ -505,6 +536,10 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     if (fullRebuilding) return;
     setFullRebuilding(true);
     setLastRebuildResult(null);
+    rebuildBridge.register({
+      stages: [...currentStages],
+      stageDescription: 'Starting visual canon rebuild…',
+    });
 
     const mode = rebuildMode;
     const isPreserve = mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
@@ -517,7 +552,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       projectFormat,
       projectLane,
       isVerticalDrama,
-      onStageChange: setRebuildStage,
+      onStageChange: (stage) => {
+        setRebuildStage(stage);
+        const idx = [...currentStages].findIndex(s => s.toLowerCase().includes((stage || '').toLowerCase().split(' ')[0]));
+        rebuildBridge.update({
+          currentStageIndex: idx >= 0 ? idx : undefined,
+          stageDescription: stage || undefined,
+        });
+      },
       generateSlotImages: (targetKeys) => handleAutoPopulate(false, targetKeys),
       resetCanon: async () => {
         await resetScopedCanon({
@@ -539,8 +581,10 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     // ── Honest completion messaging ──
     if (result.executionStatus === 'failed') {
+      rebuildBridge.fail(result.failureMessage || 'Unknown error');
       toast.error(`Rebuild failed: ${result.failureMessage || 'Unknown error'}`);
     } else if (result.executionStatus === 'no_op') {
+      rebuildBridge.complete();
       toast.info('No weak slots detected — no generation performed');
     } else {
       const { resolvedSlots, unresolvedSlots, attachedWinnerCount, preservedPrimaryCount, replacedPrimaryCount, totalSlots } = result.rebuildResult;
@@ -560,8 +604,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           (isVerticalDrama ? ' — strict vertical compliance verified' : ''),
         );
       }
+      rebuildBridge.complete();
     }
-
     console.log('[rebuild-ui] Execution result:', {
       status: result.executionStatus,
       durationMs: result.durationMs,
@@ -571,7 +615,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     setFullRebuilding(false);
     setRebuildStage(null);
-  }, [fullRebuilding, rebuildMode, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, canonJson, projectId, isVerticalDrama, projectFormat, projectLane]);
+  }, [fullRebuilding, rebuildMode, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, canonJson, projectId, isVerticalDrama, projectFormat, projectLane, rebuildBridge, currentStages]);
 
   // ── Download winners only (not all active images) ──
   const downloadWinnersOnly = useCallback(async (winnerIds: Set<string>) => {
