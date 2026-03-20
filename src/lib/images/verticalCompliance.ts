@@ -155,7 +155,21 @@ export function classifyVerticalCompliance(
       };
     }
 
-    if (ratio >= 1.0) {
+    // Square — explicitly separate from portrait
+    if (Math.abs(ratio - 1.0) < 0.05) {
+      return {
+        level: 'square',
+        eligibleForWinnerSelection: false,
+        expectedAspectRatio,
+        actualAspectRatio: actualAR,
+        actualRatio: ratio,
+        isIdentityException,
+        dimensionSource: 'measured',
+        reason: `Square (h/w=${ratio.toFixed(2)}) — NOT eligible for strict VD slots`,
+      };
+    }
+
+    if (ratio > 1.0) {
       return {
         level: 'portrait_only',
         eligibleForWinnerSelection: false,
