@@ -707,6 +707,7 @@ serve(async (req) => {
     const canonicalBindings = await resolveCanonicalBindings(
       supabase, project_id, section, canon?.canon_json || null,
       character_name, location_id, location_name,
+      requestedCharacterNames, requestedLocationIds,
     );
 
     const stylePolicy = resolveStylePolicy(project.format || "film", project.genres || []);
