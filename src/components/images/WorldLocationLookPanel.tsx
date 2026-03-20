@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Globe, MapPin, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Wand2, AlertTriangle, PenLine, Sparkles, Eye, Film, Users, Package, CheckCircle2, Clock, ImageIcon, Link2, Unlink2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';

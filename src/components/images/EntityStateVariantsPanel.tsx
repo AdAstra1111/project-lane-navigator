@@ -6,6 +6,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Layers, Plus, Loader2, Star, Archive, RotateCcw, ChevronRight, CheckCircle, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
