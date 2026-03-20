@@ -38,7 +38,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   User, Globe, Sun, Layers, Sparkles, Image: ImageIcon,
 };
 
-type CurationFilter = CurationState | 'all';
+type CurationFilter = CurationState | 'all' | 'working';
 
 interface LookbookSectionPanelProps {
   projectId: string;
@@ -65,12 +65,12 @@ export function LookbookSectionPanel({
   const upstream = SECTION_UPSTREAM_MAP[sectionKey];
   const IconComp = upstream ? ICON_MAP[upstream.icon] || Globe : Globe;
 
-  const [filter, setFilter] = useState<CurationFilter>('all');
+  const [filter, setFilter] = useState<CurationFilter>('working');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const { images, total, isLoading, blockers } = useLookbookSectionContent(
     projectId,
     sectionKey,
-    { curationFilter: filter === 'all' ? 'all' : filter, pageSize: 12 },
+    { curationFilter: filter === 'all' ? 'all' : filter === 'working' ? 'working' : filter, pageSize: 12 },
   );
 
   const hasImages = images.length > 0;
@@ -126,7 +126,7 @@ export function LookbookSectionPanel({
           {(hasImages || onResetSection || onRegenerateClean) && (
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="flex items-center gap-1 flex-wrap">
-                {hasImages && (['all', 'active', 'candidate', 'archived'] as CurationFilter[]).map(f => (
+                {hasImages && (['working', 'active', 'candidate', 'archived', 'all'] as CurationFilter[]).map(f => (
                   <button
                     key={f}
                     onClick={() => setFilter(f)}
@@ -135,10 +135,11 @@ export function LookbookSectionPanel({
                       filter === f ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted/30 border-border/50 text-muted-foreground hover:text-foreground',
                     )}
                   >
-                    {f}
+                    {f === 'working' ? 'Working' : f}
                     {f === 'active' && activeCount > 0 && ` (${activeCount})`}
                     {f === 'candidate' && candidateCount > 0 && ` (${candidateCount})`}
                     {f === 'archived' && archivedCount > 0 && ` (${archivedCount})`}
+                    {f === 'working' && ` (${activeCount + candidateCount})`}
                   </button>
                 ))}
               </div>

@@ -61,7 +61,7 @@ export interface SectionBlocker {
 export function useLookbookSectionContent(
   projectId: string | undefined,
   sectionKey: CanonicalSectionKey,
-  options: { curationFilter?: CurationState | 'all'; pageSize?: number } = {},
+  options: { curationFilter?: CurationState | 'all' | 'working'; pageSize?: number } = {},
 ) {
   const qc = useQueryClient();
   const pageSize = options.pageSize || 12;
@@ -71,7 +71,9 @@ export function useLookbookSectionContent(
   const curationStates: CurationState[] =
     !options.curationFilter || options.curationFilter === 'all'
       ? ['active', 'candidate', 'archived']
-      : [options.curationFilter];
+      : options.curationFilter === 'working'
+        ? ['active', 'candidate']
+        : [options.curationFilter];
 
   const { data, isLoading } = useQuery({
     queryKey: ['lookbook-section-content', projectId, sectionKey, curationStates, pageSize],
