@@ -48,6 +48,7 @@ export default function LookBookPage() {
     structureStatus,
     bootstrap,
     isBootstrapping,
+    bootstrapFailed,
     updateSectionStatus,
   } = useLookbookSections(projectId);
 

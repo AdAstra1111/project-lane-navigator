@@ -173,6 +173,7 @@ export function useLookbookSections(projectId: string | undefined) {
     structureStatus,
     bootstrap,
     isBootstrapping: bootstrapMutation.isPending,
+    bootstrapFailed: bootstrapMutation.isError,
     updateSectionStatus,
   };
 }
