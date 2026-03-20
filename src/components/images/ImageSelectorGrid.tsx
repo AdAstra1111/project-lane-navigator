@@ -292,6 +292,7 @@ export function ImageSelectorGrid({
                       showShotTypes={false}
                       showCurationControls={showCurationControls}
                       showProvenance={showProvenance}
+                      laneKey={laneKey}
                       onSelect={handleSelect}
                       onLightbox={setLightbox}
                       onCurationAction={handleCurationAction}
