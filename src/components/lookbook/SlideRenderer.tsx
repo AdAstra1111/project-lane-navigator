@@ -545,28 +545,36 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
           )}
         </div>
       )}
-      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
-        <div style={{ maxWidth: isPortraitHero ? 780 : hasHero ? 960 : 1200 }}>
+      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '0' }}>
+        {/* Main title lockup */}
+        <div style={{ padding: '80px 96px 0', maxWidth: isPortraitHero ? 780 : hasHero ? 960 : 1200 }}>
           <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
           <h1 style={{ ...titleStyle, fontSize: hasHero ? 96 : 112, fontWeight: 700, lineHeight: 0.95, color: colors.text, marginBottom: 16 }}>
             {slide.title}
           </h1>
           {slide.subtitle && (
-            <p style={{ fontSize: 24, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 720, marginBottom: 40 }}>
+            <p style={{ fontSize: 24, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 720, marginBottom: 0 }}>
               {slide.subtitle}
             </p>
           )}
+        </div>
+        {/* Cinematic credit bar — anchored to bottom edge */}
+        <div style={{
+          marginTop: 'auto',
+          padding: '18px 96px',
+          background: `linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}cc 60%, transparent 100%)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderTop: `1px solid ${colors.accentMuted}`,
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            {slide.credit && <span style={{ fontSize: 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>{slide.credit}</span>}
-            {slide.companyName && <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>{slide.companyName}</span>}
+            {slide.credit && <span style={{ fontSize: 12, letterSpacing: '0.15em', color: colors.accent, opacity: 0.85, textTransform: 'uppercase' }}>{slide.credit}</span>}
+            {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.5, textTransform: 'uppercase' }}>{slide.companyName}</span>}
           </div>
+          {slide.companyLogoUrl && (
+            <img src={slide.companyLogoUrl} alt="" style={{ height: 20, objectFit: 'contain', opacity: 0.4, filter: 'brightness(2)' }} />
+          )}
         </div>
       </div>
-      {slide.companyLogoUrl && (
-        <div className="absolute top-12 right-14">
-          <img src={slide.companyLogoUrl} alt="" className="h-7 object-contain" style={{ opacity: 0.4, filter: 'brightness(2)' }} />
-        </div>
-      )}
     </div>
   );
 }
