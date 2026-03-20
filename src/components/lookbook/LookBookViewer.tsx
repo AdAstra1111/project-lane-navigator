@@ -38,6 +38,8 @@ interface LookBookViewerProps {
   onExportPDF?: () => void;
   isExporting?: boolean;
   className?: string;
+  /** Callback to persist a layout-family override into canonical slide data */
+  onSlideLayoutOverride?: (slideIndex: number, familyKey: LayoutFamilyKey | null) => void;
 }
 
 // ── Layout Family Mini Glyphs ───────────────────────────────────────────────
@@ -240,15 +242,12 @@ function SlideLayoutPanel({
 
 // ── Main Viewer ─────────────────────────────────────────────────────────────
 
-export function LookBookViewer({ data, onExportPDF, isExporting, className }: LookBookViewerProps) {
+export function LookBookViewer({ data, onExportPDF, isExporting, className, onSlideLayoutOverride }: LookBookViewerProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showLayout, setShowLayout] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
-
-  // Local override state — keyed by slide index
-  const [overrides, setOverrides] = useState<Record<number, LayoutFamilyKey | null>>({});
 
   const totalSlides = data.slides.length;
   const deckFormat = data.deckFormat || 'landscape';
@@ -309,32 +308,15 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
 
-  // Apply overrides to current slide for rendering
-  const getSlideWithOverride = (slide: SlideContent, index: number): SlideContent => {
-    const override = overrides[index];
-    if (override === undefined) return slide; // no change
-    if (override === null) {
-      // Reset to auto
-      return {
-        ...slide,
-        layoutFamilyOverride: null,
-        layoutFamilyOverrideSource: null,
-        layoutFamilyEffective: slide.layoutFamily || 'landscape_standard',
-      };
-    }
-    return {
-      ...slide,
-      layoutFamilyOverride: override,
-      layoutFamilyOverrideSource: 'user',
-      layoutFamilyEffective: override,
-    };
-  };
-
+  // Override handler — persists into canonical data via parent callback
   const handleOverride = (familyKey: LayoutFamilyKey | null) => {
-    setOverrides(prev => ({ ...prev, [currentSlide]: familyKey }));
+    if (onSlideLayoutOverride) {
+      onSlideLayoutOverride(currentSlide, familyKey);
+    }
   };
 
-  const currentSlideData = getSlideWithOverride(data.slides[currentSlide], currentSlide);
+  // Read directly from canonical slide data (overrides are already persisted there)
+  const currentSlideData = data.slides[currentSlide];
 
   return (
     <div
@@ -462,8 +444,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
         isFullscreen ? 'bg-black/80' : 'bg-card border-t border-border',
       )}>
         {data.slides.map((s, i) => {
-          const slideWithOverride = getSlideWithOverride(s, i);
-          const hasOverride = overrides[i] !== undefined && overrides[i] !== null;
+          const hasOverride = isLayoutFamilyOverrideActive(s);
           return (
             <button
               key={i}
@@ -489,7 +470,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className }: Lo
                 }}
               >
                 <SlideRenderer
-                  slide={slideWithOverride}
+                  slide={s}
                   identity={data.identity}
                   slideIndex={i}
                   totalSlides={totalSlides}
