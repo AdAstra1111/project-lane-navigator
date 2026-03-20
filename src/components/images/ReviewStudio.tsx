@@ -8,8 +8,9 @@ import {
   CheckCircle, XCircle, Recycle, Eye, Expand, Filter,
   Crown, ShieldCheck, AlertTriangle, Unlink, Link,
   Image as ImageIcon, SlidersHorizontal, X, Sparkles,
-  ArrowRightCircle,
+  ArrowRightCircle, BookOpen,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
