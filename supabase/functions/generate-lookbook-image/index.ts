@@ -118,6 +118,7 @@ interface CanonicalBindingResult {
   worldPromptBlock: string;
   binding_status: 'bound' | 'partially_bound' | 'unbound';
   missing: string[];
+  targeting_mode: 'exact' | 'derived' | 'heuristic';
 }
 // ── Section → canonical entity mapping ──────────────────────────────────────
 const SECTION_BINDING_RELEVANCE: Record<string, { characters: boolean; locations: boolean; world: boolean }> = {
