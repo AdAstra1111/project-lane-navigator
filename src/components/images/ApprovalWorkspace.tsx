@@ -568,9 +568,9 @@ function CandidateCard({
               {SHOT_TYPE_LABELS[image.shot_type as ShotType] || image.shot_type}
             </Badge>
           )}
-          {image.orientation && (
+          {(image.width || image.height) && (
             <Badge variant="outline" className="text-[7px] px-1 py-0 border-border/40">
-              {getOrientationLabel(image.orientation)}
+              {getOrientationLabel(image.width, image.height)}
             </Badge>
           )}
         </div>
