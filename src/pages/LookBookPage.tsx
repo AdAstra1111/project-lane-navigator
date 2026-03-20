@@ -239,15 +239,15 @@ export default function LookBookPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="viewer" className="mt-0">
+          <TabsContent value="viewer" className="mt-0 flex-1 min-h-0">
             {viewerAvailable ? (
-              <div className="overflow-hidden rounded-lg border border-border bg-card/40">
+              <div className="flex flex-col h-full rounded-lg border border-border bg-card/40 overflow-hidden">
                 {projectId && (
-                  <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0 overflow-y-auto max-h-64">
+                  <div className="px-4 py-3 border-b border-border bg-card/50 shrink-0">
                     <FramingStrategyPanel projectId={projectId} contentType="lookbook" compact />
                   </div>
                 )}
-                <LookBookViewer data={lookBookData!} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1" />
+                <LookBookViewer data={lookBookData!} onExportPDF={handleExportPDF} isExporting={exporting} className="flex-1 min-h-0" />
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
