@@ -59,7 +59,7 @@ function extractEntities(canonJson: any): { characters: { name: string }[]; loca
   return { characters: characters.slice(0, 10), locations: locations.slice(0, 10) };
 }
 
-export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps) {
+export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCanonResetPanelProps) {
   const [canonJson, setCanonJson] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showApprovalQueue, setShowApprovalQueue] = useState(false);
@@ -68,6 +68,12 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const [showResetModal, setShowResetModal] = useState(false);
   const [batchApproving, setBatchApproving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [projectFormat, setProjectFormat] = useState<string>('');
+  const [projectLane, setProjectLane] = useState<string>('');
+
+  // Full Canon Rebuild state
+  const [fullRebuilding, setFullRebuilding] = useState(false);
+  const [rebuildStage, setRebuildStage] = useState<string | null>(null);
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
