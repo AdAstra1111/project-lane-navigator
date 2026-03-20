@@ -217,7 +217,7 @@ export default function VisualDevHub() {
             subtitle="Reset visual canon by section, review required slots, approve or archive"
             defaultOpen={false}
           >
-            {projectId && <VisualCanonResetPanel projectId={projectId} />}
+            {projectId && <VisualCanonResetPanel projectId={projectId} isVerticalDrama={((project?.format || '').toLowerCase().includes('vertical') || (project as any)?.assigned_lane === 'vertical_drama')} />}
           </WorkSection>
 
           {/* ═══ Visual Change Studio ═══ */}
