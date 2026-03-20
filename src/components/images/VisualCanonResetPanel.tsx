@@ -741,6 +741,52 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         </Card>
       )}
 
+      {/* ── Full Canon Rebuild ── */}
+      <Card className="border-primary/40 bg-primary/5">
+        <CardContent className="p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <RefreshCw className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
+              Full Canon Rebuild
+            </span>
+            {isVerticalDrama && (
+              <Badge variant="secondary" className="text-[8px] px-1 py-0">Portrait 9:16</Badge>
+            )}
+          </div>
+
+          {fullRebuilding && rebuildStage && (
+            <div className="mb-2 flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin text-primary" />
+              <span className="text-[10px] text-primary font-medium">{rebuildStage}</span>
+              <Progress
+                value={
+                  REBUILD_STAGES.indexOf(rebuildStage as any) >= 0
+                    ? ((REBUILD_STAGES.indexOf(rebuildStage as any) + 1) / REBUILD_STAGES.length) * 100
+                    : 0
+                }
+                className="h-1 flex-1"
+              />
+            </div>
+          )}
+
+          <div className="flex items-start gap-2">
+            <Button
+              size="sm"
+              className="gap-1.5 text-[10px] h-8 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+              disabled={fullRebuilding || populating}
+              onClick={handleFullCanonRebuild}
+            >
+              {fullRebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Full Canon Rebuild
+            </Button>
+            <p className="text-[9px] text-muted-foreground leading-tight pt-1">
+              Reset → Generate → Score → Approve → Attach → Build Lookbook → Download.
+              {isVerticalDrama && ' All images enforced portrait (9:16).'}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* ── Workflow Action Bar: Reset → Generate → Approve → Lock → Export ── */}
       <Card className="border-border/40 bg-muted/10">
         <CardContent className="p-3">
