@@ -535,16 +535,17 @@ function ImageCard({
         </Badge>
         {/* VD compliance indicator when lane is vertical_drama */}
         {laneKey === 'vertical_drama' && (() => {
-          const o = classifyOrientation(img.width, img.height);
-          const isCompliant = o === 'portrait' && img.height && img.width && (img.height / img.width) >= 1.65;
+          const vd = classifyVerticalDramaForBrowsing(img);
           return (
             <Badge variant="outline" className={cn(
               'text-[7px] px-1 py-0 bg-black/40',
-              isCompliant
+              vd.compliant
                 ? 'border-emerald-500/50 text-emerald-400'
-                : 'border-destructive/50 text-destructive',
+                : vd.level === 'portrait_only'
+                  ? 'border-amber-500/50 text-amber-400'
+                  : 'border-destructive/50 text-destructive',
             )}>
-              {isCompliant ? '✓ VD' : '✕ VD'}
+              {vd.label}
             </Badge>
           );
         })()}

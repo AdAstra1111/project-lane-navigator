@@ -259,3 +259,37 @@ export function complianceGateForAttachment(
     compliance,
   };
 }
+
+// ── Browsing-Level Classifier (no slot context) ──────────────────────────────
+
+/**
+ * Lightweight VD compliance check for grid/browsing cards where slot context
+ * is unavailable. Uses the same canonical thresholds as classifyVerticalCompliance
+ * but treats the image as a generic non-identity cinematic slot (strict 9:16).
+ *
+ * Returns a simple label + boolean for badge rendering.
+ */
+export function classifyVerticalDramaForBrowsing(
+  image: { width?: number | null; height?: number | null },
+): { label: string; compliant: boolean; level: VerticalComplianceLevel } {
+  const w = image.width;
+  const h = image.height;
+
+  if (!w || !h || w <= 0 || h <= 0) {
+    return { label: 'VD ?', compliant: false, level: 'non_compliant' };
+  }
+
+  const ratio = h / w;
+
+  // Same threshold as canonical classifier: h/w >= 1.65 = strict 9:16 compliant
+  if (ratio >= 1.65) {
+    return { label: '✓ VD', compliant: true, level: 'strict_vertical_compliant' };
+  }
+
+  // Portrait but not strict vertical
+  if (ratio >= 1.0) {
+    return { label: '~ VD', compliant: false, level: 'portrait_only' };
+  }
+
+  return { label: '✕ VD', compliant: false, level: 'non_compliant' };
+}
