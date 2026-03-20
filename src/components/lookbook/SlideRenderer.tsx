@@ -1323,7 +1323,7 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
       <EdgeAccent color={colors.accent} />
       {imgCount === 0 ? (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: isPortrait ? '60px 64px' : '80px 100px' }}>
-          <SectionTag label="Key Moments" color={colors.accent} />
+          <SectionTag label={sectionLabel} color={colors.accent} />
           <AccentRule color={colors.accent} />
           <h2 style={{ ...titleStyle, fontSize: isPortrait ? 48 : 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
           {slide.body && <p style={{ fontSize: isPortrait ? 19 : 20, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 800 }}>{slide.body}</p>}
@@ -1331,7 +1331,7 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
       ) : (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: isPortrait ? '36px 56px 12px' : '48px 100px 24px', flexShrink: 0 }}>
-            <SectionTag label="Key Moments" color={colors.accent} />
+            <SectionTag label={sectionLabel} color={colors.accent} />
             <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', alignItems: isPortrait ? 'flex-start' : 'baseline', gap: isPortrait ? 8 : 32 }}>
               <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 44, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
               {slide.body && <p style={{ fontSize: isPortrait ? 14 : 15, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 500 }}>{slide.body}</p>}
