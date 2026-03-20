@@ -73,7 +73,7 @@ export function ImageComparisonView({
   const ranking = useMemo(() => {
     const isCharacterSet = images.some(i => i.asset_group === 'character');
     if (isCharacterSet) {
-      return rankCharacterCandidates(images, characterAnchorSet, scores ?? undefined);
+      return rankCharacterCandidates(images, characterAnchorSet, scores ?? undefined, visualSimilarities ?? null);
     }
     // Non-character: simple score-based ranking
     const ranked = images.map(img => ({
