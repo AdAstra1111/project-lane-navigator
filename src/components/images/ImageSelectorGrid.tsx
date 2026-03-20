@@ -530,6 +530,41 @@ function ImageCard({
             External
           </Badge>
         )}
+        {/* Canonical binding provenance */}
+        {showProvenance && (() => {
+          const gc = img.generation_config as Record<string, unknown> | null;
+          const status = gc?.canonical_binding_status as string | undefined;
+          if (!status) return null;
+          if (status === 'bound') {
+            const charNames = (gc?.bound_character_names as string[]) || [];
+            const locNames = (gc?.bound_location_names as string[]) || [];
+            const label = charNames.length > 0
+              ? charNames.slice(0, 2).join(', ')
+              : locNames.length > 0
+                ? locNames.slice(0, 2).join(', ')
+                : 'Bound';
+            return (
+              <Badge variant="outline" className="text-[7px] px-1 py-0 border-emerald-500/60 text-emerald-400 bg-black/40 gap-0.5">
+                <Link2 className="h-2 w-2" /> {label}
+              </Badge>
+            );
+          }
+          if (status === 'partially_bound') {
+            return (
+              <Badge variant="outline" className="text-[7px] px-1 py-0 border-yellow-500/50 text-yellow-400 bg-black/40 gap-0.5">
+                <Link2 className="h-2 w-2" /> Partial
+              </Badge>
+            );
+          }
+          if (status === 'unbound') {
+            return (
+              <Badge variant="outline" className="text-[7px] px-1 py-0 border-red-500/40 text-red-400/70 bg-black/40 gap-0.5">
+                <Unlink className="h-2 w-2" /> Unbound
+              </Badge>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {/* Shot type badge */}
