@@ -1352,7 +1352,7 @@ function ArchiveImageCard({
   onMarkReuse: () => void;
 }) {
   return (
-    <div className="group relative rounded-md overflow-hidden aspect-square bg-muted border border-border/30 opacity-70 hover:opacity-100 transition-opacity">
+    <div className={cn('group relative rounded-md overflow-hidden bg-muted border border-border/30 opacity-70 hover:opacity-100 transition-opacity', getDisplayAspectClass(image.width, image.height))}>
       {image.signedUrl ? (
         <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
       ) : (
