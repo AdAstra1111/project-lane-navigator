@@ -12,10 +12,9 @@ import type { AssetGroup, ShotType, ProjectImage } from './types';
 import { SHOT_PACKS, IDENTITY_PACK } from './types';
 import {
   resolveIdentityAnchorsFromImages,
-  classifyIdentityContinuity,
-  computeIdentityDriftPenalty,
   type IdentityAnchorMap,
 } from './characterIdentityAnchorSet';
+import { rankCharacterCandidates } from './characterCandidateRanking';
 
 /** Canonical aspect ratio for each slot type */
 export type AspectRatio = '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '9:16' | '16:9';
