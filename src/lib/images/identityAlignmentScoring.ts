@@ -64,6 +64,8 @@ export interface ScoredCandidate {
   componentScores: ComponentScores;
   recommendedAction: RecommendedAction;
   eligible: boolean;
+  /** True only when shot_type exactly matches the target slot — safe for canonical primary promotion */
+  canonPromotable: boolean;
   reasons: string[];
   warnings: string[];
   confidence: 'high' | 'medium' | 'low';
