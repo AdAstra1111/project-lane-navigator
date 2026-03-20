@@ -443,6 +443,23 @@ export function resolveCharacterVisualDNA(
       };
     }
     
+    // Check descriptor mining matches (literal text signals for age/gender/hair)
+    const descriptor = descriptorContext.get(c.category);
+    if (descriptor) {
+      return {
+        category: c.category,
+        question: c.question,
+        importance: c.importance,
+        status: (descriptor.confidence === 'high' ? 'resolved' : 'partial') as ClarificationStatus,
+        resolvedBy: `descriptor match (${descriptor.sources.join(', ')})`,
+        answerCandidate: {
+          text: descriptor.text,
+          confidence: descriptor.confidence,
+          basis: 'descriptor_match' as const,
+        },
+      };
+    }
+    
     // Check cross-category inferred context
     const inferred = inferredContext.get(c.category);
     if (inferred) {
