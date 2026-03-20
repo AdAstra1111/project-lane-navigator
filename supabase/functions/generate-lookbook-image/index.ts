@@ -1046,6 +1046,7 @@ serve(async (req) => {
               targeting_mode: canonicalBindings.targeting_mode,
               requested_character_names: requestedCharacterNames || (character_name ? [character_name] : []),
               resolved_character_names: canonicalBindings.characters.map(c => c.character_name),
+              expected_character_count: canonicalBindings.characters.length,
               bound_dna_version_ids: canonicalBindings.characters.map(c => c.dna_version_id).filter(Boolean),
               requested_location_ids: requestedLocationIds || (location_id ? [location_id] : []),
               resolved_location_ids: canonicalBindings.locations.map(l => l.location_id),
