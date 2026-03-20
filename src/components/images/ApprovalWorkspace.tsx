@@ -164,6 +164,7 @@ export function ApprovalWorkspace({
               onExpand={setLightboxImage}
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
+              identityAnchorMap={identityAnchorMap}
             />
           ))}
           {/* Non-character pending slots */}
