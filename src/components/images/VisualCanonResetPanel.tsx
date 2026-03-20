@@ -581,8 +581,10 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     // ── Honest completion messaging ──
     if (result.executionStatus === 'failed') {
+      rebuildBridge.fail(result.failureMessage || 'Unknown error');
       toast.error(`Rebuild failed: ${result.failureMessage || 'Unknown error'}`);
     } else if (result.executionStatus === 'no_op') {
+      rebuildBridge.complete();
       toast.info('No weak slots detected — no generation performed');
     } else {
       const { resolvedSlots, unresolvedSlots, attachedWinnerCount, preservedPrimaryCount, replacedPrimaryCount, totalSlots } = result.rebuildResult;
