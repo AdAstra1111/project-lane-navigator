@@ -1093,20 +1093,22 @@ FRAMING RULES:
           });
         if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
-        // ── VERTICAL COMPLIANCE: Measure ACTUAL output dimensions, not requested ──
+        // ── VERTICAL COMPLIANCE: Measure ACTUAL output dimensions ──
+        // STRICT POLICY: Only store measured dimensions. If measurement fails,
+        // store NULL so downstream compliance correctly marks as non-compliant.
         const measuredDims = measureImageDimensions(imageResult.rawBytes);
-        const storedWidth = measuredDims?.width ?? effectiveWidth;
-        const storedHeight = measuredDims?.height ?? effectiveHeight;
-        const dimsSource = measuredDims ? 'measured' : 'requested_fallback';
+        const storedWidth = measuredDims?.width ?? null;
+        const storedHeight = measuredDims?.height ?? null;
+        const dimsSource = measuredDims ? 'measured' : 'unmeasured';
         
         // Check if actual output matches requested aspect ratio
-        const actualRatio = storedWidth > 0 ? storedHeight / storedWidth : 0;
+        const actualRatio = (storedWidth && storedHeight && storedWidth > 0) ? storedHeight / storedWidth : 0;
         const requestedRatio = effectiveWidth > 0 ? effectiveHeight / effectiveWidth : 0;
-        const aspectDrift = Math.abs(actualRatio - requestedRatio);
-        const aspectCompliant = aspectDrift < 0.15;
+        const aspectDrift = actualRatio > 0 ? Math.abs(actualRatio - requestedRatio) : -1;
+        const aspectCompliant = actualRatio > 0 && aspectDrift < 0.15;
         
         if (!aspectCompliant && isVerticalDramaProject) {
-          console.warn(`[vertical-compliance] ASPECT DRIFT: requested ${effectiveWidth}x${effectiveHeight} (ratio=${requestedRatio.toFixed(2)}), got ${storedWidth}x${storedHeight} (ratio=${actualRatio.toFixed(2)}), drift=${aspectDrift.toFixed(2)}`);
+          console.warn(`[vertical-compliance] ASPECT DRIFT: requested ${effectiveWidth}x${effectiveHeight} (ratio=${requestedRatio.toFixed(2)}), got ${storedWidth}x${storedHeight} (ratio=${actualRatio.toFixed(2)}), drift=${aspectDrift.toFixed(2)}, source=${dimsSource}`);
         }
         console.log(`[vertical-compliance] dims_source=${dimsSource} actual=${storedWidth}x${storedHeight} requested=${effectiveWidth}x${effectiveHeight} compliant=${aspectCompliant}`);
 
