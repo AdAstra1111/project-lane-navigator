@@ -315,8 +315,8 @@ function SlideNumber({ index, total, color }: { index: number; total: number; co
   );
 }
 
-function AccentRule({ color, width = 48 }: { color: string; width?: number }) {
-  return <div style={{ width, height: 2, background: color, opacity: 0.5, marginBottom: 24 }} />;
+function AccentRule({ color, width = 48, centered = false }: { color: string; width?: number; centered?: boolean }) {
+  return <div style={{ width, height: 2, background: color, opacity: 0.5, marginBottom: 24, ...(centered ? { margin: '0 auto 24px' } : {}) }} />;
 }
 
 function SectionTag({ label, color }: { label: string; color: string }) {
@@ -1291,6 +1291,8 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
     || kmEffective === 'landscape_two_up_portrait'
     || kmEffective === 'landscape_character_portraits'
   );
+  // Derive section label from slide title — supports Poster Directions reuse
+  const sectionLabel = slide.title?.toLowerCase().includes('poster') ? 'Poster Directions' : 'Key Moments';
 
   const getGridStyle = (): React.CSSProperties => {
     if (isPortrait) {
@@ -1323,7 +1325,7 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
       <EdgeAccent color={colors.accent} />
       {imgCount === 0 ? (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: isPortrait ? '60px 64px' : '80px 100px' }}>
-          <SectionTag label="Key Moments" color={colors.accent} />
+          <SectionTag label={sectionLabel} color={colors.accent} />
           <AccentRule color={colors.accent} />
           <h2 style={{ ...titleStyle, fontSize: isPortrait ? 48 : 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
           {slide.body && <p style={{ fontSize: isPortrait ? 19 : 20, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 800 }}>{slide.body}</p>}
@@ -1331,7 +1333,7 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
       ) : (
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: isPortrait ? '36px 56px 12px' : '48px 100px 24px', flexShrink: 0 }}>
-            <SectionTag label="Key Moments" color={colors.accent} />
+            <SectionTag label={sectionLabel} color={colors.accent} />
             <div style={{ display: 'flex', flexDirection: isPortrait ? 'column' : 'row', alignItems: isPortrait ? 'flex-start' : 'baseline', gap: isPortrait ? 8 : 32 }}>
               <h2 style={{ ...titleStyle, fontSize: isPortrait ? 40 : 44, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
               {slide.body && <p style={{ fontSize: isPortrait ? 14 : 15, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 500 }}>{slide.body}</p>}
@@ -1444,7 +1446,7 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
         padding: isPortrait ? '80px 72px' : '80px 180px',
       }}>
         <div style={{ maxWidth: isPortrait ? 880 : 920, textAlign: 'center' }}>
-          <AccentRule color={colors.accent} width={40} />
+          <AccentRule color={colors.accent} width={40} centered />
           <h2 style={{ ...titleStyle, fontSize: isPortrait ? 44 : 48, fontWeight: 600, marginBottom: isPortrait ? 36 : 40, color: colors.text }}>{slide.title}</h2>
           {slide.body && (
             <p style={{
