@@ -1195,7 +1195,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
             </p>
             <div className="grid grid-cols-4 gap-1.5 max-h-48 overflow-y-auto">
               {reusePoolImages.slice(0, 24).map(img => (
-                <div key={img.id} className="relative rounded-md overflow-hidden aspect-square bg-muted border border-border/50">
+                <div key={img.id} className={cn('relative rounded-md overflow-hidden bg-muted border border-border/50', getDisplayAspectClass(img.width, img.height))}>
                   {img.signedUrl ? (
                     <img src={img.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   ) : (
