@@ -163,10 +163,16 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     setBulkApproving(true);
     try {
       await batchApproveAll(suggestedApproval.safe);
+      toast.success(`${suggestedApproval.safe.length} images approved — rebuild LookBook to see changes`, {
+        action: {
+          label: 'Build LookBook',
+          onClick: () => navigate(`/projects/${projectId}/lookbook`),
+        },
+      });
     } finally {
       setBulkApproving(false);
     }
-  }, [bulkApproving, suggestedApproval.safe, batchApproveAll]);
+  }, [bulkApproving, suggestedApproval.safe, batchApproveAll, navigate, projectId]);
 
   // ── Sync to Visual Sets bridge ──
   // Wires existing project_images candidates into governed visual set slots
