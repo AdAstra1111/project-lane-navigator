@@ -161,6 +161,7 @@ export default function LookBookPage() {
             : sectionKey === 'atmosphere_lighting' ? 'visual_language'
             : sectionKey === 'texture_detail' ? 'visual_language'
             : sectionKey === 'symbolic_motifs' ? 'key_moment'
+            : sectionKey === 'key_moments' ? 'key_moment'
             : 'world',
           count: 4,
           asset_group: sectionKey === 'character_identity' ? 'character'
@@ -168,6 +169,7 @@ export default function LookBookPage() {
             : sectionKey === 'atmosphere_lighting' ? 'visual_language'
             : sectionKey === 'texture_detail' ? 'visual_language'
             : sectionKey === 'symbolic_motifs' ? 'key_moment'
+            : sectionKey === 'key_moments' ? 'key_moment'
             : 'poster',
           pack_mode: true,
         },
