@@ -552,7 +552,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       projectFormat,
       projectLane,
       isVerticalDrama,
-      onStageChange: setRebuildStage,
+      onStageChange: (stage) => {
+        setRebuildStage(stage);
+        const idx = [...currentStages].findIndex(s => s.toLowerCase().includes((stage || '').toLowerCase().split(' ')[0]));
+        rebuildBridge.update({
+          currentStageIndex: idx >= 0 ? idx : undefined,
+          stageDescription: stage || undefined,
+        });
+      },
       generateSlotImages: (targetKeys) => handleAutoPopulate(false, targetKeys),
       resetCanon: async () => {
         await resetScopedCanon({
