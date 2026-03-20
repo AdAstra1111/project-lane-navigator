@@ -27,7 +27,7 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 0.5;
 
-export function ImageLightbox({ image, open, onClose, dnaTraits, score }: ImageLightboxProps) {
+export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReason }: ImageLightboxProps) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showOverlay, setShowOverlay] = useState(true);
