@@ -233,6 +233,9 @@ export function resolveRequiredVisualSet(
 ): RequiredVisualSet {
   const slots: RequiredSlot[] = [];
 
+  // Resolve identity anchors once for all character recommendation logic
+  const anchorMap = resolveIdentityAnchorsFromImages(existingImages);
+
   // ── Character Identity slots ──
   for (const char of characters) {
     for (const shotType of IDENTITY_PACK) {
@@ -244,6 +247,7 @@ export function resolveRequiredVisualSet(
         i => i.asset_group === 'character' && i.subject === char.name &&
           i.shot_type === shotType && i.generation_purpose === 'character_identity',
         isPortrait,
+        anchorMap,
       ));
     }
 
@@ -257,6 +261,7 @@ export function resolveRequiredVisualSet(
         i => i.asset_group === 'character' && i.subject === char.name &&
           i.shot_type === shotType && i.generation_purpose !== 'character_identity',
         isPortrait,
+        anchorMap,
       ));
     }
   }
