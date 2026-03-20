@@ -26,6 +26,7 @@ import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import { getOrientationLabel, getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { classifyIdentityContinuity, resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 type FilterState = 'candidate' | 'active' | 'archived' | 'all';
 type GroupBy = 'none' | 'section' | 'character' | 'shot_type';
 
