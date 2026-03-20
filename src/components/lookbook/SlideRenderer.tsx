@@ -315,8 +315,8 @@ function SlideNumber({ index, total, color }: { index: number; total: number; co
   );
 }
 
-function AccentRule({ color, width = 48 }: { color: string; width?: number }) {
-  return <div style={{ width, height: 2, background: color, opacity: 0.5, marginBottom: 24 }} />;
+function AccentRule({ color, width = 48, centered = false }: { color: string; width?: number; centered?: boolean }) {
+  return <div style={{ width, height: 2, background: color, opacity: 0.5, marginBottom: 24, ...(centered ? { margin: '0 auto 24px' } : {}) }} />;
 }
 
 function SectionTag({ label, color }: { label: string; color: string }) {
