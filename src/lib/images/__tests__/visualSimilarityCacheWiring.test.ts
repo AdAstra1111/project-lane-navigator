@@ -68,7 +68,7 @@ const fullAnchorSet: IdentityAnchorSet = {
   profile: makeImage({ id: 'anchor-p', shot_type: 'identity_profile', is_primary: true }),
   fullBody: makeImage({ id: 'anchor-f', shot_type: 'identity_full_body', is_primary: true }),
   completeness: 'full_lock',
-  anchorPaths: { headshot: 'a/h.png', profile: 'a/p.png', fullBody: 'a/f.png' },
+  anchorPaths: { headshot: 'a/h.png', fullBody: 'a/f.png' },
 };
 
 describe('cached similarity wiring into ranking', () => {
