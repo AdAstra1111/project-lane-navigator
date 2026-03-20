@@ -28,6 +28,7 @@ const CANONICAL_SECTION_KEYS = [
   'atmosphere_lighting',
   'texture_detail',
   'symbolic_motifs',
+  'key_moments',
   'poster_directions',
 ] as const;
 
