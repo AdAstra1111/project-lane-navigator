@@ -1446,7 +1446,7 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
         padding: isPortrait ? '80px 72px' : '80px 180px',
       }}>
         <div style={{ maxWidth: isPortrait ? 880 : 920, textAlign: 'center' }}>
-          <AccentRule color={colors.accent} width={40} />
+          <AccentRule color={colors.accent} width={40} centered />
           <h2 style={{ ...titleStyle, fontSize: isPortrait ? 44 : 48, fontWeight: 600, marginBottom: isPortrait ? 36 : 40, color: colors.text }}>{slide.title}</h2>
           {slide.body && (
             <p style={{
