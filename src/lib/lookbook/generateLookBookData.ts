@@ -532,7 +532,7 @@ export async function generateLookBookData(
   slides.push({
     type: 'overview',
     slide_id: makeSemanticSlideId('overview'),
-    title: 'Project Overview',
+    title,
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
     bullets: [
@@ -540,7 +540,6 @@ export async function generateLookBookData(
       formatLabel ? `Format: ${formatLabel}` : '',
       normalizedCanon.tone_style ? `Tone: ${normalizedCanon.tone_style}` : '',
       targetAudience ? `Audience: ${targetAudience}` : '',
-      assignedLane ? `Lane: ${assignedLane}` : '',
     ].filter(Boolean),
   });
 
@@ -575,45 +574,45 @@ export async function generateLookBookData(
     });
   }
 
-  // ── THEMES ── (now with atmospheric imagery)
+  // ── THEMES ── (atmosphere imagery only — no texture overlap)
   const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
-    const themesImages = [...atmosphereImages, ...textureImages];
-    const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
+    const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
-      imageUrl: themesImages[0]?.signedUrl || undefined,
-      imageUrls: themesImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
-      _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds].slice(0, 4),
-      _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)].slice(0, 4),
+      imageUrl: atmosphereImages[0]?.signedUrl || undefined,
+      imageUrls: atmosphereImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.atmosphere_lighting.imageIds.slice(0, 4),
+      _debug_provenance: toSlideProvenance(canonImages.atmosphere_lighting).slice(0, 4),
       _has_unresolved: themesUnresolved > 0,
     });
   }
 
-  // ── VISUAL LANGUAGE ──
-  const visualImages = [...atmosphereImages, ...textureImages];
+  // ── VISUAL LANGUAGE ── (texture + motif imagery — separate from themes)
+  const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
     title: 'Visual Language',
     body: vlCopy.body,
-    imageUrl: visualImages[0]?.signedUrl || undefined,
-    imageUrls: visualImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+    imageUrl: vlImages[0]?.signedUrl || undefined,
+    imageUrls: vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
     bullets: vlCopy.bullets,
-    _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
-    _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)],
-    _has_unresolved: (canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount) > 0,
+    _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
+    _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
+    _has_unresolved: (canonImages.texture_detail.unresolvedCount + canonImages.symbolic_motifs.unresolvedCount) > 0,
   });
 
-  // ── STORY ENGINE ──
+  // ── STORY ENGINE ── (uses key moment imagery for narrative weight)
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
+    const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
@@ -621,11 +620,17 @@ export async function generateLookBookData(
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
       bullets: seCopy.bullets,
-      imageUrl: motifImages[0]?.signedUrl || undefined,
-      imageUrls: motifImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
-      _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 4),
-      _debug_provenance: toSlideProvenance(canonImages.symbolic_motifs).slice(0, 4),
-      _has_unresolved: canonImages.symbolic_motifs.unresolvedCount > 0,
+      imageUrl: seImages[0]?.signedUrl || undefined,
+      imageUrls: seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: seImages.map(i => i.id).slice(0, 3),
+      _debug_provenance: seImages.map(img => ({
+        imageId: img.id,
+        source: (img as any).is_primary && (img as any).curation_state === 'active' ? 'winner_primary' as const : 'active_non_primary' as const,
+        complianceClass: 'n/a',
+        actualWidth: img.width || null,
+        actualHeight: img.height || null,
+      })).slice(0, 3),
+      _has_unresolved: seImages.length === 0 && canonImages.symbolic_motifs.unresolvedCount > 0,
     });
   }
 
@@ -669,6 +674,22 @@ export async function generateLookBookData(
     });
   }
 
+  // ── POSTER DIRECTIONS ── (dedicated poster showcase when posters exist)
+  const posterImages = canonImages.poster_directions.images;
+  if (posterImages.length > 1) {
+    slides.push({
+      type: 'key_moments' as any,
+      slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
+      title: 'Poster Directions',
+      body: 'Key art explorations — the visual identity that anchors the marketing campaign and defines the audience\'s first impression.',
+      imageUrl: posterImages[0]?.signedUrl || undefined,
+      imageUrls: posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 4),
+      _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 4),
+      _has_unresolved: false,
+    });
+  }
+
   // ── CLOSING ──
   slides.push({
     type: 'closing',
@@ -678,6 +699,7 @@ export async function generateLookBookData(
     credit: writerCredit,
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
+    imageUrl: coverImageUrl || undefined,
   });
 
   // ── Enrich slides with layout family metadata (landscape decks only) ──

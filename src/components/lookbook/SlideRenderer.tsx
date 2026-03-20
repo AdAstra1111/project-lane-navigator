@@ -269,6 +269,7 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
   }
 
   // ── Landscape Standard (default grid) ──
+  // Use object-contain for portrait/square images within landscape standard to avoid bad crops
   return (
     <div style={{
       width: imgs.length === 1 ? 680 : 640, flexShrink: 0,
@@ -277,19 +278,28 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
       gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
       gap: 8,
     }}>
-      {imgs.slice(0, 4).map((url, i) => (
-        <div key={i} style={{
-          borderRadius: 6, overflow: 'hidden', border,
-          ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
-          ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
-        }}>
-          <img src={url} alt="" style={{
-            width: '100%', height: '100%',
-            objectFit: 'cover',
-            filter: 'saturate(0.85) contrast(1.05)',
-          }} />
-        </div>
-      ))}
+      {imgs.slice(0, 4).map((url, i) => {
+        // Check if this slot has orientation info from slotAssignments
+        const slotInfo = slide.slotAssignments?.find(s => s.assignedUrl === url);
+        const isPortraitImg = slotInfo?.assignedOrientation === 'portrait' || slotInfo?.assignedOrientation === 'square';
+        return (
+          <div key={i} style={{
+            borderRadius: 6, overflow: 'hidden', border,
+            background: isPortraitImg ? colors.bgSecondary : undefined,
+            display: isPortraitImg ? 'flex' : undefined,
+            alignItems: isPortraitImg ? 'center' : undefined,
+            justifyContent: isPortraitImg ? 'center' : undefined,
+            ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
+            ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+          }}>
+            <img src={url} alt="" style={{
+              width: '100%', height: '100%',
+              objectFit: isPortraitImg ? 'contain' : 'cover',
+              filter: 'saturate(0.85) contrast(1.05)',
+            }} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -545,28 +555,36 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
           )}
         </div>
       )}
-      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
-        <div style={{ maxWidth: isPortraitHero ? 780 : hasHero ? 960 : 1200 }}>
+      <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '0' }}>
+        {/* Main title lockup */}
+        <div style={{ padding: '80px 96px 0', maxWidth: isPortraitHero ? 780 : hasHero ? 960 : 1200 }}>
           <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
           <h1 style={{ ...titleStyle, fontSize: hasHero ? 96 : 112, fontWeight: 700, lineHeight: 0.95, color: colors.text, marginBottom: 16 }}>
             {slide.title}
           </h1>
           {slide.subtitle && (
-            <p style={{ fontSize: 24, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 720, marginBottom: 40 }}>
+            <p style={{ fontSize: 24, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 720, marginBottom: 0 }}>
               {slide.subtitle}
             </p>
           )}
+        </div>
+        {/* Cinematic credit bar — anchored to bottom edge */}
+        <div style={{
+          marginTop: 'auto',
+          padding: '18px 96px',
+          background: `linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}cc 60%, transparent 100%)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderTop: `1px solid ${colors.accentMuted}`,
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            {slide.credit && <span style={{ fontSize: 14, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>{slide.credit}</span>}
-            {slide.companyName && <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>{slide.companyName}</span>}
+            {slide.credit && <span style={{ fontSize: 12, letterSpacing: '0.15em', color: colors.accent, opacity: 0.85, textTransform: 'uppercase' }}>{slide.credit}</span>}
+            {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.5, textTransform: 'uppercase' }}>{slide.companyName}</span>}
           </div>
+          {slide.companyLogoUrl && (
+            <img src={slide.companyLogoUrl} alt="" style={{ height: 20, objectFit: 'contain', opacity: 0.4, filter: 'brightness(2)' }} />
+          )}
         </div>
       </div>
-      {slide.companyLogoUrl && (
-        <div className="absolute top-12 right-14">
-          <img src={slide.companyLogoUrl} alt="" className="h-7 object-contain" style={{ opacity: 0.4, filter: 'brightness(2)' }} />
-        </div>
-      )}
     </div>
   );
 }
@@ -1450,15 +1468,29 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 /* ═══════════════════════════════════════════════════════════════════════
    CLOSING — minimal, authoritative
    ═══════════════════════════════════════════════════════════════════════ */
-function ClosingSlide({ slide, colors, titleStyle, baseStyle, isPortrait }: SlideProps) {
+function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
+  const hasHero = !!slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Atmospheric background from cover image if available */}
+      {hasHero && (
+        <div className="absolute inset-0">
+          <img src={slide.imageUrl!} alt="" className="w-full h-full" style={{
+            objectFit: 'cover', objectPosition: 'center top',
+            filter: 'saturate(0.2) blur(20px) contrast(1.1)',
+            opacity: 0.12, transform: 'scale(1.1)',
+          }} />
+          <div className="absolute inset-0" style={{
+            background: `radial-gradient(ellipse at center, ${colors.bg}cc 0%, ${colors.bg} 70%)`,
+          }} />
+        </div>
+      )}
+      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: 48, height: 3, background: colors.accent, opacity: 0.5, marginBottom: 36 }} />
         <h1 style={{
           ...titleStyle, fontSize: isPortrait ? 68 : 72, fontWeight: 700,
           marginBottom: 20, color: colors.text, textAlign: 'center',
-          padding: isPortrait ? '0 56px' : undefined,
+          padding: isPortrait ? '0 56px' : undefined, lineHeight: 0.95,
         }}>
           {slide.title}
         </h1>
