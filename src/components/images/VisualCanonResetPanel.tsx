@@ -129,8 +129,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
   const entities = useMemo(() => extractEntities(canonJson), [canonJson]);
   const requiredSet = useMemo(
-    () => resolveRequiredVisualSet(entities.characters, entities.locations, allImages),
-    [entities, allImages],
+    () => resolveRequiredVisualSet(entities.characters, entities.locations, allImages, isVerticalDrama),
+    [entities, allImages, isVerticalDrama],
   );
 
   const activeImages = useMemo(() => allImages.filter(i => i.curation_state === 'active'), [allImages]);
