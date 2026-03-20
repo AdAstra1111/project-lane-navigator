@@ -13,7 +13,7 @@ const { mockTableData, insertCallLog, mockFrom } = vi.hoisted(() => {
     const state: any = { filters: {}, table, op: 'select' };
     const chain: any = {};
 
-    chain.select = vi.fn(() => { state.op = 'select'; return chain; });
+    chain.select = vi.fn((..._args: any[]) => { if (state.op !== 'insert') state.op = 'select'; return chain; });
     chain.insert = vi.fn((data: any) => {
       state.op = 'insert';
       state.insertData = data;
@@ -22,7 +22,7 @@ const { mockTableData, insertCallLog, mockFrom } = vi.hoisted(() => {
     });
     chain.update = vi.fn(() => { state.op = 'update'; return chain; });
     chain.delete = vi.fn(() => { state.op = 'delete'; return chain; });
-    chain.eq = vi.fn((col: string, val: any) => { state.filters[col] = val; return chain; });
+    chain.eq = vi.fn((col: string, val: any) => { if (state.op !== 'insert') state.filters[col] = val; return chain; });
     chain.in = vi.fn(() => chain);
     chain.is = vi.fn(() => chain);
     chain.order = vi.fn(() => chain);
