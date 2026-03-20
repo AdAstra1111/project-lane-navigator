@@ -488,11 +488,15 @@ export async function generateLookBookData(
     });
   }
 
-  // ── KEY MOMENTS ──
-  if (keyMomentImages.length > 0) {
+  // ── KEY MOMENTS ── (always present — image-dominant when images exist, text-forward fallback)
+  {
+    const keyMomentBody = keyMomentImages.length > 0
+      ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
+      : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     slides.push({
       type: 'key_moments',
       title: 'Key Moments',
+      body: keyMomentBody,
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
       imageUrls: keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: canonImages.key_moments.imageIds,
