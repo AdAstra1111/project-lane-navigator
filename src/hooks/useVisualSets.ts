@@ -767,6 +767,81 @@ export function useVisualSets(projectId: string | undefined) {
       .in('status', ['draft', 'autopopulated']);
   }, []);
 
+  /**
+   * syncImagesToVisualSets — Bridge function.
+   * Takes existing project_images candidates and wires them into governed visual sets.
+   * Reuses ensureVisualSetForTarget + wireImageToSlot — no duplicate logic.
+   * Returns { synced, skipped } counts.
+   */
+  const syncImagesToVisualSets = useCallback(async (images: Array<{
+    id: string;
+    asset_group: string | null;
+    subject: string | null;
+    shot_type: string | null;
+  }>): Promise<{ synced: number; skipped: number }> => {
+    if (!projectId) return { synced: 0, skipped: 0 };
+
+    let synced = 0;
+    let skipped = 0;
+
+    // Group images by target (domain + subject)
+    const targetGroups = new Map<string, typeof images>();
+    for (const img of images) {
+      if (!img.asset_group || !img.shot_type) {
+        skipped++;
+        continue;
+      }
+      const domain = img.asset_group === 'character' ? 'character_identity'
+        : img.asset_group === 'world' ? 'world_refs'
+        : null;
+      if (!domain) {
+        skipped++;
+        continue;
+      }
+      // Must have a matching slot key
+      const slotKey = SHOT_TYPE_TO_SLOT_KEY[img.shot_type];
+      if (!slotKey) {
+        skipped++;
+        continue;
+      }
+      const targetName = img.subject || 'Project';
+      const key = `${domain}:${targetName}`;
+      if (!targetGroups.has(key)) targetGroups.set(key, []);
+      targetGroups.get(key)!.push(img);
+    }
+
+    // Process each target group
+    for (const [key, groupImages] of targetGroups.entries()) {
+      const [domain, targetName] = key.split(':');
+      try {
+        const visualSet = await ensureVisualSetForTarget({
+          domain,
+          targetType: domain === 'character_identity' ? 'character' : 'location',
+          targetName,
+        });
+
+        for (const img of groupImages) {
+          try {
+            await wireImageToSlot({
+              setId: visualSet.id,
+              imageId: img.id,
+              shotType: img.shot_type!,
+              selectForSlot: true,
+            });
+            synced++;
+          } catch {
+            skipped++;
+          }
+        }
+      } catch {
+        skipped += groupImages.length;
+      }
+    }
+
+    invalidate();
+    return { synced, skipped };
+  }, [projectId, ensureVisualSetForTarget, wireImageToSlot, invalidate]);
+
   return {
     sets: setsQuery.data || [],
     isLoading: setsQuery.isLoading,
@@ -786,6 +861,7 @@ export function useVisualSets(projectId: string | undefined) {
     checkAndPropagateStale,
     ensureVisualSetForTarget,
     wireImageToSlot,
+    syncImagesToVisualSets,
     invalidate,
   };
 }
