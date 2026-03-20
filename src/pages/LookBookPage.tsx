@@ -311,10 +311,17 @@ export default function LookBookPage() {
         )}
 
         {projectId && (
-          <div className="mx-4 mt-3 mb-0 shrink-0">
+          <div className="mx-4 mt-3 mb-0 shrink-0 space-y-2">
             <VisualCanonResetPanel
               projectId={projectId}
-              onLookbookRebuild={handleGenerate}
+              onLookbookRebuild={async () => {
+                await handleGenerate();
+                setRebuildHistoryEpoch(e => e + 1);
+              }}
+            />
+            <LookbookRebuildHistoryStrip
+              projectId={projectId}
+              refreshEpoch={rebuildHistoryEpoch}
             />
           </div>
         )}
