@@ -1161,6 +1161,68 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         }}
       />
 
+      {/* ── Character Identity Staging Strip ── */}
+      {entities.characters.length > 0 && (
+        <Card className="border-border/60">
+          <CardContent className="p-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <User className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">Character Identity Staging</span>
+            </div>
+            {entities.characters.map((char) => {
+              const priority = shouldPrioritizeIdentityGeneration(char.name, identityAnchorMap);
+              const anchors = identityAnchorMap[char.name];
+              const completeness = anchors?.completeness || 'no_anchors';
+              return (
+                <div key={char.name} className="flex items-start gap-2 py-1 border-b border-border/30 last:border-0">
+                  <div className="flex items-center gap-1 min-w-0 flex-shrink-0">
+                    {completeness === 'full_lock' ? (
+                      <Lock className="h-3 w-3 text-emerald-500 flex-shrink-0" />
+                    ) : completeness === 'partial_lock' ? (
+                      <Unlock className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-3 w-3 text-destructive flex-shrink-0" />
+                    )}
+                    <span className="text-[11px] font-medium text-foreground truncate">{char.name}</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <Badge
+                        variant={completeness === 'full_lock' ? 'default' : 'secondary'}
+                        className={cn(
+                          'text-[8px] px-1 py-0',
+                          completeness === 'full_lock' && 'bg-emerald-600 text-white',
+                          completeness === 'partial_lock' && 'bg-amber-500/20 text-amber-700 border-amber-500/30',
+                          completeness === 'no_anchors' && 'bg-destructive/15 text-destructive border-destructive/30',
+                        )}
+                      >
+                        {completeness === 'full_lock' ? 'Full Lock' : completeness === 'partial_lock' ? 'Partial Lock' : 'No Anchors'}
+                      </Badge>
+                      {priority.prioritize && (
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 text-amber-600 border-amber-400/50">
+                          Refs Deferred
+                        </Badge>
+                      )}
+                    </div>
+                    {priority.missingSlots.length > 0 && (
+                      <span className="text-[9px] text-muted-foreground">
+                        Missing: {priority.missingSlots.map(s => s.replace('identity_', '')).join(', ')}
+                      </span>
+                    )}
+                    {priority.prioritize && (
+                      <span className="text-[9px] text-muted-foreground/70 italic">
+                        {completeness === 'no_anchors'
+                          ? 'Generate identity pack first'
+                          : `Complete ${priority.missingSlots.map(s => s.replace('identity_', '')).join(' + ')} before refs`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {showApprovalQueue && pendingSlots.length > 0 && (
         <Card className="border-border/60">
