@@ -8,6 +8,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Plus, Loader2, ChevronRight, Star, Archive, RotateCcw, Lock, ShieldCheck, AlertTriangle, CheckCircle, FileText, Save, Tag, Shield, Eye, Dna, Wand2, Download, RefreshCw } from 'lucide-react';
 import { CharacterVisualDNAPanel } from './CharacterVisualDNAPanel';
+import { IdentityAlignmentPanel } from './IdentityAlignmentPanel';
+import { useIdentityAlignmentScoring } from '@/hooks/useIdentityAlignmentScoring';
+import { resolveCharacterVisualDNA as resolveLocalDNA, deserializeBindingMarkers, deserializeEvidenceTraits } from '@/lib/images/visualDNA';
+import { computeCharacterAlignment } from '@/lib/images/identityAlignmentScoring';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
