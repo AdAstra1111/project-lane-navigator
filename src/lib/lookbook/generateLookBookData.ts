@@ -352,7 +352,9 @@ export async function generateLookBookData(
   }
 
   // 4. Resolve canonical images per section — SAME logic as workspace, now lane-aware
-  const canonImages = await resolveAllCanonImages(projectId, assignedLane || null);
+  // Pass effective lane: if format is vertical-drama, treat as vertical_drama for ranking
+  const effectiveLane = isVerticalDrama(format, assignedLane) ? 'vertical_drama' : (assignedLane || null);
+  const canonImages = await resolveAllCanonImages(projectId, effectiveLane);
 
   const coverImageUrl =
     canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
