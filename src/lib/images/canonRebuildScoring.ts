@@ -968,11 +968,14 @@ export function buildRebuildResult(
     r.allScored.length > 0 && !r.allScored.some(s => s.eligibleForSelection)
   ).length;
 
+  const fallbackMatchCount = slotResults.filter(r => r.winner !== null && r.matchQuality === 'fallback').length;
+
   return {
     mode,
     totalSlots: slotResults.length,
     resolvedSlots: resolved.length,
     unresolvedSlots: unresolved.length,
+    fallbackMatchCount,
     generatedCount,
     compliantCount,
     rejectedNonCompliantCount,
