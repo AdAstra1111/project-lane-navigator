@@ -9,6 +9,9 @@
  *   - persisting rankings (round-scoped)
  *   - selecting winners (round-scoped)
  *   - creating rerun rounds
+ *   - initiating repair loops
+ *   - auto-promoting rounds
+ *   - triggering next-task progression
  * 
  * All writes are intentional. No mount-time side effects.
  * All reads are query-backed from canonical DB state.
@@ -49,6 +52,14 @@ import {
   type EffectiveWinner,
   type PromotionGatePolicy,
 } from '@/lib/competition/autoPromotionService';
+import {
+  evaluateNextTaskEligibility,
+  triggerNextTaskForRound,
+  loadProgressionForRound,
+  loadProgressionHistoryForGroup,
+  type RoundProgression,
+  type ProgressionEligibility,
+} from '@/lib/competition/nextTaskService';
 
 interface SlotInfo {
   key: string;
@@ -103,7 +114,6 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
       if (!projectId) throw new Error('No project ID');
       if (slot.candidateIds.length < 2) return null;
 
-      // Idempotent: ensureGroupForSlot checks for existing open group + creates initial round
       const group = await ensureGroupForSlot({
         projectId,
         slotKey: slot.key,
@@ -112,7 +122,6 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
         characterName: slot.subject || undefined,
       });
 
-      // Sync candidates — catch duplicate constraint errors for idempotency
       for (let i = 0; i < slot.candidateIds.length; i++) {
         try {
           await addCandidateVersion({
@@ -175,7 +184,7 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Ranking failed: ${e.message}`),
   });
 
-  // ── Explicit action: select winner (round-aware) ──
+  // ── Explicit action: select winner (round-aware, manual) ──
   const selectCompetitionWinner = useMutation({
     mutationFn: async (params: {
       groupId: string;
@@ -228,20 +237,17 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
       scoreThreshold?: number;
       maxAttempts?: number;
     }) => {
-      // 1. Check if repair is allowed
       const repairCheck = await canRepair(params.groupId, params.maxAttempts);
       if (!repairCheck.allowed) {
         throw new Error(`Repair not allowed: ${repairCheck.reason} (${repairCheck.attemptCount}/${repairCheck.maxAttempts})`);
       }
 
-      // 2. Create repair run
       const run = await createRepairRun({
         groupId: params.groupId,
         sourceRoundId: params.sourceRoundId,
         maxAttempts: params.maxAttempts,
       });
 
-      // 3. Derive repair targets
       const targets = await deriveRepairTargetsFromRound({
         repairRunId: run.id,
         groupId: params.groupId,
@@ -255,7 +261,6 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
         return { run, targets, repairRound: null, skipped: true };
       }
 
-      // 4. Create repair round
       const repairRound = await createRepairRoundService({
         repairRunId: run.id,
         groupId: params.groupId,
@@ -355,6 +360,49 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     return resolveEffectiveWinner(groupId);
   }, []);
 
+  // ── Explicit action: trigger next-task progression for a round ──
+  const triggerNextTask = useMutation({
+    mutationFn: async (params: {
+      groupId: string;
+      roundId: string;
+    }) => {
+      return triggerNextTaskForRound({
+        groupId: params.groupId,
+        roundId: params.roundId,
+      });
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: competitionKeys.groupDetail(vars.groupId) });
+      if (projectId) {
+        qc.invalidateQueries({ queryKey: competitionKeys.groups(projectId) });
+      }
+      if (_data.progression_status === 'advanced') {
+        toast.success('Next task triggered — candidate promoted to slot');
+      } else if (_data.progression_status === 'already_advanced') {
+        toast.info('Round already advanced');
+      } else {
+        toast.info(`Progression blocked: ${_data.rationale || 'requirements not met'}`);
+      }
+    },
+    onError: (e: Error) => toast.error(`Next-task trigger failed: ${e.message}`),
+  });
+
+  // ── Explicit action: evaluate next-task eligibility (dry run) ──
+  const evaluateNextTask = useCallback(async (params: {
+    groupId: string;
+    roundId: string;
+  }): Promise<ProgressionEligibility> => {
+    return evaluateNextTaskEligibility({
+      groupId: params.groupId,
+      roundId: params.roundId,
+    });
+  }, []);
+
+  // ── Explicit action: load progression state for a round ──
+  const getProgression = useCallback(async (roundId: string): Promise<RoundProgression | null> => {
+    return loadProgressionForRound(roundId);
+  }, []);
+
   return {
     /** DB-backed group list (query state) */
     groups: groupsQuery.data || [],
@@ -385,5 +433,11 @@ export function useSlotCompetitionOrchestrator(projectId: string | undefined) {
     evaluatePromotion,
     /** Explicit: resolve effective winner for a group */
     getEffectiveWinner,
+    /** Explicit: trigger next-task progression for a promoted round */
+    triggerNextTask,
+    /** Explicit: evaluate next-task eligibility (dry run, no persist) */
+    evaluateNextTask,
+    /** Explicit: load progression state for a round */
+    getProgression,
   };
 }
