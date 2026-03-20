@@ -166,6 +166,35 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     }
   }, [bulkApproving, suggestedApproval.safe, batchApproveAll]);
 
+  // ── Sync to Visual Sets bridge ──
+  // Wires existing project_images candidates into governed visual set slots
+  const [syncing, setSyncing] = useState(false);
+  const syncableImages = useMemo(() => {
+    return images.filter(i =>
+      (i.curation_state === 'candidate' || i.curation_state === 'active') &&
+      i.asset_group &&
+      i.shot_type &&
+      (i.asset_group === 'character' || i.asset_group === 'world'),
+    );
+  }, [images]);
+
+  const handleSyncToVisualSets = useCallback(async () => {
+    if (syncing || syncableImages.length === 0) return;
+    setSyncing(true);
+    try {
+      const result = await vs.syncImagesToVisualSets(syncableImages);
+      if (result.synced > 0) {
+        toast.success(`Synced ${result.synced} image${result.synced !== 1 ? 's' : ''} to Visual Sets${result.skipped > 0 ? ` (${result.skipped} skipped)` : ''}`);
+      } else {
+        toast.info('No new images to sync — slots may already be populated');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to sync images to visual sets');
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, syncableImages, vs]);
+
   // Actions
   const handleApprove = useCallback((img: ProjectImage) => {
     approveIntoCanon(img);
