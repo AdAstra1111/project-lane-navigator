@@ -172,6 +172,16 @@ export default function VisualDevHub() {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          {/* ═══ REVIEW STUDIO — Primary workspace ═══ */}
+          <WorkSection
+            icon={<ScanEye className="h-4 w-4" />}
+            title="Review Studio"
+            subtitle="Review, approve, reject, and compare all generated images"
+            defaultOpen={true}
+          >
+            {projectId && <ReviewStudio projectId={projectId} />}
+          </WorkSection>
+
           {/* ═══ VISUAL STYLE AUTHORITY ═══ */}
           <WorkSection
             icon={<Eye className="h-4 w-4" />}
