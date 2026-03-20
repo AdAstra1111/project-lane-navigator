@@ -19,6 +19,7 @@ import { generateLookBookData } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
+import { useSectionReset } from '@/hooks/useSectionReset';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -49,6 +50,13 @@ export default function LookBookPage() {
     isBootstrapping,
     updateSectionStatus,
   } = useLookbookSections(projectId);
+
+  const {
+    resetSection,
+    regenerateClean,
+    resettingSection,
+    regeneratingSection,
+  } = useSectionReset(projectId || '');
 
   useEffect(() => {
     if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping) {
@@ -183,6 +191,18 @@ export default function LookBookPage() {
     }
   }, [projectId, updateSectionStatus, invalidateImageCaches]);
 
+  const handleResetSection = useCallback(async (sectionKey: CanonicalSectionKey) => {
+    const result = await resetSection(sectionKey);
+    if (result && result.archivedCount > 0) {
+      setLookBookData(null); // Force rebuild on next viewer open
+    }
+  }, [resetSection]);
+
+  const handleRegenerateClean = useCallback(async (sectionKey: CanonicalSectionKey) => {
+    await regenerateClean(sectionKey);
+    setLookBookData(null); // Force rebuild on next viewer open
+  }, [regenerateClean]);
+
   if (projectLoading || sectionsLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -265,6 +285,10 @@ export default function LookBookPage() {
                     section={section}
                     onPopulate={handlePopulate}
                     isPopulating={populatingSection === section.section_key}
+                    onResetSection={handleResetSection}
+                    isResettingSection={resettingSection === section.section_key}
+                    onRegenerateClean={handleRegenerateClean}
+                    isRegeneratingSection={regeneratingSection === section.section_key}
                   />
                 ))}
               </div>
