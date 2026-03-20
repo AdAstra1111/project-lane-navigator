@@ -154,7 +154,12 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
   colors: LookBookVisualIdentity['colors'];
   maxImages?: number;
 }) {
-  const imgs = (slide.imageUrls?.length ? slide.imageUrls : slide.imageUrl ? [slide.imageUrl] : []).slice(0, maxImages);
+  // Prefer slot-driven image order when slotAssignments exist
+  const slotUrls = slide.slotAssignments
+    ?.filter(s => s.assignedUrl)
+    .map(s => s.assignedUrl!) || [];
+  const rawImgs = (slide.imageUrls?.length ? slide.imageUrls : slide.imageUrl ? [slide.imageUrl] : []);
+  const imgs = (slotUrls.length > 0 ? slotUrls : rawImgs).slice(0, maxImages);
   if (imgs.length === 0) return null;
 
   const family = slide.layoutFamily || 'landscape_standard';
@@ -228,6 +233,33 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
             <img src={url} alt="" style={{
               width: '100%', height: '100%',
               objectFit: i === 0 ? 'contain' : 'cover',
+              filter: 'saturate(0.85) contrast(1.05)',
+            }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Character Portraits: portrait-led cards inside landscape slide ──
+  if (family === 'landscape_character_portraits') {
+    return (
+      <div style={{
+        width: imgs.length === 1 ? 360 : 640, flexShrink: 0,
+        display: 'grid',
+        gridTemplateColumns: imgs.length === 1 ? '1fr' : imgs.length === 2 ? '1fr 1fr' : 'repeat(3, 1fr)',
+        gap: 12, alignItems: 'stretch',
+      }}>
+        {imgs.slice(0, 3).map((url, i) => (
+          <div key={i} style={{
+            borderRadius: 8, overflow: 'hidden', border,
+            background: colors.bgSecondary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            aspectRatio: '9 / 16',
+          }}>
+            <img src={url} alt="" style={{
+              width: '100%', height: '100%',
+              objectFit: 'contain',
               filter: 'saturate(0.85) contrast(1.05)',
             }} />
           </div>
@@ -467,23 +499,53 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
     );
   }
 
-  // ── Landscape cover (unchanged) ──
+  // ── Landscape cover ──
+  const isPortraitHero = slide.layoutFamily === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       {hasHero && (
         <div className="absolute inset-0">
-          <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
-          <div className="absolute inset-0" style={{
-            background: `
-              linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
-              linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
-              linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
-            `,
-          }} />
+          {isPortraitHero ? (
+            <>
+              {/* Blurred background wash */}
+              <img src={slide.imageUrl} alt="" className="w-full h-full" style={{
+                objectFit: 'cover', filter: 'saturate(0.3) blur(16px) contrast(1.1)',
+                opacity: 0.15, transform: 'scale(1.08)',
+              }} />
+              {/* Portrait hero — contain, right-of-center */}
+              <div style={{
+                position: 'absolute', top: 40, bottom: 40, right: 80, width: 440,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 8, overflow: 'hidden',
+              }}>
+                <img src={slide.imageUrl} alt="" style={{
+                  width: '100%', height: '100%',
+                  objectFit: 'contain',
+                  filter: 'saturate(0.75) contrast(1.15)',
+                }} />
+              </div>
+            </>
+          ) : (
+            <>
+              <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
+              <div className="absolute inset-0" style={{
+                background: `
+                  linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
+                  linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
+                  linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
+                `,
+              }} />
+            </>
+          )}
+          {isPortraitHero && (
+            <div className="absolute inset-0" style={{
+              background: `linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 45%, transparent 70%)`,
+            }} />
+          )}
         </div>
       )}
       <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
-        <div style={{ maxWidth: hasHero ? 960 : 1200 }}>
+        <div style={{ maxWidth: isPortraitHero ? 780 : hasHero ? 960 : 1200 }}>
           <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
           <h1 style={{ ...titleStyle, fontSize: hasHero ? 96 : 112, fontWeight: 700, lineHeight: 0.95, color: colors.text, marginBottom: 16 }}>
             {slide.title}
@@ -815,6 +877,9 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 
   // ── Landscape characters ──
   const pad = '72px 96px 72px 100px';
+  const isPortraitFamily = slide.layoutFamily === 'landscape_character_portraits'
+    || slide.layoutFamily === 'landscape_two_up_portrait'
+    || slide.layoutFamily === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />
@@ -825,19 +890,19 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
         {isSmallCast ? (
           <div style={{ display: 'flex', gap: 28, flex: 1, minHeight: 0 }}>
             {chars.map((c, i) => (
-              <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={i === 0} tall isPortrait={false} />
+              <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={i === 0} tall useContain={isPortraitFamily} isPortrait={false} />
             ))}
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 28, flex: 1, minHeight: 0 }}>
             {lead && (
               <div style={{ width: 420, flexShrink: 0 }}>
-                <CharCard char={lead} colors={colors} fontBody={fontBody} isLead tall isPortrait={false} />
+                <CharCard char={lead} colors={colors} fontBody={fontBody} isLead tall useContain={isPortraitFamily} isPortrait={false} />
               </div>
             )}
             <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, alignContent: 'start' }}>
               {supporting.map((c, i) => (
-                <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={false} tall={false} isPortrait={false} />
+                <CharCard key={i} char={c} colors={colors} fontBody={fontBody} isLead={false} tall={false} useContain={isPortraitFamily} isPortrait={false} />
               ))}
             </div>
           </div>
@@ -848,13 +913,13 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
   );
 }
 
-/** Landscape-only character card */
-function CharCard({ char, colors, fontBody, isLead, tall, isPortrait }: {
+/** Landscape-only character card — supports portrait-led contain mode */
+function CharCard({ char, colors, fontBody, isLead, tall, isPortrait, useContain = false }: {
   char: { name: string; role: string; description: string; imageUrl?: string };
   colors: LookBookVisualIdentity['colors']; fontBody: string;
-  isLead: boolean; tall: boolean; isPortrait: boolean;
+  isLead: boolean; tall: boolean; isPortrait: boolean; useContain?: boolean;
 }) {
-  const imgH = tall ? 280 : 180;
+  const imgH = tall ? (useContain ? 340 : 280) : (useContain ? 220 : 180);
   const padText = tall ? '24px 28px' : '16px 20px';
   return (
     <div style={{
@@ -865,7 +930,7 @@ function CharCard({ char, colors, fontBody, isLead, tall, isPortrait }: {
     }}>
       {char.imageUrl ? (
         <div style={{ height: imgH, overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgSecondary }}>
-          {isPortrait ? (
+          {(isPortrait || useContain) ? (
             <PortraitImage src={char.imageUrl} alt={char.name} style={{ objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
           ) : (
             <img src={char.imageUrl} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
@@ -1200,6 +1265,11 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
 function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const imgs = (slide.imageUrls || []).filter(Boolean);
   const imgCount = imgs.length;
+  const isPortraitFamily = !isPortrait && (
+    slide.layoutFamily === 'landscape_portrait_hero'
+    || slide.layoutFamily === 'landscape_two_up_portrait'
+    || slide.layoutFamily === 'landscape_character_portraits'
+  );
 
   const getGridStyle = (): React.CSSProperties => {
     if (isPortrait) {
@@ -1253,13 +1323,13 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
             {imgs.slice(0, 6).map((url, i) => (
               <div key={i} style={{
                 borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                background: isPortrait ? colors.bgSecondary : undefined,
-                display: isPortrait ? 'flex' : undefined,
-                alignItems: isPortrait ? 'center' : undefined,
-                justifyContent: isPortrait ? 'center' : undefined,
+                background: (isPortrait || isPortraitFamily) ? colors.bgSecondary : undefined,
+                display: (isPortrait || isPortraitFamily) ? 'flex' : undefined,
+                alignItems: (isPortrait || isPortraitFamily) ? 'center' : undefined,
+                justifyContent: (isPortrait || isPortraitFamily) ? 'center' : undefined,
                 ...getSpanStyle(i),
               }}>
-                {isPortrait ? (
+                {(isPortrait || isPortraitFamily) ? (
                   <PortraitImage src={url} style={{ filter: 'saturate(0.85) contrast(1.08)', borderRadius: 4 }} />
                 ) : (
                   <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
