@@ -1291,6 +1291,8 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
     || kmEffective === 'landscape_two_up_portrait'
     || kmEffective === 'landscape_character_portraits'
   );
+  // Derive section label from slide title — supports Poster Directions reuse
+  const sectionLabel = slide.title?.toLowerCase().includes('poster') ? 'Poster Directions' : 'Key Moments';
 
   const getGridStyle = (): React.CSSProperties => {
     if (isPortrait) {
