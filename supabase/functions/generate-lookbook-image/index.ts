@@ -808,6 +808,7 @@ serve(async (req) => {
       worldBindingBlock: canonicalBindings.worldPromptBlock,
       locationBindingBlock: canonicalBindings.locationPromptBlock,
       characterBindingBlock: canonicalBindings.characterPromptBlock,
+      boundCharacterNames: canonicalBindings.characters.map(c => c.character_name),
     };
 
     // ── Resolve identity anchor signed URLs if provided ──
