@@ -78,6 +78,10 @@ export function useProjectPosters(projectId: string | undefined) {
       return hydrateSignedUrls(raw);
     },
     enabled: !!projectId,
+    refetchInterval: (query) => {
+      const posters = (query.state.data as ProjectPoster[] | undefined) || [];
+      return posters.some((poster) => poster.status === "generating") ? 3000 : false;
+    },
     // Signed URLs expire — refetch periodically
     staleTime: 30 * 60 * 1000, // 30 min
   });
@@ -93,6 +97,10 @@ export function useGeneratePoster(projectId: string | undefined) {
   const qc = useQueryClient();
 
   return useMutation({
+    onMutate: async () => {
+      if (!projectId) return;
+      await qc.invalidateQueries({ queryKey: ["project-posters", projectId] });
+    },
     mutationFn: async (opts?: { mode?: string; strategy_key?: string; source_poster_id?: string; edit_prompt?: string; poster_template?: string }) => {
       if (!projectId) throw new Error("No project ID");
       const { data, error } = await supabase.functions.invoke("generate-poster", {
