@@ -869,7 +869,7 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
                   borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column',
                 }}>
                   {c.imageUrl ? (
-                    <div style={{ height: 220, overflow: 'hidden', flexShrink: 0, background: colors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ height: 280, overflow: 'hidden', flexShrink: 0, background: colors.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <PortraitImage src={c.imageUrl} style={{ filter: 'saturate(0.8) contrast(1.05)' }} />
                     </div>
                   ) : (
@@ -950,11 +950,7 @@ function CharCard({ char, colors, fontBody, isLead, tall, isPortrait, useContain
     }}>
       {char.imageUrl ? (
         <div style={{ height: imgH, overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgSecondary }}>
-          {(isPortrait || useContain) ? (
-            <PortraitImage src={char.imageUrl} alt={char.name} style={{ objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
-          ) : (
-            <img src={char.imageUrl} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
-          )}
+          <PortraitImage src={char.imageUrl} alt={char.name} style={{ objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
         </div>
       ) : (
         <div style={{ height: tall ? 140 : 80, flexShrink: 0, background: `linear-gradient(135deg, ${colors.bgSecondary}, ${colors.bg})`, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: `1px solid ${colors.accentMuted}` }}>
