@@ -145,6 +145,7 @@ export function ApprovalWorkspace({
               onExpand={setLightboxImage}
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
+              identityAnchorMap={identityAnchorMap}
             />
           ))}
         </div>
