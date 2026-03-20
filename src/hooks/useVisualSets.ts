@@ -301,6 +301,13 @@ export function useVisualSets(projectId: string | undefined) {
   // ── Mutation: Select candidate for slot ──
   const selectCandidateMutation = useMutation({
     mutationFn: async (params: { slotId: string; candidateId: string; imageId: string }) => {
+      // Get previously selected image to demote
+      const { data: prevSlot } = await (supabase as any)
+        .from('visual_set_slots')
+        .select('selected_image_id')
+        .eq('id', params.slotId)
+        .single();
+
       await (supabase as any)
         .from('visual_set_candidates')
         .update({ selected_for_slot: false })
@@ -315,6 +322,14 @@ export function useVisualSets(projectId: string | undefined) {
         .from('visual_set_slots')
         .update({ selected_image_id: params.imageId, state: 'candidate_present' })
         .eq('id', params.slotId);
+
+      // Demote previously selected image back to candidate in project_images
+      if (prevSlot?.selected_image_id && prevSlot.selected_image_id !== params.imageId) {
+        await (supabase as any)
+          .from('project_images')
+          .update({ curation_state: 'candidate', is_active: false, is_primary: false })
+          .eq('id', prevSlot.selected_image_id);
+      }
     },
     onSuccess: () => invalidate(),
   });
