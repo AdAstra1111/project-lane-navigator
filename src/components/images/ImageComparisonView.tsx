@@ -221,6 +221,8 @@ export function ImageComparisonView({
               continuity={entry.continuity}
               provenance={entry.provenance}
               isRecommended={entry.image.id === summary.recommendedId}
+              rankReason={entry.rankReason}
+              driftPenalty={entry.driftPenalty}
               onSetPrimary={onSetPrimary}
               onReject={onReject}
             />
