@@ -102,18 +102,22 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     limit: 500,
   });
 
-  // Load canon
+  // Load canon + project format
   useEffect(() => {
     (async () => {
-      const { data } = await (supabase as any)
-        .from('project_canon')
-        .select('canon_json')
-        .eq('project_id', projectId)
-        .maybeSingle();
-      setCanonJson(data?.canon_json || null);
+      const [canonRes, projectRes] = await Promise.all([
+        (supabase as any).from('project_canon').select('canon_json').eq('project_id', projectId).maybeSingle(),
+        (supabase as any).from('projects').select('format, assigned_lane').eq('id', projectId).maybeSingle(),
+      ]);
+      setCanonJson(canonRes.data?.canon_json || null);
+      setProjectFormat((projectRes.data?.format || '').toLowerCase());
+      setProjectLane(projectRes.data?.assigned_lane || '');
       setLoading(false);
     })();
   }, [projectId]);
+
+  /** Detect vertical drama from format or lane */
+  const isVerticalDrama = projectFormat.includes('vertical') || projectLane === 'vertical_drama';
 
   // Fetch ALL project images (including archived/rejected) for the resolver
   const { data: allImages = [], isLoading: imagesLoading } = useProjectImages(projectId, {
