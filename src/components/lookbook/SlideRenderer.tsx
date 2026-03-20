@@ -154,7 +154,12 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
   colors: LookBookVisualIdentity['colors'];
   maxImages?: number;
 }) {
-  const imgs = (slide.imageUrls?.length ? slide.imageUrls : slide.imageUrl ? [slide.imageUrl] : []).slice(0, maxImages);
+  // Prefer slot-driven image order when slotAssignments exist
+  const slotUrls = slide.slotAssignments
+    ?.filter(s => s.assignedUrl)
+    .map(s => s.assignedUrl!) || [];
+  const rawImgs = (slide.imageUrls?.length ? slide.imageUrls : slide.imageUrl ? [slide.imageUrl] : []);
+  const imgs = (slotUrls.length > 0 ? slotUrls : rawImgs).slice(0, maxImages);
   if (imgs.length === 0) return null;
 
   const family = slide.layoutFamily || 'landscape_standard';
@@ -228,6 +233,33 @@ function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
             <img src={url} alt="" style={{
               width: '100%', height: '100%',
               objectFit: i === 0 ? 'contain' : 'cover',
+              filter: 'saturate(0.85) contrast(1.05)',
+            }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Character Portraits: portrait-led cards inside landscape slide ──
+  if (family === 'landscape_character_portraits') {
+    return (
+      <div style={{
+        width: imgs.length === 1 ? 360 : 640, flexShrink: 0,
+        display: 'grid',
+        gridTemplateColumns: imgs.length === 1 ? '1fr' : imgs.length === 2 ? '1fr 1fr' : 'repeat(3, 1fr)',
+        gap: 12, alignItems: 'stretch',
+      }}>
+        {imgs.slice(0, 3).map((url, i) => (
+          <div key={i} style={{
+            borderRadius: 8, overflow: 'hidden', border,
+            background: colors.bgSecondary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            aspectRatio: '9 / 16',
+          }}>
+            <img src={url} alt="" style={{
+              width: '100%', height: '100%',
+              objectFit: 'contain',
               filter: 'saturate(0.85) contrast(1.05)',
             }} />
           </div>
