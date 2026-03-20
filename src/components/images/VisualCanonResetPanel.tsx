@@ -466,8 +466,12 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     try {
       // Stage 1: Reset canon
       setRebuildStage('Resetting canon');
-      const allSections = ['character_identity', 'world_locations', 'atmosphere_lighting', 'texture_detail', 'symbolic_motifs', 'key_moments', 'poster_directions'];
-      await resetScopedCanon(allSections, { archiveOnly: true, clearPrimaries: true });
+      await resetScopedCanon({
+        sections: [],
+        clearPrimary: true,
+        targetState: 'archived',
+        regenerateAfter: false,
+      });
       await refetchImages();
 
       // Stage 2: Archive confirmation
