@@ -280,7 +280,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     slots.sort((a, b) => a.phase - b.phase);
     return slots;
-  }, [requiredSet]);
+  }, [requiredSet, identityAnchorMap]);
 
   // Extract character/location descriptions from canon
   const getCanonDescription = useCallback((subject: string | null, assetGroup: string) => {
