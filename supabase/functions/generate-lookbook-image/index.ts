@@ -74,6 +74,8 @@ interface SectionContext {
   worldBindingBlock?: string;
   locationBindingBlock?: string;
   characterBindingBlock?: string;
+  /** Bound character names from canonical binding resolution */
+  boundCharacterNames?: string[];
 }
 
 // ── Canonical Visual Binding Types ──────────────────────────────────────────
@@ -235,16 +237,85 @@ function resolveWorldBinding(canonJson: any): WorldBinding {
   };
 }
 
-function buildCharacterBindingBlock(chars: CharacterBinding[]): string {
+function buildCharacterBindingBlock(chars: CharacterBinding[], shotType?: ShotType | null): string {
   if (!chars.length) return '';
-  const lines = ['[CANONICAL CHARACTER BINDING — IDENTITY CONTINUITY REQUIRED]', ''];
+  const names = chars.map(c => c.character_name);
+  const nameList = names.map(n => `"${n}"`).join(', ');
+
+  const lines = [
+    '[MANDATORY CAST REQUIREMENT — DO NOT OMIT OR SUBSTITUTE]',
+    '',
+    `This image MUST include the following character${chars.length > 1 ? 's' : ''}:`,
+  ];
   for (const c of chars) {
-    lines.push(`CHARACTER: "${c.character_name}"`);
-    if (c.traits_summary) lines.push(`  ${c.traits_summary}`);
-    lines.push(`  ENFORCE: Maintain identical facial structure, build, proportions, skin tone, hair.`);
-    lines.push(`  REJECT: Different face, different age, different build, generic substitution.`);
+    lines.push(`- ${c.character_name}`);
+    if (c.traits_summary) lines.push(`  Visual DNA: ${c.traits_summary}`);
+  }
+
+  lines.push('');
+  lines.push(`ALL listed characters (${nameList}) MUST be visible and recognizable in the frame.`);
+  lines.push('Do NOT omit any listed character.');
+  lines.push('Do NOT replace with generic, unnamed, or different individuals.');
+  lines.push('Do NOT alter identity, face, build, or silhouette.');
+  lines.push('');
+
+  // Shot-specific framing enforcement
+  if (shotType) {
+    lines.push('[SHOT-SPECIFIC FRAMING REQUIREMENT]');
+    switch (shotType) {
+      case 'wide':
+        lines.push(`WIDE SHOT: ${nameList} must be visible in full or near-full body within the environment.`);
+        lines.push('Environment is dominant but characters must be identifiable — no silhouettes that obscure identity.');
+        break;
+      case 'medium':
+        lines.push(`MEDIUM SHOT: ${nameList} framed waist-up. Facial identity must be clearly readable.`);
+        lines.push('Environment is secondary to character presence.');
+        break;
+      case 'close_up':
+        lines.push(`CLOSE-UP: ${chars.length === 1 ? `${nameList} fills the frame.` : `Tightly grouped — ${nameList} both visible.`} Face dominant, identity must match DNA exactly.`);
+        break;
+      case 'tableau':
+        lines.push(`TABLEAU: ALL characters (${nameList}) must appear simultaneously in deliberate cinematic staging.`);
+        lines.push('Multi-character composition — no character may be cropped out or reduced to background blur.');
+        lines.push('Interaction or spatial arrangement must reflect a narrative moment.');
+        break;
+      case 'over_shoulder':
+        lines.push(`OVER-SHOULDER: ${nameList} — one character in foreground (partial), other facing camera. Both must be recognizable.`);
+        break;
+      case 'full_body':
+        lines.push(`FULL BODY: ${nameList} visible head to toe. Proportions and silhouette must match character DNA.`);
+        break;
+      case 'emotional_variant':
+        lines.push(`EMOTIONAL VARIANT: ${nameList} — same character(s), different emotional state. Identity MUST remain identical.`);
+        break;
+      default:
+        lines.push(`${nameList} must be clearly present and identifiable in this composition.`);
+        break;
+    }
     lines.push('');
   }
+
+  // No-dropout rule for multi-character
+  if (chars.length > 1) {
+    lines.push('[NO CHARACTER DROPOUT]');
+    lines.push(`All ${chars.length} characters MUST appear in the frame simultaneously.`);
+    lines.push('Do NOT reduce to a single character.');
+    lines.push('Do NOT split into separate implied shots.');
+    lines.push('Do NOT place any required character fully off-screen or obscured.');
+    lines.push('');
+  }
+
+  // Identity enforcement
+  lines.push('[IDENTITY LOCK ENFORCEMENT]');
+  lines.push('Facial structure, skin tone, age, build, and defining features');
+  lines.push('must remain consistent with the provided character DNA.');
+  lines.push('No variation, reinterpretation, or stylization.');
+  lines.push('');
+  lines.push('[COMPOSITION GUARDRAIL]');
+  lines.push('This is a live-action cinematic frame with real actors.');
+  lines.push('Do NOT generate symbolic abstraction that removes characters from the scene.');
+  lines.push('Symbolism must come from staging, lighting, and composition — not character omission.');
+
   return lines.join('\n');
 }
 
@@ -292,7 +363,7 @@ async function resolveCanonicalBindings(
     resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName, explicitLocationIds),
   ]);
   const world = resolveWorldBinding(canonJson);
-  const characterPromptBlock = buildCharacterBindingBlock(characters);
+  const characterPromptBlock = buildCharacterBindingBlock(characters, null);
   const locationPromptBlock = buildLocationBindingBlock(locations);
   const worldPromptBlock = buildWorldBindingBlock(world);
   const missing: string[] = [];
@@ -431,14 +502,19 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
         subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
       }
       break;
-    case "key_moment":
+    case "key_moment": {
+      const castLine = ctx.boundCharacterNames?.length
+        ? `Characters who MUST appear: ${ctx.boundCharacterNames.join(', ')}. `
+        : '';
       subjectDescription = [
+        castLine,
         ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.",
         "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
         "Symbolic meaning must emerge through staging, composition, lighting, and actor placement — NOT through illustrative, painterly, or concept-art rendering.",
         "This must look like a production still from a theatrically released live-action film.",
-      ].join(" ");
+      ].filter(Boolean).join(" ");
       break;
+    }
     case "visual_language":
       subjectDescription = `Production design reference for "${ctx.title}". Focus on real-world cinematography: lighting setups, lens choices, color grading, practical textures, and architectural composition. No abstract or symbolic imagery.`;
       break;
@@ -737,6 +813,7 @@ serve(async (req) => {
       worldBindingBlock: canonicalBindings.worldPromptBlock,
       locationBindingBlock: canonicalBindings.locationPromptBlock,
       characterBindingBlock: canonicalBindings.characterPromptBlock,
+      boundCharacterNames: canonicalBindings.characters.map(c => c.character_name),
     };
 
     // ── Resolve identity anchor signed URLs if provided ──
@@ -887,9 +964,10 @@ serve(async (req) => {
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
-        // For non-identity shots, inject all relevant bindings
-        if (canonicalBindings.characterPromptBlock) {
-          prompt += `\n\n${canonicalBindings.characterPromptBlock}`;
+        // For non-identity shots, build shot-specific character binding with framing rules
+        if (canonicalBindings.characters.length > 0) {
+          const shotSpecificCharBlock = buildCharacterBindingBlock(canonicalBindings.characters, shotType as ShotType | null);
+          prompt += `\n\n${shotSpecificCharBlock}`;
         }
         if (canonicalBindings.locationPromptBlock) {
           prompt += `\n\n${canonicalBindings.locationPromptBlock}`;
@@ -968,6 +1046,7 @@ serve(async (req) => {
               targeting_mode: canonicalBindings.targeting_mode,
               requested_character_names: requestedCharacterNames || (character_name ? [character_name] : []),
               resolved_character_names: canonicalBindings.characters.map(c => c.character_name),
+              expected_character_count: canonicalBindings.characters.length,
               bound_dna_version_ids: canonicalBindings.characters.map(c => c.dna_version_id).filter(Boolean),
               requested_location_ids: requestedLocationIds || (location_id ? [location_id] : []),
               resolved_location_ids: canonicalBindings.locations.map(l => l.location_id),
