@@ -54,21 +54,32 @@ export const SHOT_ASPECT_RATIO: Record<string, AspectRatio> = {
   poster_theatrical: '2:3',
   poster_alt: '2:3',
 };
-/** Portrait overrides for vertical drama — force portrait-safe ratios */
+/**
+ * Portrait overrides for vertical drama — ALL non-identity slots forced to 9:16.
+ * This is the strict vertical-drama contract: native phone-screen composition,
+ * not cropped landscape or weak portrait.
+ *
+ * Identity exceptions (headshot 1:1, profile 3:4, full_body 2:3) are NOT listed
+ * here because they retain their reference-specific ratios by design.
+ */
 export const PORTRAIT_SHOT_OVERRIDE: Record<string, AspectRatio> = {
-  // Landscape shots → portrait equivalents
+  // ── ALL non-identity slots → strict 9:16 for vertical drama ──
   wide: '9:16',
   atmospheric: '9:16',
   time_variant: '9:16',
   lighting_ref: '9:16',
   composition_ref: '9:16',
   tableau: '9:16',
-  medium: '3:4',
-  emotional_variant: '3:4',
-  over_shoulder: '3:4',
-  // Already portrait-safe: identity_headshot (1:1), identity_profile (3:4),
-  // identity_full_body (2:3), close_up (1:1), full_body (2:3), profile (3:4),
-  // detail (1:1), texture_ref (1:1), color_ref (1:1), poster_* (2:3)
+  medium: '9:16',           // was 3:4 — VD requires true vertical
+  emotional_variant: '9:16', // was 3:4 — VD requires true vertical
+  over_shoulder: '9:16',     // was 3:4 — VD requires true vertical
+  close_up: '9:16',          // was 1:1 — VD requires true vertical
+  full_body: '9:16',         // was 2:3 — VD requires true vertical
+  profile: '9:16',           // was 3:4 — VD requires true vertical
+  detail: '9:16',            // was 1:1 — VD requires true vertical
+  texture_ref: '9:16',       // was 1:1 — VD requires true vertical
+  color_ref: '9:16',         // was 1:1 — VD requires true vertical
+  // Poster stays 2:3 (already portrait-native)
 };
 
 /** Get dimensions for a shot type. When isPortrait=true, forces portrait-safe ratios. */
