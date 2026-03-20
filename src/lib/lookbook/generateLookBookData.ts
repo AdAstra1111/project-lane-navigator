@@ -443,15 +443,20 @@ export async function generateLookBookData(
     });
   }
 
-  // ── THEMES ──
+  // ── THEMES ── (now with atmospheric imagery)
   const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
+    // Use atmosphere + texture images for visual richness
+    const themesImages = [...atmosphereImages, ...textureImages];
     slides.push({
       type: 'themes',
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
+      imageUrl: themesImages[0]?.signedUrl || undefined,
+      imageUrls: themesImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds].slice(0, 4),
     });
   }
 
