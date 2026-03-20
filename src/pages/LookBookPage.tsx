@@ -23,7 +23,9 @@ import { useSectionReset } from '@/hooks/useSectionReset';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import type { LookBookData } from '@/lib/lookbook/types';
+import type { LookBookData, SlideContent } from '@/lib/lookbook/types';
+import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
+import { getEffectiveLayoutFamily } from '@/lib/lookbook/lookbookLayoutResolutionState';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 
 type LookbookMode = 'workspace' | 'viewer';

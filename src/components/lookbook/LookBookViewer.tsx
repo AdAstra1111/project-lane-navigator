@@ -444,8 +444,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
         isFullscreen ? 'bg-black/80' : 'bg-card border-t border-border',
       )}>
         {data.slides.map((s, i) => {
-          const slideWithOverride = getSlideWithOverride(s, i);
-          const hasOverride = overrides[i] !== undefined && overrides[i] !== null;
+          const hasOverride = isLayoutFamilyOverrideActive(s);
           return (
             <button
               key={i}
@@ -471,7 +470,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
                 }}
               >
                 <SlideRenderer
-                  slide={slideWithOverride}
+                  slide={s}
                   identity={data.identity}
                   slideIndex={i}
                   totalSlides={totalSlides}
