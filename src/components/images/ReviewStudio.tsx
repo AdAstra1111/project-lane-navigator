@@ -7,7 +7,7 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, Filter,
   Crown, ShieldCheck, AlertTriangle, Unlink, Link,
-  Image as ImageIcon, SlidersHorizontal, X,
+  Image as ImageIcon, SlidersHorizontal, X, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
