@@ -374,6 +374,25 @@ function CandidateCard({
           </Badge>
         )}
 
+        {/* Identity continuity badge */}
+        {(() => {
+          const gc = (image.generation_config || {}) as Record<string, unknown>;
+          const hasLock = !!(gc.identity_locked || gc.identity_anchor_paths);
+          const isChar = image.asset_group === 'character';
+          if (!isChar) return null;
+          return hasLock ? (
+            <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-emerald-500/70 text-white gap-0.5"
+              title="Generated with identity anchors — strong continuity">
+              <Link className="h-2 w-2" /> ID
+            </Badge>
+          ) : (
+            <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-amber-500/70 text-white gap-0.5"
+              title="Generated without identity anchors — potential drift">
+              <Unlink className="h-2 w-2" /> Drift
+            </Badge>
+          );
+        })()}
+
         {/* Compare selection indicator */}
         {isSelectedForCompare && (
           <Badge className="absolute top-0.5 right-0.5 text-[7px] px-1 py-0 bg-accent text-accent-foreground">
