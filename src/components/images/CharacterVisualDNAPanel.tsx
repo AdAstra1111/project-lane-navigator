@@ -32,6 +32,12 @@ import {
 } from '@/lib/images/visualDNA';
 import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
 import type { TraitCategory, TraitSource, BindingMarker, MarkerStatus } from '@/lib/images/characterTraits';
+import {
+  executeDnaAutoFlow,
+  type DnaAutoFlowMode,
+  type DnaAutoFlowResult,
+  DNA_AUTO_FLOW_MODE_DEFAULT,
+} from '@/lib/images/dnaAutoFlow';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
