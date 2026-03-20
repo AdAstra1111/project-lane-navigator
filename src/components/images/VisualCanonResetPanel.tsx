@@ -26,7 +26,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
-import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet, SHOT_ASPECT_RATIO } from '@/lib/images/requiredVisualSet';
+import { scoreAndSelectAllSlots, type SlotTarget, type SlotWinnerResult } from '@/lib/images/canonRebuildScoring';
 import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
