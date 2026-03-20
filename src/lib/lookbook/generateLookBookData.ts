@@ -609,9 +609,10 @@ export async function generateLookBookData(
     _has_unresolved: (canonImages.texture_detail.unresolvedCount + canonImages.symbolic_motifs.unresolvedCount) > 0,
   });
 
-  // ── STORY ENGINE ──
+  // ── STORY ENGINE ── (uses key moment imagery for narrative weight)
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
+    const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
@@ -619,11 +620,11 @@ export async function generateLookBookData(
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
       bullets: seCopy.bullets,
-      imageUrl: motifImages[0]?.signedUrl || undefined,
-      imageUrls: motifImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
-      _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 4),
-      _debug_provenance: toSlideProvenance(canonImages.symbolic_motifs).slice(0, 4),
-      _has_unresolved: canonImages.symbolic_motifs.unresolvedCount > 0,
+      imageUrl: seImages[0]?.signedUrl || undefined,
+      imageUrls: seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: seImages.map(i => i.id).slice(0, 3),
+      _debug_provenance: seImages.map(img => buildProvenance(img, isVD, format, assignedLane)).slice(0, 3),
+      _has_unresolved: seImages.length === 0 && canonImages.symbolic_motifs.unresolvedCount > 0,
     });
   }
 
