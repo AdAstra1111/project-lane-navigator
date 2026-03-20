@@ -28,6 +28,7 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { ApprovalWorkspace } from './ApprovalWorkspace';
 import {
   type RebuildMode, type RebuildResult,
 } from '@/lib/images/canonRebuildScoring';
