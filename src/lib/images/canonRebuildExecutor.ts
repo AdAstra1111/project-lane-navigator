@@ -25,6 +25,7 @@ import {
   type RebuildResult,
 } from './canonRebuildScoring';
 import type { ProjectImage } from './types';
+import { runDnaPreflightForRebuild, type DnaAutoFlowConfig } from './dnaAutoFlow';
 
 // ── Execution Status ──
 
