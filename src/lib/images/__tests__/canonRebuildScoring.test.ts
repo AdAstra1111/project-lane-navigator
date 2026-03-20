@@ -142,3 +142,62 @@ describe('selectSlotWinner — VD strict filtering', () => {
     expect(result.winner!.imageId).toBe('v916');
   });
 });
+
+describe('scoreCandidateForSlot — identity continuity', () => {
+  it('identity-locked character candidate scores higher on identityContinuity', () => {
+    const locked = makeImage({
+      id: 'locked-1',
+      generation_config: { identity_locked: true, identity_anchor_paths: ['/some/path'] },
+    });
+    const unlocked = makeImage({
+      id: 'unlocked-1',
+      generation_config: {},
+    });
+    const slot = makeSlot();
+    const lockedResult = scoreCandidateForSlot(locked, slot, [locked, unlocked], false);
+    const unlockedResult = scoreCandidateForSlot(unlocked, slot, [locked, unlocked], false);
+    expect(lockedResult.components.identityContinuity).toBeGreaterThan(unlockedResult.components.identityContinuity);
+    expect(lockedResult.identityContinuityClass).toBe('strong_match');
+  });
+
+  it('unlocked candidate with locked peers classified as identity_drift', () => {
+    const locked = makeImage({
+      id: 'locked-1',
+      generation_config: { identity_locked: true },
+    });
+    const unlocked = makeImage({
+      id: 'unlocked-1',
+      generation_config: {},
+      generation_purpose: 'lookbook_character' as any,
+    });
+    const slot = makeSlot();
+    const result = scoreCandidateForSlot(unlocked, slot, [locked, unlocked], false);
+    expect(result.identityContinuityClass).toBe('identity_drift');
+  });
+
+  it('non-character slot returns not_character class', () => {
+    const img = makeImage({ id: 'world-1', asset_group: 'world', subject: 'Forest' });
+    const slot = makeSlot({ key: 'world:Forest:wide', assetGroup: 'world', subject: 'Forest', shotType: 'wide', isIdentity: false });
+    const result = scoreCandidateForSlot(img, slot, [img], false);
+    expect(result.identityContinuityClass).toBe('not_character');
+    expect(result.components.identityContinuity).toBe(50);
+  });
+
+  it('identity-locked candidate gets higher total score than drifted', () => {
+    const locked = makeImage({
+      id: 'locked-1',
+      generation_config: { identity_locked: true, identity_anchor_paths: ['/a'] },
+      created_at: '2025-01-01T00:00:00Z',
+    });
+    const drifted = makeImage({
+      id: 'drifted-1',
+      generation_config: {},
+      generation_purpose: 'lookbook_character' as any,
+      created_at: '2025-01-02T00:00:00Z',
+    });
+    const slot = makeSlot();
+    const lockedResult = scoreCandidateForSlot(locked, slot, [locked, drifted], false);
+    const driftedResult = scoreCandidateForSlot(drifted, slot, [locked, drifted], false);
+    expect(lockedResult.totalScore).toBeGreaterThan(driftedResult.totalScore);
+  });
+});

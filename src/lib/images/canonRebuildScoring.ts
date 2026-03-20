@@ -47,6 +47,14 @@ export interface SlotTarget {
   isIdentity: boolean;
 }
 
+/** Identity continuity classification for a candidate relative to character anchors */
+export type IdentityContinuityClass =
+  | 'strong_match'       // generated with identity lock, anchors used
+  | 'partial_match'      // generated with partial anchors or same model/provider
+  | 'no_anchor_context'  // no locked anchors existed at generation time
+  | 'identity_drift'     // generated without anchors despite anchors existing
+  | 'not_character';     // non-character slot, N/A
+
 export interface ScoredSlotCandidate {
   imageId: string;
   slotKey: string;
@@ -59,12 +67,15 @@ export interface ScoredSlotCandidate {
     bindingFidelity: number;
     freshness: number;
     primarySetAlignment: number;
+    identityContinuity: number;
   };
   /** Strict VD compliance classification */
   complianceLevel: VerticalComplianceLevel;
   /** Whether this image is eligible for winner selection in current project context */
   eligibleForSelection: boolean;
   eligible: boolean;
+  /** Identity continuity classification for character slots */
+  identityContinuityClass: IdentityContinuityClass;
   reasons: string[];
 }
 
@@ -199,59 +210,64 @@ export function shouldReplace(
 }
 
 // ── Weights ──
+// identityContinuity scored for character slots; 0 weight for non-character
 
 const WEIGHTS_STANDARD = {
-  slotMatch: 0.35,
-  aspectFit: 0.15,
+  slotMatch: 0.30,
+  aspectFit: 0.12,
   verticalCompliance: 0.00,
-  curationQuality: 0.15,
-  bindingFidelity: 0.20,
-  freshness: 0.15,
+  curationQuality: 0.13,
+  bindingFidelity: 0.18,
+  freshness: 0.12,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 const WEIGHTS_VERTICAL_DRAMA = {
-  slotMatch: 0.25,
-  aspectFit: 0.10,
-  verticalCompliance: 0.25,
-  curationQuality: 0.10,
-  bindingFidelity: 0.15,
-  freshness: 0.15,
+  slotMatch: 0.22,
+  aspectFit: 0.08,
+  verticalCompliance: 0.22,
+  curationQuality: 0.08,
+  bindingFidelity: 0.13,
+  freshness: 0.12,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 const WEIGHTS_VERTICAL_DRAMA_NO_DIMS = {
-  slotMatch: 0.35,
+  slotMatch: 0.30,
   aspectFit: 0.00,
-  verticalCompliance: 0.15,
-  curationQuality: 0.15,
-  bindingFidelity: 0.25,
+  verticalCompliance: 0.12,
+  curationQuality: 0.13,
+  bindingFidelity: 0.20,
   freshness: 0.10,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 const WEIGHTS_STANDARD_NO_DIMS = {
-  slotMatch: 0.40,
+  slotMatch: 0.35,
   aspectFit: 0.00,
   verticalCompliance: 0.00,
-  curationQuality: 0.20,
-  bindingFidelity: 0.25,
-  freshness: 0.15,
+  curationQuality: 0.17,
+  bindingFidelity: 0.20,
+  freshness: 0.13,
   primarySetAlignment: 0.00,
+  identityContinuity: 0.15,
 };
 
 // Preserve-mode weight overrides — adds primarySetAlignment
 const WEIGHTS_PRESERVE_STANDARD = {
   ...WEIGHTS_STANDARD,
-  bindingFidelity: 0.15,
-  freshness: 0.10,
+  bindingFidelity: 0.13,
+  freshness: 0.08,
   primarySetAlignment: 0.10,
 };
 
 const WEIGHTS_PRESERVE_VD = {
   ...WEIGHTS_VERTICAL_DRAMA,
   freshness: 0.05,
-  primarySetAlignment: 0.15,
+  primarySetAlignment: 0.13,
 };
 
 const WEIGHTS_PRESERVE_VD_NO_DIMS = {
@@ -262,7 +278,7 @@ const WEIGHTS_PRESERVE_VD_NO_DIMS = {
 
 const WEIGHTS_PRESERVE_STANDARD_NO_DIMS = {
   ...WEIGHTS_STANDARD_NO_DIMS,
-  freshness: 0.10,
+  freshness: 0.08,
   primarySetAlignment: 0.10,
 };
 
@@ -493,6 +509,105 @@ function scoreFreshness(image: ProjectImage, allImages: ProjectImage[]): { score
   return { score, reason: `Freshness: ${Math.round(normalised * 100)}% newest` };
 }
 
+// ── Identity Continuity Scoring ──
+
+/**
+ * Score how well a candidate maintains identity continuity with character anchors.
+ * 
+ * Checks generation_config for:
+ * - identity_locked flag
+ * - identity_anchor_paths (was generated using anchor images)
+ * - model/provider consistency with other character images
+ * 
+ * For non-character slots, returns neutral score.
+ */
+function scoreIdentityContinuity(
+  image: ProjectImage,
+  slot: SlotTarget,
+  allSlotCandidates: ProjectImage[],
+): { score: number; continuityClass: IdentityContinuityClass; reason: string } {
+  // Non-character slots — identity continuity doesn't apply
+  if (slot.assetGroup !== 'character') {
+    return { score: 50, continuityClass: 'not_character', reason: 'Non-character slot — identity continuity N/A' };
+  }
+
+  const genConfig = (image.generation_config || {}) as Record<string, unknown>;
+  const hasIdentityLock = !!(genConfig.identity_locked);
+  const hasAnchorPaths = !!(genConfig.identity_anchor_paths);
+  const hasFreshIdentityMode = !!(genConfig.fresh_identity_mode);
+  
+  let score = 30; // baseline for character image with no identity context
+  let continuityClass: IdentityContinuityClass = 'no_anchor_context';
+  const signals: string[] = [];
+
+  // Strong signal: generated with explicit identity lock
+  if (hasIdentityLock) {
+    score += 40;
+    signals.push('identity_locked');
+    continuityClass = 'strong_match';
+  }
+
+  // Strong signal: generated using anchor image paths
+  if (hasAnchorPaths) {
+    score += 25;
+    signals.push('anchor_paths_used');
+    if (continuityClass !== 'strong_match') continuityClass = 'strong_match';
+  }
+
+  // Fresh identity mode — generated for identity bootstrap, good continuity
+  if (hasFreshIdentityMode) {
+    score += 10;
+    signals.push('fresh_identity_mode');
+  }
+
+  // Model/provider consistency with other character candidates for same subject
+  const sameSubjectCandidates = allSlotCandidates.filter(
+    c => c.id !== image.id && c.subject === image.subject && c.asset_group === 'character'
+  );
+  if (sameSubjectCandidates.length > 0) {
+    const modelSet = new Set(sameSubjectCandidates.map(c => c.model).filter(Boolean));
+    const providerSet = new Set(sameSubjectCandidates.map(c => c.provider).filter(Boolean));
+    
+    if (image.model && modelSet.has(image.model)) {
+      score += 5;
+      signals.push('model_consistent');
+    }
+    if (image.provider && providerSet.has(image.provider)) {
+      score += 5;
+      signals.push('provider_consistent');
+    }
+  }
+
+  // Classify based on signals
+  if (!hasIdentityLock && !hasAnchorPaths && !hasFreshIdentityMode) {
+    // Check if this looks like a pre-identity-lock generation
+    const genPurpose = image.generation_purpose || '';
+    if (genPurpose === 'character_identity') {
+      continuityClass = 'partial_match';
+      score += 10;
+      signals.push('character_identity_purpose');
+    } else {
+      // Candidate was generated without identity context
+      // If there are other candidates with identity lock, this one is drifted
+      const hasLockedPeers = allSlotCandidates.some(c => {
+        const gc = (c.generation_config || {}) as Record<string, unknown>;
+        return c.id !== image.id && (gc.identity_locked || gc.identity_anchor_paths);
+      });
+      if (hasLockedPeers) {
+        continuityClass = 'identity_drift';
+        score = Math.max(0, score - 15);
+        signals.push('drift_detected');
+      }
+    }
+  }
+
+  return {
+    score: Math.min(100, Math.max(0, score)),
+    continuityClass,
+    reason: `Identity continuity: ${continuityClass} [${signals.join(', ') || 'none'}]`,
+  };
+}
+
 // ── Main Scoring ──
 
 export function scoreCandidateForSlot(
@@ -549,14 +664,27 @@ export function scoreCandidateForSlot(
     reasons.push(alignment.reason);
   }
 
-  const weighted =
+  // identityContinuity — always scored for character slots
+  const identity = scoreIdentityContinuity(image, slot, allSlotCandidates);
+  reasons.push(identity.reason);
+
+  // For non-character slots, zero out identity weight and redistribute
+  const effectiveIdentityWeight = slot.assetGroup === 'character' ? weights.identityContinuity : 0;
+  const weightSum = weights.slotMatch + weights.aspectFit + weights.verticalCompliance +
+    weights.curationQuality + weights.bindingFidelity + weights.freshness +
+    weights.primarySetAlignment + effectiveIdentityWeight;
+  const normalizer = weightSum > 0 ? 1 / weightSum : 1;
+
+  const weighted = (
     slotMatch.score * weights.slotMatch +
     aspectFit.score * weights.aspectFit +
     vdCompliance.score * weights.verticalCompliance +
     curation.score * weights.curationQuality +
     binding.score * weights.bindingFidelity +
     freshness.score * weights.freshness +
-    alignment.score * weights.primarySetAlignment;
+    alignment.score * weights.primarySetAlignment +
+    identity.score * effectiveIdentityWeight
+  ) * normalizer;
 
   const totalScore = Math.round(weighted);
 
@@ -572,10 +700,12 @@ export function scoreCandidateForSlot(
       bindingFidelity: binding.score,
       freshness: freshness.score,
       primarySetAlignment: alignment.score,
+      identityContinuity: identity.score,
     },
     complianceLevel: vdCompliance.compliance.level,
     eligibleForSelection: vdCompliance.compliance.eligibleForWinnerSelection,
     eligible: slotMatch.eligible,
+    identityContinuityClass: identity.continuityClass,
     reasons,
   };
 }

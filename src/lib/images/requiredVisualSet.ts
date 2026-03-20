@@ -177,6 +177,21 @@ function buildSlot(
   const candidates = matching.filter(i => i.curation_state === 'active' || i.curation_state === 'candidate');
   const dims = getDimensionsForShot(shotType, isPortrait);
 
+  // Identity-aware recommendation: prefer candidates generated with identity lock
+  let recommended: ProjectImage | null = primary;
+  if (!recommended && candidates.length > 0) {
+    if (isIdentity || assetGroup === 'character') {
+      // Prefer identity-locked candidates over arbitrary first
+      const lockedCandidate = candidates.find(c => {
+        const gc = (c.generation_config || {}) as Record<string, unknown>;
+        return gc.identity_locked || gc.identity_anchor_paths;
+      });
+      recommended = lockedCandidate || candidates[0];
+    } else {
+      recommended = candidates[0];
+    }
+  }
+
   return {
     key,
     assetGroup,
@@ -189,7 +204,7 @@ function buildSlot(
     filled: !!primary,
     primaryImage: primary,
     candidates,
-    recommended: primary || candidates[0] || null,
+    recommended,
     isIdentity,
   };
 }
