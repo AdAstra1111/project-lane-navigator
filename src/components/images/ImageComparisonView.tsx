@@ -106,17 +106,18 @@ export function ImageComparisonView({
   }, [ranking]);
 
   const recommended = useMemo(() => {
+    if (!analysis.length) return null;
     if (!ranking.top) return analysis[0] || null;
     return analysis.find(a => a.image.id === ranking.top!.image.id) || analysis[0] || null;
   }, [ranking, analysis]);
 
   // Summary diagnostics
   const summary = useMemo(() => {
-    const isCharacterSet = analysis.some(a => a.image.asset_group === 'character');
+    const isCharacterSet = analysis.some(a => a.image?.asset_group === 'character');
     const statuses = analysis.map(a => a.continuity.status);
     const hasDrift = statuses.includes('identity_drift');
-    const allStrong = statuses.every(s => s === 'strong_match');
-    const allNoAnchor = statuses.every(s => s === 'no_anchor_context' || s === 'unknown');
+    const allStrong = statuses.length > 0 && statuses.every(s => s === 'strong_match');
+    const allNoAnchor = statuses.length === 0 || statuses.every(s => s === 'no_anchor_context' || s === 'unknown');
 
     let continuityLabel = 'Mixed';
     let continuityColor = 'text-amber-400';
@@ -130,7 +131,7 @@ export function ImageComparisonView({
         ? 'No identity anchors available for comparison'
         : null;
 
-    return { isCharacterSet, continuityLabel, continuityColor, mainRisk, recommendedId: recommended.image.id };
+    return { isCharacterSet, continuityLabel, continuityColor, mainRisk, recommendedId: recommended?.image?.id ?? null };
   }, [analysis, recommended]);
 
   const gridCols = images.length <= 2 ? 'grid-cols-2' : images.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4';
@@ -194,12 +195,12 @@ export function ImageComparisonView({
 
               <span className="text-white/50">Recommended:</span>
               <span className="text-white/80 font-medium">
-                {recommended.image.subject || 'Candidate'} — {SHOT_TYPE_LABELS[(recommended.image.shot_type as ShotType)] || recommended.image.shot_type || 'unknown'}
+                {recommended?.image?.subject || 'Candidate'} — {SHOT_TYPE_LABELS[(recommended?.image?.shot_type as ShotType)] || recommended?.image?.shot_type || 'unknown'}
               </span>
               {ranking.topReason && (
                 <span className="text-white/40 text-[9px] italic">{ranking.topReason}</span>
               )}
-              {recommended.score != null && (
+              {recommended?.score != null && (
                 <span className="text-white/40 tabular-nums">({recommended.score.toFixed(2)})</span>
               )}
 
