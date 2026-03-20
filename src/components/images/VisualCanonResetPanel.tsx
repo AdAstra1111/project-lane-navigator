@@ -27,6 +27,7 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
+import { scoreAndSelectAllSlots, type SlotTarget, type SlotWinnerResult } from '@/lib/images/canonRebuildScoring';
 import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -447,13 +448,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     }
   }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama]);
 
-  // ── Full Canon Rebuild — one-click end-to-end pipeline ──
+  // ── Full Canon Rebuild — score-based end-to-end pipeline ──
   const REBUILD_STAGES = [
     'Resetting canon',
     'Archiving images',
     'Generating images',
-    'Approving candidates',
-    'Attaching to canon',
+    'Scoring candidates',
+    'Selecting winners',
+    'Attaching winners',
     'Building lookbook',
     'Preparing download',
     'Complete',
@@ -476,43 +478,124 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       // Stage 2: Archive confirmation
       setRebuildStage('Archiving images');
-      // resetScopedCanon already archived — brief pause for DB propagation
       await new Promise(r => setTimeout(r, 500));
       await refetchImages();
 
       // Stage 3: Generate full visual set
       setRebuildStage('Generating images');
       await handleAutoPopulate(false);
-      await refetchImages();
+      await new Promise(r => setTimeout(r, 500));
+      const postGenResult = await refetchImages();
+      const postGenImages: ProjectImage[] = (postGenResult?.data || []) as ProjectImage[];
 
-      // Stage 4: Approve all candidates
-      setRebuildStage('Approving candidates');
-      const freshImages = await refetchImages();
-      const candidates = (freshImages?.data || []).filter((i: any) => i.curation_state === 'candidate');
-      if (candidates.length > 0) {
-        await batchApproveAll(candidates);
-        await refetchImages();
+      // Stage 4: Score all candidates per slot
+      setRebuildStage('Scoring candidates');
+
+      // Build slot targets from the required visual set
+      const freshEntities = extractEntities(canonJson);
+      const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, postGenImages);
+
+      const slotTargets: SlotTarget[] = freshRequired.slots.map(s => ({
+        key: s.key,
+        assetGroup: s.assetGroup,
+        subject: s.subject,
+        shotType: s.shotType || '',
+        expectedAspectRatio: s.aspectRatio,
+        isIdentity: s.isIdentity,
+      }));
+
+      // Group candidate images by slot key
+      const imagesBySlotKey = new Map<string, ProjectImage[]>();
+      for (const slot of freshRequired.slots) {
+        imagesBySlotKey.set(slot.key, slot.candidates);
       }
 
-      // Stage 5: Attach to canon (confirm primaries)
-      setRebuildStage('Attaching to canon');
-      const postApproval = await refetchImages();
-      const activeCount = (postApproval?.data || []).filter((i: any) => i.curation_state === 'active' && i.is_primary).length;
-      toast.success(`Visual canon confirmed: ${activeCount} primary images bound`);
+      // Run deterministic scoring
+      const slotResults = scoreAndSelectAllSlots(slotTargets, imagesBySlotKey, isVerticalDrama);
+      const winners = slotResults.filter(r => r.winner !== null);
+      const winnerIds = new Set(winners.map(r => r.winner!.imageId));
 
-      // Stage 6: Build lookbook
+      console.log('[full-canon-rebuild] Scoring complete:', {
+        totalSlots: slotTargets.length,
+        slotsWithWinners: winners.length,
+        slotsWithoutWinners: slotResults.filter(r => !r.winner).length,
+        isVerticalDrama,
+        portraitFilteredOut: isVerticalDrama ? slotResults.filter(r => r.allScored.some(s => !s.isPortraitSafe && s.eligible)).length : 0,
+      });
+
+      // Stage 5: Select winners — attach ONLY scored winners
+      setRebuildStage('Selecting winners');
+
+      for (const result of slotResults) {
+        if (!result.winner) continue;
+        const winnerId = result.winner.imageId;
+
+        // Clear any existing primary in this slot
+        const slotInfo = freshRequired.slots.find(s => s.key === result.slotKey);
+        if (slotInfo) {
+          let clearQ = (supabase as any)
+            .from('project_images')
+            .update({ is_primary: false })
+            .eq('project_id', projectId)
+            .eq('is_primary', true);
+          if (slotInfo.assetGroup) clearQ = clearQ.eq('asset_group', slotInfo.assetGroup);
+          if (slotInfo.subject) clearQ = clearQ.eq('subject', slotInfo.subject);
+          if (slotInfo.shotType) clearQ = clearQ.eq('shot_type', slotInfo.shotType);
+          await clearQ;
+        }
+
+        // Promote winner to active + primary
+        await (supabase as any)
+          .from('project_images')
+          .update({
+            curation_state: 'active',
+            is_active: true,
+            is_primary: true,
+            archived_from_active_at: null,
+          })
+          .eq('id', winnerId);
+      }
+
+      // Demote non-winners to candidate (not active)
+      const allCandidateIds = postGenImages
+        .filter(i => i.curation_state === 'candidate' || i.curation_state === 'active')
+        .map(i => i.id)
+        .filter(id => !winnerIds.has(id));
+
+      if (allCandidateIds.length > 0) {
+        // Batch update in chunks of 50
+        for (let i = 0; i < allCandidateIds.length; i += 50) {
+          const chunk = allCandidateIds.slice(i, i + 50);
+          await (supabase as any)
+            .from('project_images')
+            .update({
+              curation_state: 'candidate',
+              is_active: false,
+              is_primary: false,
+            })
+            .in('id', chunk);
+        }
+      }
+
+      await refetchImages();
+
+      // Stage 6: Attach to canon
+      setRebuildStage('Attaching winners');
+      toast.success(`Canon attached: ${winners.length} winner${winners.length !== 1 ? 's' : ''} selected from ${slotTargets.length} slots`);
+
+      // Stage 7: Build lookbook
       setRebuildStage('Building lookbook');
       if (onLookbookRebuild) {
         await onLookbookRebuild();
       }
 
-      // Stage 7: Download
+      // Stage 8: Download winners only
       setRebuildStage('Preparing download');
-      await handleDownloadAll();
+      await downloadWinnersOnly(winnerIds);
 
       // Done
       setRebuildStage('Complete');
-      toast.success('Full Canon Rebuild complete');
+      toast.success('Full Canon Rebuild complete — score-selected winners attached');
     } catch (err: any) {
       console.error('[full-canon-rebuild] Error:', err);
       toast.error('Rebuild failed at stage: ' + (rebuildStage || 'unknown') + ' — ' + (err.message || 'Unknown error'));
@@ -520,7 +603,100 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       setFullRebuilding(false);
       setRebuildStage(null);
     }
-  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, batchApproveAll, onLookbookRebuild, handleDownloadAll, rebuildStage]);
+  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, rebuildStage, canonJson, projectId, isVerticalDrama]);
+
+  // ── Download winners only (not all active images) ──
+  const downloadWinnersOnly = useCallback(async (winnerIds: Set<string>) => {
+    if (winnerIds.size === 0) {
+      toast.info('No winners to download');
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      // Fetch fresh signed URLs for winner images
+      const { data: winnerImages } = await (supabase as any)
+        .from('project_images')
+        .select('*')
+        .eq('project_id', projectId)
+        .in('id', Array.from(winnerIds));
+
+      if (!winnerImages || winnerImages.length === 0) {
+        toast.info('No winner images found');
+        return;
+      }
+
+      // Get signed URLs
+      const imagesWithUrls: Array<{ id: string; storage_path: string; asset_group: string; subject: string; shot_type: string; url: string }> = [];
+      for (const img of winnerImages) {
+        if (img.storage_path) {
+          const { data: signedData } = await supabase.storage
+            .from('project-images')
+            .createSignedUrl(img.storage_path, 300);
+          if (signedData?.signedUrl) {
+            imagesWithUrls.push({
+              id: img.id,
+              storage_path: img.storage_path,
+              asset_group: img.asset_group || 'uncategorized',
+              subject: img.subject || '',
+              shot_type: img.shot_type || 'image',
+              url: signedData.signedUrl,
+            });
+          }
+        }
+      }
+
+      if (imagesWithUrls.length === 0) {
+        toast.info('No downloadable URLs for winners');
+        return;
+      }
+
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+
+      // Group by asset_group
+      const grouped = new Map<string, typeof imagesWithUrls>();
+      for (const img of imagesWithUrls) {
+        if (!grouped.has(img.asset_group)) grouped.set(img.asset_group, []);
+        grouped.get(img.asset_group)!.push(img);
+      }
+
+      let fetched = 0;
+      for (const [group, images] of grouped) {
+        const folder = zip.folder(group)!;
+        for (const img of images) {
+          try {
+            const resp = await fetch(img.url);
+            if (!resp.ok) continue;
+            const blob = await resp.blob();
+            const ext = blob.type.includes('png') ? 'png' : 'jpg';
+            const filename = `${img.subject || 'image'}_${img.shot_type}.${ext}`;
+            folder.file(filename, blob);
+            fetched++;
+          } catch {
+            console.warn(`[download-winners] Failed to fetch image ${img.id}`);
+          }
+        }
+      }
+
+      if (fetched === 0) {
+        toast.error('No images could be downloaded');
+        return;
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `canon-winners-${projectId.slice(0, 8)}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Downloaded ${fetched} winner images`);
+    } catch (err: any) {
+      toast.error('Download failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setDownloading(false);
+    }
+  }, [projectId]);
 
   if (loading || imagesLoading) {
     return (
