@@ -191,6 +191,18 @@ export default function LookBookPage() {
     }
   }, [projectId, updateSectionStatus, invalidateImageCaches]);
 
+  const handleResetSection = useCallback(async (sectionKey: CanonicalSectionKey) => {
+    const result = await resetSection(sectionKey);
+    if (result && result.archivedCount > 0) {
+      setLookBookData(null); // Force rebuild on next viewer open
+    }
+  }, [resetSection]);
+
+  const handleRegenerateClean = useCallback(async (sectionKey: CanonicalSectionKey) => {
+    await regenerateClean(sectionKey);
+    setLookBookData(null); // Force rebuild on next viewer open
+  }, [regenerateClean]);
+
   if (projectLoading || sectionsLoading) {
     return (
       <div className="flex items-center justify-center h-full">
