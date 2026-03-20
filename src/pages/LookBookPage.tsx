@@ -20,6 +20,7 @@ import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
 import { useSectionReset } from '@/hooks/useSectionReset';
+import { useLookbookAutoRebuild } from '@/hooks/useLookbookAutoRebuild';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -27,6 +28,7 @@ import type { LookBookData } from '@/lib/lookbook/types';
 import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
+import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 
 type LookbookMode = 'workspace' | 'viewer';
 
