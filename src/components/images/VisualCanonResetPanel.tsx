@@ -605,7 +605,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         );
       }
       rebuildBridge.complete();
-
+    }
     console.log('[rebuild-ui] Execution result:', {
       status: result.executionStatus,
       durationMs: result.durationMs,
