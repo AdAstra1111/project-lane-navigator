@@ -348,8 +348,8 @@ export async function generateLookBookData(
     }
   }
 
-  // 4. Resolve canonical images per section — SAME logic as workspace
-  const canonImages = await resolveAllCanonImages(projectId);
+  // 4. Resolve canonical images per section — SAME logic as workspace, now lane-aware
+  const canonImages = await resolveAllCanonImages(projectId, assignedLane || null);
 
   const coverImageUrl =
     canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||

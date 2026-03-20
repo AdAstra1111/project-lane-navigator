@@ -112,6 +112,99 @@ function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
   });
 }
 
+// ── Lane-Aware Presentation Ranking ─────────────────────────────────────────
+
+/** Shot types that are emotionally dominant / hook-forward for vertical drama */
+const VERTICAL_DRAMA_PREFERRED_SHOTS = new Set([
+  'close_up', 'medium', 'emotional_variant', 'profile', 'identity_headshot',
+  'identity_profile', 'tableau',
+]);
+
+/** Shot types that are weaker for vertical drama (landscape-native) */
+const VERTICAL_DRAMA_DEPRIORITIZED_SHOTS = new Set([
+  'wide', 'establishing', 'atmospheric', 'detail',
+]);
+
+/**
+ * Compute a presentation score for an image given the project lane and section context.
+ * Higher score = better for this lane's presentation.
+ * Only active for vertical_drama; other lanes get neutral (0) scores.
+ */
+function computeLanePresentationScore(
+  img: ProjectImage,
+  laneKey: string | null,
+  sectionKey: CanonicalSectionKey,
+): number {
+  if (!laneKey || laneKey !== 'vertical_drama') return 0;
+
+  let score = 0;
+
+  // 1. Lane compliance score from generation (if available) — strongest signal
+  if (typeof img.lane_compliance_score === 'number') {
+    // Normalize: compliance is 0-100, map to 0-30 bonus
+    score += Math.round((img.lane_compliance_score / 100) * 30);
+  }
+
+  // 2. Portrait orientation bonus (h > w = portrait-friendly)
+  if (img.width && img.height) {
+    const ratio = img.height / img.width;
+    if (ratio >= 1.3) score += 25;       // strong portrait (9:16 or taller)
+    else if (ratio >= 1.0) score += 12;  // square-ish, still ok
+    else if (ratio < 0.75) score -= 15;  // wide landscape, penalize
+  }
+
+  // 3. Shot type affinity (section-aware)
+  const shotType = img.shot_type || '';
+  if (sectionKey === 'world_locations') {
+    // World slides SHOULD have establishing/wide — don't penalize landscape here
+    // But still mildly prefer atmospheric character-in-world over empty landscape
+    if (shotType === 'atmospheric') score += 5;
+  } else {
+    // For character, key_moments, poster, themes — prefer emotional/close shots
+    if (VERTICAL_DRAMA_PREFERRED_SHOTS.has(shotType)) score += 20;
+    if (VERTICAL_DRAMA_DEPRIORITIZED_SHOTS.has(shotType)) score -= 10;
+  }
+
+  // 4. Lane tag match bonus
+  if (img.lane_key === 'vertical_drama') score += 10;
+
+  return score;
+}
+
+/**
+ * Apply lane-aware presentation ranking on top of binding-sorted images.
+ * Within each binding tier, re-sort by presentation score.
+ * This ensures bound images still rank above unbound, but within bound,
+ * the most presentation-effective images surface first.
+ */
+function applyLanePresentationRanking(
+  images: ProjectImage[],
+  laneKey: string | null,
+  sectionKey: CanonicalSectionKey,
+): ProjectImage[] {
+  if (!laneKey || laneKey !== 'vertical_drama' || images.length <= 1) return images;
+
+  return [...images].sort((a, b) => {
+    // Preserve primary-first
+    const pa = a.is_primary ? 0 : 1;
+    const pb = b.is_primary ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+
+    // Preserve binding tier
+    const ba = getBindingRank(a);
+    const bb = getBindingRank(b);
+    if (ba !== bb) return ba - bb;
+
+    // Within same tier: presentation score (higher = better)
+    const sa = computeLanePresentationScore(a, laneKey, sectionKey);
+    const sb = computeLanePresentationScore(b, laneKey, sectionKey);
+    if (sa !== sb) return sb - sa;
+
+    // Tiebreak: recency
+    return (b.created_at || '').localeCompare(a.created_at || '');
+  });
+}
+
 /**
  * CVBE Phase 2+3 — Canonical exclusion gate.
  * If ANY bound images exist, exclude unbound entirely.
@@ -170,6 +263,7 @@ async function hydrateSignedUrls(images: ProjectImage[]): Promise<void> {
 async function fetchSectionImages(
   projectId: string,
   sectionKey: CanonicalSectionKey,
+  laneKey: string | null = null,
   limit = 12,
 ): Promise<SectionImageResult> {
   const mapping = SECTION_QUERY_MAP[sectionKey];
@@ -295,14 +389,20 @@ async function fetchSectionImages(
   images = applyCanonicalExclusionGate(images);
   images = sortWithBindingPreference(images);
 
+  // ── Lane-aware presentation ranking (e.g. vertical_drama) ──
+  images = applyLanePresentationRanking(images, laneKey, sectionKey);
+
   await hydrateSignedUrls(images);
 
-  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images`,
-    images.map(i => ({
+  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images (lane=${laneKey || 'none'})`,
+    images.slice(0, 6).map(i => ({
       id: i.id,
       curation: (i as any).curation_state,
       primary: (i as any).is_primary,
       binding: (i.generation_config as any)?.canonical_binding_status || 'unknown',
+      shot_type: i.shot_type,
+      portrait: i.width && i.height ? i.height > i.width : null,
+      laneScore: computeLanePresentationScore(i, laneKey, sectionKey),
     })));
 
   return {
@@ -326,8 +426,9 @@ export interface ResolvedCanonImages {
  * Resolves all canonical lookbook section images in parallel.
  * Uses identical query logic to the workspace panels.
  * Bound images are sorted ahead of unbound within each curation tier.
+ * When laneKey is provided, applies lane-aware presentation ranking.
  */
-export async function resolveAllCanonImages(projectId: string): Promise<ResolvedCanonImages> {
+export async function resolveAllCanonImages(projectId: string, laneKey: string | null = null): Promise<ResolvedCanonImages> {
   const sections: CanonicalSectionKey[] = [
     'character_identity',
     'world_locations',
@@ -339,13 +440,13 @@ export async function resolveAllCanonImages(projectId: string): Promise<Resolved
   ];
 
   const results = await Promise.all(
-    sections.map(key => fetchSectionImages(projectId, key)),
+    sections.map(key => fetchSectionImages(projectId, key, laneKey)),
   );
 
   const map: Record<string, SectionImageResult> = {};
   for (const r of results) map[r.sectionKey] = r;
 
-  console.log('[LookBook:resolveCanonImages] summary:', Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '));
+  console.log(`[LookBook:resolveCanonImages] summary (lane=${laneKey || 'generic'}):`, Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '));
 
   return map as unknown as ResolvedCanonImages;
 }
