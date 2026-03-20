@@ -254,7 +254,7 @@ export function ImageSelectorGrid({
       {compareMode && compareImages.length === 2 && (
         <div className="grid grid-cols-2 gap-2 rounded-lg border border-primary/30 p-2 bg-muted/30">
           {compareImages.map(img => (
-            <div key={img.id} className="relative aspect-video rounded overflow-hidden">
+            <div key={img.id} className={cn('relative rounded overflow-hidden', getDisplayAspectClass(img.width, img.height))}>
               {img.signedUrl ? (
                 <img src={img.signedUrl} alt="" className="w-full h-full object-cover" />
               ) : (
