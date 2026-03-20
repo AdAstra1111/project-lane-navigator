@@ -361,6 +361,7 @@ export async function generateLookBookData(
   const atmosphereImages = canonImages.atmosphere_lighting.images;
   const textureImages = canonImages.texture_detail.images;
   const motifImages = canonImages.symbolic_motifs.images;
+  const keyMomentImages = canonImages.key_moments.images;
 
   // Build character image maps
   const charImages = canonImages.character_identity.images;
