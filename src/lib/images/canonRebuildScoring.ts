@@ -17,9 +17,10 @@
  */
 
 import type { ProjectImage } from './types';
-import { SHOT_ASPECT_RATIO, PORTRAIT_SHOT_OVERRIDE, type AspectRatio } from './requiredVisualSet';
+import { SHOT_ASPECT_RATIO, type AspectRatio } from './requiredVisualSet';
 import {
   classifyVerticalCompliance,
+  complianceGateForAttachment,
   type VerticalComplianceResult,
   type VerticalComplianceLevel,
 } from './verticalCompliance';
@@ -60,6 +61,8 @@ export interface SlotWinnerResult {
   winner: ScoredSlotCandidate | null;
   allScored: ScoredSlotCandidate[];
   noWinnerReason: string | null;
+  /** Compliance gate result for the winner (null if no winner) */
+  complianceGate: { allowed: boolean; reason: string } | null;
 }
 
 // ── Weights ──
@@ -154,10 +157,6 @@ function scoreAspectFit(image: ProjectImage, expectedAR: AspectRatio): { score: 
   return { score: 10, reason: `Aspect ratio far from ${expectedAR} (ratio: ${imageRatio.toFixed(2)})` };
 }
 
-/**
- * Score vertical compliance using the canonical classifyVerticalCompliance evaluator.
- * Returns 0-100 score AND eligibility determination.
- */
 function scoreVerticalCompliance(
   image: ProjectImage,
   slotShotType: string,
@@ -166,11 +165,10 @@ function scoreVerticalCompliance(
 ): { score: number; compliance: VerticalComplianceResult; reason: string } {
   const result = classifyVerticalCompliance(image, slotShotType, projectFormat, projectLane);
 
-  // Score mapping
   const LEVEL_SCORES: Record<VerticalComplianceLevel, number> = {
     strict_vertical_compliant: 100,
-    portrait_only: 30,       // low score — not eligible for VD winner
-    non_compliant: 0,        // blocked
+    portrait_only: 30,
+    non_compliant: 0,
   };
 
   return {
@@ -232,10 +230,6 @@ function scoreFreshness(image: ProjectImage, allImages: ProjectImage[]): { score
 
 // ── Main Scoring ──
 
-/**
- * Score a single candidate image against a target slot.
- * projectFormat and projectLane are needed for vertical compliance evaluation.
- */
 export function scoreCandidateForSlot(
   image: ProjectImage,
   slot: SlotTarget,
@@ -256,7 +250,6 @@ export function scoreCandidateForSlot(
   const aspectFit = scoreAspectFit(image, slot.expectedAspectRatio);
   reasons.push(aspectFit.reason);
 
-  // Use canonical vertical compliance evaluator
   const vdCompliance = scoreVerticalCompliance(
     image, slot.shotType,
     projectFormat || (isVerticalDrama ? 'vertical-drama' : 'film'),
@@ -308,6 +301,9 @@ export function scoreCandidateForSlot(
  * For vertical drama: NON-COMPLIANT IMAGES ARE HARD EXCLUDED.
  * If no compliant candidate exists, the slot remains UNRESOLVED.
  * There is NO fallback to landscape/non-compliant images.
+ *
+ * After selecting a winner, runs the compliance attachment gate
+ * as a final verification before confirming eligibility.
  */
 export function selectSlotWinner(
   candidates: ProjectImage[],
@@ -317,7 +313,7 @@ export function selectSlotWinner(
   projectLane = '',
 ): SlotWinnerResult {
   if (candidates.length === 0) {
-    return { slotKey: slot.key, winner: null, allScored: [], noWinnerReason: 'No candidates' };
+    return { slotKey: slot.key, winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null };
   }
 
   const scored = candidates
@@ -325,7 +321,7 @@ export function selectSlotWinner(
     .filter(s => s.eligible);
 
   if (scored.length === 0) {
-    return { slotKey: slot.key, winner: null, allScored: [], noWinnerReason: 'No eligible candidates for this slot type' };
+    return { slotKey: slot.key, winner: null, allScored: [], noWinnerReason: 'No eligible candidates for this slot type', complianceGate: null };
   }
 
   // ── VERTICAL DRAMA HARD FILTER — no fallback ──
@@ -336,11 +332,13 @@ export function selectSlotWinner(
       eligiblePool = compliantOnly;
     } else {
       // HARD EXCLUSION: no compliant images → slot unresolved
+      const rejectedLevels = scored.map(s => s.complianceLevel);
       return {
         slotKey: slot.key,
         winner: null,
         allScored: scored.sort((a, b) => b.totalScore - a.totalScore),
-        noWinnerReason: `No vertical-compliant candidates (${scored.length} scored but all ${scored.map(s => s.complianceLevel).join(', ')})`,
+        noWinnerReason: `No vertical-compliant candidates (${scored.length} scored: ${rejectedLevels.join(', ')})`,
+        complianceGate: { allowed: false, reason: 'All candidates failed strict vertical compliance' },
       };
     }
   }
@@ -351,11 +349,34 @@ export function selectSlotWinner(
     return a.imageId.localeCompare(b.imageId);
   });
 
+  const winner = eligiblePool[0];
+
+  // ── Final compliance gate before confirming winner ──
+  const winnerImage = candidates.find(c => c.id === winner.imageId);
+  let gate: { allowed: boolean; reason: string } | null = null;
+  if (winnerImage && isVerticalDrama) {
+    const gateResult = complianceGateForAttachment(
+      winnerImage, slot.shotType, projectFormat, projectLane,
+    );
+    gate = { allowed: gateResult.allowed, reason: gateResult.reason };
+    if (!gateResult.allowed) {
+      // Gate blocked — slot unresolved
+      return {
+        slotKey: slot.key,
+        winner: null,
+        allScored: scored.sort((a, b) => b.totalScore - a.totalScore),
+        noWinnerReason: `Winner blocked by compliance gate: ${gateResult.reason}`,
+        complianceGate: gate,
+      };
+    }
+  }
+
   return {
     slotKey: slot.key,
-    winner: eligiblePool[0],
+    winner,
     allScored: scored.sort((a, b) => b.totalScore - a.totalScore),
     noWinnerReason: null,
+    complianceGate: gate,
   };
 }
 

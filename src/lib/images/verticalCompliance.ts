@@ -7,14 +7,16 @@
  *   - portrait_only: portrait but not 9:16 (h/w ≥ 1.0 but < 1.65)
  *   - non_compliant: landscape or square-ish (h/w < 1.0)
  *
- * Used by: scoring, selection, attachment, download, UI badges.
+ * STRICT RULE: For non-identity VD slots, ONLY strict_vertical_compliant wins.
+ * No inference-based passing. No "assumed compliant". Measured truth only.
+ *
+ * Used by: scoring, selection, attachment, download, UI badges, rebuild reporting.
  */
 
-import { SHOT_ASPECT_RATIO, PORTRAIT_SHOT_OVERRIDE, type AspectRatio } from './requiredVisualSet';
+import { SHOT_ASPECT_RATIO, type AspectRatio } from './requiredVisualSet';
 import { isVerticalDrama as checkVerticalDrama } from '@/lib/format-helpers';
 
 // ── Strict Vertical Aspect Contract ──────────────────────────────────────────
-// For vertical-drama projects, which slots MUST be 9:16 vs allowed exceptions.
 
 /**
  * Identity slots that are allowed controlled portrait exceptions.
@@ -35,6 +37,8 @@ export const VERTICAL_STRICT_ASPECT: AspectRatio = '9:16';
 
 export type VerticalComplianceLevel = 'strict_vertical_compliant' | 'portrait_only' | 'non_compliant';
 
+export type DimensionSource = 'measured' | 'requested_fallback' | 'inferred' | 'unknown';
+
 export interface VerticalComplianceResult {
   /** The compliance classification */
   level: VerticalComplianceLevel;
@@ -42,12 +46,14 @@ export interface VerticalComplianceResult {
   eligibleForWinnerSelection: boolean;
   /** Expected aspect ratio for this slot */
   expectedAspectRatio: AspectRatio;
-  /** Actual aspect ratio (computed from pixels, or inferred from shot_type) */
+  /** Actual aspect ratio (computed from pixels) */
   actualAspectRatio: string;
   /** h/w ratio if pixels available */
   actualRatio: number | null;
   /** Whether this is an identity exception slot */
   isIdentityException: boolean;
+  /** Whether dimensions are from measurement or inference */
+  dimensionSource: DimensionSource;
   /** Human-readable reason */
   reason: string;
 }
@@ -58,6 +64,9 @@ export interface VerticalComplianceResult {
  * Classify an image's vertical compliance for a specific slot.
  * This is THE canonical evaluator — all scoring, selection, attachment,
  * and download logic must use this function.
+ *
+ * STRICT POLICY: For non-identity VD slots, images without measured
+ * dimensions are treated as NON-COMPLIANT. No inference-based passing.
  */
 export function classifyVerticalCompliance(
   image: {
@@ -87,6 +96,7 @@ export function classifyVerticalCompliance(
       actualAspectRatio: 'n/a (non-VD)',
       actualRatio: null,
       isIdentityException: false,
+      dimensionSource: 'unknown',
       reason: 'Non-vertical-drama project — all aspects valid',
     };
   }
@@ -94,7 +104,7 @@ export function classifyVerticalCompliance(
   const w = image.width;
   const h = image.height;
 
-  // ── Pixel-based classification (authoritative when available) ──
+  // ── Pixel-based classification (ONLY authoritative source) ──
   if (w && h && w > 0 && h > 0) {
     const ratio = h / w;
     const actualAR = `${w}:${h} (${ratio.toFixed(2)})`;
@@ -112,6 +122,7 @@ export function classifyVerticalCompliance(
           actualAspectRatio: actualAR,
           actualRatio: ratio,
           isIdentityException: true,
+          dimensionSource: 'measured',
           reason: `Identity exception slot "${slotShotType}" — matches expected ${expectedAspectRatio}`,
         };
       }
@@ -119,18 +130,18 @@ export function classifyVerticalCompliance(
       if (ratio >= 1.0) {
         return {
           level: 'portrait_only',
-          eligibleForWinnerSelection: true,
+          eligibleForWinnerSelection: true, // identity exceptions allow portrait
           expectedAspectRatio,
           actualAspectRatio: actualAR,
           actualRatio: ratio,
           isIdentityException: true,
+          dimensionSource: 'measured',
           reason: `Identity exception slot — portrait but not exact ${expectedAspectRatio}`,
         };
       }
     }
 
-    // For strict 9:16 slots
-    // 9:16 = h/w ratio of 1.778
+    // For strict 9:16 slots — 9:16 = h/w ratio of 1.778
     if (ratio >= 1.65) {
       return {
         level: 'strict_vertical_compliant',
@@ -139,6 +150,7 @@ export function classifyVerticalCompliance(
         actualAspectRatio: actualAR,
         actualRatio: ratio,
         isIdentityException,
+        dimensionSource: 'measured',
         reason: `True vertical (h/w=${ratio.toFixed(2)} ≥ 1.65)`,
       };
     }
@@ -151,6 +163,7 @@ export function classifyVerticalCompliance(
         actualAspectRatio: actualAR,
         actualRatio: ratio,
         isIdentityException,
+        dimensionSource: 'measured',
         reason: `Portrait but not strict vertical (h/w=${ratio.toFixed(2)} < 1.65) — NOT eligible in VD`,
       };
     }
@@ -162,79 +175,41 @@ export function classifyVerticalCompliance(
       actualAspectRatio: actualAR,
       actualRatio: ratio,
       isIdentityException,
+      dimensionSource: 'measured',
       reason: `Landscape (h/w=${ratio.toFixed(2)}) — NOT eligible in VD`,
     };
   }
 
-  // ── No pixel data: infer from shot_type + generation metadata ──
-  const shotType = (image.shot_type || '').toLowerCase();
-
-  // If this is an identity exception slot and the shot_type matches
-  if (isIdentityException && shotType === slotShotType) {
-    return {
-      level: 'strict_vertical_compliant',
-      eligibleForWinnerSelection: true,
-      expectedAspectRatio,
-      actualAspectRatio: `inferred:${shotType}`,
-      actualRatio: null,
-      isIdentityException: true,
-      reason: `Identity exception — shot_type "${shotType}" matches slot, assumed compliant`,
-    };
-  }
-
-  // Check if the shot type was portrait-overridden during generation
-  const overriddenAR = PORTRAIT_SHOT_OVERRIDE[shotType];
-  if (overriddenAR === '9:16') {
-    return {
-      level: 'strict_vertical_compliant',
-      eligibleForWinnerSelection: true,
-      expectedAspectRatio,
-      actualAspectRatio: `inferred:9:16 (override)`,
-      actualRatio: null,
-      isIdentityException,
-      reason: `Shot type "${shotType}" has 9:16 portrait override — assumed compliant`,
-    };
-  }
-
-  // Shot types that are natively portrait (canonical AR has h > w)
-  const canonAR = SHOT_ASPECT_RATIO[shotType];
-  if (canonAR) {
-    const [cw, ch] = canonAR.split(':').map(Number);
-    if (ch / cw >= 1.65) {
+  // ── No pixel data: STRICT POLICY — NOT eligible for VD winner selection ──
+  // We cannot verify compliance without measured dimensions.
+  // Identity exception slots with matching shot_type get a narrow pass
+  // since their framing is known and controlled, but strict slots do not.
+  if (isIdentityException) {
+    const shotType = (image.shot_type || '').toLowerCase();
+    if (shotType === slotShotType) {
       return {
-        level: 'strict_vertical_compliant',
-        eligibleForWinnerSelection: true,
+        level: 'portrait_only',
+        eligibleForWinnerSelection: true, // identity exception — trusted shot type
         expectedAspectRatio,
-        actualAspectRatio: `inferred:${canonAR}`,
+        actualAspectRatio: `inferred:${shotType}`,
         actualRatio: null,
-        isIdentityException,
-        reason: `Shot type "${shotType}" canonical AR ${canonAR} is strict vertical`,
+        isIdentityException: true,
+        dimensionSource: 'inferred',
+        reason: `Identity exception — shot_type "${shotType}" matches slot, no dims but identity allowed`,
       };
     }
   }
 
-  // Check if generation purpose suggests identity (always has portrait framing)
-  if (image.generation_purpose === 'character_identity' && isIdentityException) {
-    return {
-      level: 'strict_vertical_compliant',
-      eligibleForWinnerSelection: true,
-      expectedAspectRatio,
-      actualAspectRatio: 'inferred:identity',
-      actualRatio: null,
-      isIdentityException: true,
-      reason: 'Identity generation purpose in identity slot — assumed compliant',
-    };
-  }
-
-  // Fallback: unknown — NOT eligible for vertical drama winner selection
+  // No measured dimensions + strict VD slot = NOT eligible
   return {
     level: 'non_compliant',
     eligibleForWinnerSelection: false,
     expectedAspectRatio,
-    actualAspectRatio: 'unknown',
+    actualAspectRatio: 'unknown (no measured dimensions)',
     actualRatio: null,
     isIdentityException,
-    reason: 'No dimensions and no reliable vertical inference — NOT eligible in VD',
+    dimensionSource: 'unknown',
+    reason: 'No measured dimensions available — NOT eligible for VD winner selection (strict policy)',
   };
 }
 
@@ -255,8 +230,6 @@ export function getSlotRequiredAspect(slotShotType: string, isVD: boolean): Aspe
 /** Get the required pixel dimensions for a slot in vertical-drama mode */
 export function getSlotRequiredDimensions(slotShotType: string, isVD: boolean): { width: number; height: number; aspectRatio: AspectRatio } {
   const ar = getSlotRequiredAspect(slotShotType, isVD);
-  const [aw, ah] = ar.split(':').map(Number);
-  // For 9:16, we want 720x1280. For others, use the standard mapping.
   const DIMS: Record<string, { width: number; height: number }> = {
     '1:1': { width: 1024, height: 1024 },
     '2:3': { width: 832, height: 1248 },
@@ -267,4 +240,22 @@ export function getSlotRequiredDimensions(slotShotType: string, isVD: boolean): 
     '16:9': { width: 1280, height: 720 },
   };
   return { ...(DIMS[ar] || { width: 720, height: 1280 }), aspectRatio: ar };
+}
+
+/**
+ * Compliance gate for attachment — call before setting is_primary.
+ * Returns { allowed, reason }. If not allowed, do NOT attach.
+ */
+export function complianceGateForAttachment(
+  image: { width?: number | null; height?: number | null; shot_type?: string | null; generation_purpose?: string | null },
+  slotShotType: string,
+  projectFormat: string,
+  projectLane?: string,
+): { allowed: boolean; reason: string; compliance: VerticalComplianceResult } {
+  const compliance = classifyVerticalCompliance(image, slotShotType, projectFormat, projectLane);
+  return {
+    allowed: compliance.eligibleForWinnerSelection,
+    reason: compliance.reason,
+    compliance,
+  };
 }
