@@ -141,6 +141,63 @@ async function fetchSectionImages(
     images = (fallbackRows || []) as ProjectImage[];
   }
 
+  // Fallback 2: if still empty, try active asset_group without strategy_key filter
+  if (images.length === 0 && mapping.asset_groups.length > 0) {
+    let aq = (supabase as any)
+      .from('project_images')
+      .select('*')
+      .eq('project_id', projectId)
+      .eq('curation_state', 'active')
+      .in('asset_group', mapping.asset_groups);
+
+    if (shotFilter?.length) {
+      aq = aq.in('shot_type', shotFilter);
+    }
+
+    aq = aq
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    const { data: assetRows } = await aq;
+    if (assetRows?.length) {
+      console.log(`[LookBook:resolveCanonImages] ${sectionKey}: using asset_group-only fallback (${assetRows.length} images)`);
+      images = assetRows as ProjectImage[];
+    }
+  }
+
+  // Fallback 3: candidate images (user may not have promoted to active yet)
+  if (images.length === 0) {
+    let cq = (supabase as any)
+      .from('project_images')
+      .select('*')
+      .eq('project_id', projectId)
+      .eq('curation_state', 'candidate');
+
+    if (mapping.strategy_keys.length > 0) {
+      cq = cq.in('strategy_key', mapping.strategy_keys);
+    } else if (mapping.fallback_roles?.length) {
+      cq = cq.in('role', mapping.fallback_roles);
+    }
+    if (mapping.asset_groups.length > 0) {
+      cq = cq.in('asset_group', mapping.asset_groups);
+    }
+    if (shotFilter?.length) {
+      cq = cq.in('shot_type', shotFilter);
+    }
+
+    cq = cq
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    const { data: candidateRows } = await cq;
+    if (candidateRows?.length) {
+      console.warn(`[LookBook:resolveCanonImages] ${sectionKey}: using candidate fallback (${candidateRows.length} images — promote to active for best results)`);
+      images = candidateRows as ProjectImage[];
+    }
+  }
+
   // Last resort: try is_active=true (legacy) if still empty
   if (images.length === 0) {
     let lq = (supabase as any)
@@ -175,7 +232,8 @@ async function fetchSectionImages(
 
   await hydrateSignedUrls(images);
 
-  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images`, images.map(i => i.id));
+  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images`,
+    images.map(i => ({ id: i.id, curation: (i as any).curation_state, primary: (i as any).is_primary })));
 
   return {
     sectionKey,
