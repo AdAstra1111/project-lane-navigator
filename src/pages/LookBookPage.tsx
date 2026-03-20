@@ -7,8 +7,9 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle,
 } from 'lucide-react';
+import { useLookbookStaleness } from '@/hooks/useLookbookStaleness';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
