@@ -187,6 +187,7 @@ export default function LookBookPage() {
     });
   }, []);
 
+  const handleExportPDF = useCallback(async () => {
     if (!lookBookData || !projectId) return;
     setExporting(true);
     try {
