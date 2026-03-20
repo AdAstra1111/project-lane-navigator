@@ -655,6 +655,12 @@ serve(async (req) => {
       }
     }
 
+    // ── CANONICAL VISUAL BINDING: Auto-resolve character, location, world ──
+    const canonicalBindings = await resolveCanonicalBindings(
+      supabase, project_id, section, canon?.canon_json || null,
+      character_name, location_id, location_name,
+    );
+
     const stylePolicy = resolveStylePolicy(project.format || "film", project.genres || []);
     const imageRole = SECTION_TO_ROLE[section] as ImageRole;
     const styleMode = stylePolicy.mode as ImageStyleMode;
@@ -674,6 +680,9 @@ serve(async (req) => {
       characterName: character_name,
       locationName: location_name,
       locationDescription: location_description,
+      worldBindingBlock: canonicalBindings.worldPromptBlock,
+      locationBindingBlock: canonicalBindings.locationPromptBlock,
+      characterBindingBlock: canonicalBindings.characterPromptBlock,
     };
 
     // ── Resolve identity anchor signed URLs if provided ──
