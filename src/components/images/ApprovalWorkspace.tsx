@@ -210,6 +210,15 @@ export function ApprovalWorkspace({
     }
   }, [onApprove, projectId, competitionGroups, persistSlotRanking]);
 
+  const toggleCompareSelect = useCallback((img: ProjectImage) => {
+    setSelectedForCompare(prev => {
+      const exists = prev.find(i => i.id === img.id);
+      if (exists) return prev.filter(i => i.id !== img.id);
+      if (prev.length >= 4) return [...prev.slice(1), img];
+      return [...prev, img];
+    });
+  }, []);
+
   const openComparison = useCallback(() => {
     if (selectedForCompare.length >= 2) setShowComparison(true);
   }, [selectedForCompare]);
