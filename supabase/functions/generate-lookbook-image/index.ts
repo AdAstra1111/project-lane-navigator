@@ -689,6 +689,10 @@ serve(async (req) => {
       identity_traits_block = null,
       identity_signature_block = null,
       forced_shot_type = null,
+      // ── VERTICAL COMPLIANCE: explicit aspect ratio from client ──
+      width: requestedWidth = null,
+      height: requestedHeight = null,
+      aspect_ratio: requestedAspectRatio = null,
     } = body as {
       project_id: string;
       section: LookbookSection;
@@ -714,6 +718,9 @@ serve(async (req) => {
       identity_traits_block?: string | null;
       identity_signature_block?: string | null;
       forced_shot_type?: string | null;
+      width?: number | null;
+      height?: number | null;
+      aspect_ratio?: string | null;
     };
 
     // IEL: location_binding_write_enforcement — warn if world image without canon location_id
