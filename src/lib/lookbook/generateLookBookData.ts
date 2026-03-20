@@ -567,16 +567,20 @@ export async function generateLookBookData(
     companyLogoUrl: branding.companyLogoUrl || null,
   });
 
-  // Debug provenance
+  // Debug provenance — strict deck mode audit
+  const unresolvedSlides = slides.filter(s => s._has_unresolved);
   const provenanceSummary = slides
     .filter(s => s._debug_image_ids?.length)
     .map(s => `${s.type}: ${s._debug_image_ids!.length} images`)
     .join(', ');
   console.log('[LookBook] ✓ generation complete — slides:', slides.length, '| images:', provenanceSummary);
+  if (isVD && unresolvedSlides.length > 0) {
+    console.warn(`[LookBook] ⚠ STRICT VD: ${unresolvedSlides.length} slides have unresolved image slots:`,
+      unresolvedSlides.map(s => s.type).join(', '));
+  }
 
-  // Determine deck format — vertical-drama format OR vertical_drama lane → portrait
-  const deckFormat = isVerticalDrama(format, assignedLane) ? 'portrait' as const : 'landscape' as const;
-  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'}, format=${format})`);
+  const deckFormat = isVD ? 'portrait' as const : 'landscape' as const;
+  console.log(`[LookBook] ✓ deck format: ${deckFormat} (strictMode=${isVD}, lane=${assignedLane || 'none'}, format=${format})`);
 
   return {
     projectId,
