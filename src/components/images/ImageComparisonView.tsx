@@ -351,7 +351,34 @@ function ComparisonCell({
           </p>
         )}
 
-        {/* Row 4: actions */}
+        {/* Row 4: visual similarity */}
+        {visualSimilarity?.isActionable && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className={cn('text-[8px] font-medium', getSimilarityColor(visualSimilarity.compositeScore))}>
+              {getSimilarityLabel(visualSimilarity.compositeScore)}
+            </span>
+            <span className="text-[7px] text-white/30 tabular-nums">
+              ({visualSimilarity.compositeScore})
+            </span>
+            {visualSimilarity.dimensions.face.confidence !== 'unavailable' && (
+              <span className="text-[7px] text-white/25" title={visualSimilarity.dimensions.face.reason}>
+                Face: {visualSimilarity.dimensions.face.score}
+              </span>
+            )}
+            {visualSimilarity.dimensions.hair.confidence !== 'unavailable' && (
+              <span className="text-[7px] text-white/25" title={visualSimilarity.dimensions.hair.reason}>
+                Hair: {visualSimilarity.dimensions.hair.score}
+              </span>
+            )}
+            {visualSimilarity.dimensions.age.confidence !== 'unavailable' && (
+              <span className="text-[7px] text-white/25" title={visualSimilarity.dimensions.age.reason}>
+                Age: {visualSimilarity.dimensions.age.score}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Row 5: actions */}
         <div className="flex items-center gap-1">
           {onSetPrimary && (
             <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-0.5 text-white/70 hover:text-white hover:bg-white/10 px-1.5"
