@@ -303,7 +303,7 @@ export function classifyVerticalDramaForBrowsing(
   const h = image.height;
 
   if (!w || !h || w <= 0 || h <= 0) {
-    return { label: 'VD ?', compliant: false, level: 'non_compliant' };
+    return { label: 'VD ?', compliant: false, level: 'unknown_unmeasured' };
   }
 
   const ratio = h / w;
@@ -313,8 +313,13 @@ export function classifyVerticalDramaForBrowsing(
     return { label: '✓ VD', compliant: true, level: 'strict_vertical_compliant' };
   }
 
+  // Square — explicitly not portrait
+  if (Math.abs(ratio - 1.0) < 0.05) {
+    return { label: '□ VD', compliant: false, level: 'square' };
+  }
+
   // Portrait but not strict vertical
-  if (ratio >= 1.0) {
+  if (ratio > 1.0) {
     return { label: '~ VD', compliant: false, level: 'portrait_only' };
   }
 
