@@ -54,7 +54,7 @@ export type ClarificationStatus = 'resolved' | 'partial' | 'missing';
 export interface ClarificationAnswer {
   text: string;
   confidence: 'high' | 'medium' | 'low';
-  basis: 'direct_evidence' | 'inferred_context' | 'persistent_marker' | 'transient_state' | 'canon';
+  basis: 'direct_evidence' | 'inferred_context' | 'persistent_marker' | 'transient_state' | 'canon' | 'descriptor_match';
 }
 
 export interface MissingClarification {
