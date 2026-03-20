@@ -270,6 +270,15 @@ export async function executeCanonRebuild(
   let newlyGeneratedCount = 0;
 
   try {
+    // ── DNA Preflight: Strengthen canonical identity state before rebuild ──
+    console.log('[rebuild-executor] Running DNA preflight...');
+    try {
+      const preflightResult = await runDnaPreflightForRebuild(projectId, canonJson);
+      console.log(`[rebuild-executor] DNA preflight: ${preflightResult.charactersProcessed} chars, ${preflightResult.charactersPersisted} persisted`);
+    } catch (e: any) {
+      // Non-fatal — rebuild continues with existing DNA state
+      console.warn('[rebuild-executor] DNA preflight failed (non-fatal):', e.message);
+    }
     // ── Phase 1: Pre-generation analysis ──
     let preGenImages: ProjectImage[] = [];
 
