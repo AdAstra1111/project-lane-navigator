@@ -540,11 +540,16 @@ export async function generateLookBookData(
     .join(', ');
   console.log('[LookBook] ✓ generation complete — slides:', slides.length, '| images:', provenanceSummary);
 
+  // Determine deck format from lane
+  const deckFormat = assignedLane === 'vertical_drama' ? 'portrait' as const : 'landscape' as const;
+  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'})`);
+
   return {
     projectId,
     projectTitle: title,
     identity,
     slides,
+    deckFormat,
     generatedAt: new Date().toISOString(),
     writerCredit,
     companyName,

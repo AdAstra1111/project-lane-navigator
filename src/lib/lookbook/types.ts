@@ -1,6 +1,6 @@
 /**
  * Look Book Layout Schema — Single source of truth for viewer + PDF export.
- * Each slide is a deterministic frame at 1920×1080.
+ * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
  */
 
 export type SlideType =
@@ -15,6 +15,8 @@ export type SlideType =
   | 'comparables'
   | 'creative_statement'
   | 'closing';
+
+export type DeckFormat = 'landscape' | 'portrait';
 
 export interface LookBookColorSystem {
   /** Primary background — deep, immersive */
@@ -99,6 +101,8 @@ export interface LookBookData {
   identity: LookBookVisualIdentity;
   /** Ordered slides */
   slides: SlideContent[];
+  /** Deck format — portrait for vertical drama, landscape for everything else */
+  deckFormat: DeckFormat;
   /** Metadata */
   generatedAt: string;
   writerCredit: string;
@@ -106,7 +110,17 @@ export interface LookBookData {
   companyLogoUrl: string | null;
 }
 
-/** Slide dimensions — fixed resolution, scaled to fit */
+/** Slide dimensions — landscape (default) */
 export const SLIDE_WIDTH = 1920;
 export const SLIDE_HEIGHT = 1080;
 export const SLIDE_ASPECT = SLIDE_WIDTH / SLIDE_HEIGHT;
+
+/** Slide dimensions — portrait (vertical drama) */
+export const SLIDE_WIDTH_PORTRAIT = 1080;
+export const SLIDE_HEIGHT_PORTRAIT = 1920;
+
+/** Resolve slide dimensions by deck format */
+export function getSlideDimensions(format: DeckFormat): { width: number; height: number } {
+  if (format === 'portrait') return { width: SLIDE_WIDTH_PORTRAIT, height: SLIDE_HEIGHT_PORTRAIT };
+  return { width: SLIDE_WIDTH, height: SLIDE_HEIGHT };
+}
