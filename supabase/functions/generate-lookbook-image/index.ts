@@ -544,7 +544,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `- ${driftExclusions}`,
     `- Must look indistinguishable from a still frame from a theatrically released film`,
     ``,
-    `TECHNICAL: 16:9 landscape. Premium cinematic quality. Anamorphic lens characteristics.`,
+    `TECHNICAL: Premium cinematic quality. Anamorphic lens characteristics.`,
   ].join("\n");
 }
 
@@ -603,6 +603,8 @@ async function generateImage(
   model: string,
   gatewayUrl: string,
   referenceImageUrls?: string[],
+  _requestedWidth?: number,
+  _requestedHeight?: number,
 ): Promise<ProviderImageResult> {
   const content: Array<Record<string, unknown>> = [];
   if (referenceImageUrls?.length) {
@@ -626,6 +628,45 @@ async function generateImage(
     throw new Error(`AI gateway error [${resp.status}]: ${errText}`);
   }
   return extractImageFromResponse(await resp.json());
+}
+
+/**
+ * Measure actual image dimensions from raw PNG/JPEG bytes.
+ * Returns { width, height } or null if unreadable.
+ */
+function measureImageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  // PNG: bytes 16-19 = width, 20-23 = height (big-endian uint32)
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+    if (bytes.length < 24) return null;
+    const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+    const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+    if (width > 0 && height > 0 && width < 20000 && height < 20000) return { width, height };
+  }
+  // JPEG: scan for SOF0 (0xFFC0) or SOF2 (0xFFC2) marker
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8) {
+    let offset = 2;
+    while (offset < bytes.length - 8) {
+      if (bytes[offset] !== 0xFF) { offset++; continue; }
+      const marker = bytes[offset + 1];
+      if (marker === 0xC0 || marker === 0xC2) {
+        const height = (bytes[offset + 5] << 8) | bytes[offset + 6];
+        const width = (bytes[offset + 7] << 8) | bytes[offset + 8];
+        if (width > 0 && height > 0 && width < 20000 && height < 20000) return { width, height };
+      }
+      const segLen = (bytes[offset + 2] << 8) | bytes[offset + 3];
+      offset += 2 + segLen;
+    }
+  }
+  // WebP: RIFF....WEBPVP8 header
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) {
+    // VP8 lossy: width at offset 26, height at 28 (little-endian uint16)
+    if (bytes.length >= 30 && bytes[12] === 0x56 && bytes[13] === 0x50 && bytes[14] === 0x38 && bytes[15] === 0x20) {
+      const width = (bytes[26] | (bytes[27] << 8)) & 0x3FFF;
+      const height = (bytes[28] | (bytes[29] << 8)) & 0x3FFF;
+      if (width > 0 && height > 0) return { width, height };
+    }
+  }
+  return null;
 }
 
 // ── Role mapping ─────────────────────────────────────────────────────────────
@@ -940,7 +981,21 @@ serve(async (req) => {
 
       // ── VERTICAL COMPLIANCE: Inject strict aspect instruction into prompt ──
       if (isVerticalDramaProject && !isIdentityShot) {
-        prompt = `[MANDATORY ASPECT RATIO: 9:16 PORTRAIT VERTICAL]\nThis image MUST be composed in strict 9:16 vertical/portrait orientation. Frame all subjects vertically. The image height must be significantly taller than its width. Mobile-native vertical framing is REQUIRED.\n\n${prompt}`;
+        prompt = `[MANDATORY ASPECT RATIO: 9:16 PORTRAIT VERTICAL — NATIVE PHONE-SCREEN COMPOSITION]
+This image MUST be composed as a native 9:16 vertical/portrait image for mobile phone screens.
+
+FRAMING RULES:
+- The image height must be significantly taller than its width (ratio ≈ 1.78:1 height-to-width)
+- Frame all subjects vertically — tall compositions, NOT wide/landscape staging
+- Subject should fill the vertical frame naturally
+- Use vertical depth (foreground-to-background along a vertical axis)
+- Mobile-native portrait framing is MANDATORY
+- Do NOT compose a landscape/widescreen image
+- Do NOT use letterboxing, pillarboxing, or cinematic widescreen framing
+- Do NOT create a square image
+- Think of this as a phone wallpaper or Instagram Story frame
+
+\n${prompt}`;
       } else if (isVerticalDramaProject && isIdentityShot) {
         // Identity shots get their specific aspect
         const identityAspectMap: Record<string, string> = {
@@ -1015,7 +1070,7 @@ serve(async (req) => {
       const refsForThisShot = (identityLockUsed && assetGroup === "character") ? identityReferenceUrls : [];
 
       try {
-        const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl, refsForThisShot.length > 0 ? refsForThisShot : undefined);
+        const imageResult = await generateImage(LOVABLE_API_KEY, prompt, genConfig.model, genConfig.gatewayUrl, refsForThisShot.length > 0 ? refsForThisShot : undefined, effectiveWidth, effectiveHeight);
 
         const identitySegment = identity_mode ? '-identity' : '';
         const stateSegment = state_key ? `-${state_key}` : '';
@@ -1028,10 +1083,22 @@ serve(async (req) => {
           });
         if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
-        // ── VERTICAL COMPLIANCE: Store expected dimensions on image record ──
-        // This ensures scoring/compliance can use pixel data even before image analysis
-        const storedWidth = effectiveWidth;
-        const storedHeight = effectiveHeight;
+        // ── VERTICAL COMPLIANCE: Measure ACTUAL output dimensions, not requested ──
+        const measuredDims = measureImageDimensions(imageResult.rawBytes);
+        const storedWidth = measuredDims?.width ?? effectiveWidth;
+        const storedHeight = measuredDims?.height ?? effectiveHeight;
+        const dimsSource = measuredDims ? 'measured' : 'requested_fallback';
+        
+        // Check if actual output matches requested aspect ratio
+        const actualRatio = storedWidth > 0 ? storedHeight / storedWidth : 0;
+        const requestedRatio = effectiveWidth > 0 ? effectiveHeight / effectiveWidth : 0;
+        const aspectDrift = Math.abs(actualRatio - requestedRatio);
+        const aspectCompliant = aspectDrift < 0.15;
+        
+        if (!aspectCompliant && isVerticalDramaProject) {
+          console.warn(`[vertical-compliance] ASPECT DRIFT: requested ${effectiveWidth}x${effectiveHeight} (ratio=${requestedRatio.toFixed(2)}), got ${storedWidth}x${storedHeight} (ratio=${actualRatio.toFixed(2)}), drift=${aspectDrift.toFixed(2)}`);
+        }
+        console.log(`[vertical-compliance] dims_source=${dimsSource} actual=${storedWidth}x${storedHeight} requested=${effectiveWidth}x${effectiveHeight} compliant=${aspectCompliant}`);
 
         const { data: imgRecord, error: insertErr } = await supabase
           .from("project_images")
@@ -1091,8 +1158,13 @@ serve(async (req) => {
               world_binding_era: canonicalBindings.world.era || null,
               // ── VERTICAL COMPLIANCE: audit trail ──
               requested_aspect_ratio: effectiveAspect,
-              requested_width: storedWidth,
-              requested_height: storedHeight,
+              requested_width: effectiveWidth,
+              requested_height: effectiveHeight,
+              actual_width: storedWidth,
+              actual_height: storedHeight,
+              dims_source: dimsSource,
+              aspect_compliant: aspectCompliant,
+              aspect_drift: aspectDrift,
               vertical_drama_project: isVerticalDramaProject,
             },
             asset_group: assetGroup,
