@@ -54,6 +54,7 @@ const SECTION_QUERY_MAP: Record<CanonicalSectionKey, {
 const SECTION_SHOT_FILTER: Partial<Record<CanonicalSectionKey, string[]>> = {
   atmosphere_lighting: ['atmospheric', 'time_variant', 'lighting_ref'],
   texture_detail: ['texture_ref', 'detail', 'composition_ref', 'color_ref'],
+  key_moments: ['tableau', 'medium', 'close_up', 'wide'],
 };
 
 const IMAGE_STALE_TIME = 20 * 60 * 1000;
