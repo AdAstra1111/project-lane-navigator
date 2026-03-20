@@ -610,6 +610,7 @@ export async function generateLookBookData(
   if (comps.length > 0) {
     slides.push({
       type: 'comparables',
+      slide_id: makeSlideId('comparables'),
       title: 'Comparables',
       comparables: comps,
     });
