@@ -172,7 +172,7 @@ export default function LookBookPage() {
           return {
             ...slide,
             layoutFamilyOverride: null,
-            layoutFamilyOverrideSource: null as const,
+            layoutFamilyOverrideSource: null,
             layoutFamilyEffective: slide.layoutFamily || 'landscape_standard',
           };
         }
