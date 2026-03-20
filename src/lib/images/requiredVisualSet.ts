@@ -215,6 +215,7 @@ export function resolveRequiredVisualSet(
         true, existingImages,
         i => i.asset_group === 'character' && i.subject === char.name &&
           i.shot_type === shotType && i.generation_purpose === 'character_identity',
+        isPortrait,
       ));
     }
 
@@ -227,6 +228,7 @@ export function resolveRequiredVisualSet(
         false, existingImages,
         i => i.asset_group === 'character' && i.subject === char.name &&
           i.shot_type === shotType && i.generation_purpose !== 'character_identity',
+        isPortrait,
       ));
     }
   }
@@ -240,6 +242,7 @@ export function resolveRequiredVisualSet(
         `${loc.name} — ${shotType.replace('_', ' ')}`,
         false, existingImages,
         i => i.asset_group === 'world' && i.subject === loc.name && i.shot_type === shotType,
+        isPortrait,
       ));
     }
   }
@@ -252,6 +255,7 @@ export function resolveRequiredVisualSet(
       `Visual Language — ${shotType.replace('_', ' ')}`,
       false, existingImages,
       i => i.asset_group === 'visual_language' && i.shot_type === shotType,
+      isPortrait,
     ));
   }
 
@@ -263,6 +267,7 @@ export function resolveRequiredVisualSet(
       `Key Moment — ${shotType.replace('_', ' ')}`,
       false, existingImages,
       i => i.asset_group === 'key_moment' && i.shot_type === shotType,
+      isPortrait,
     ));
   }
 
