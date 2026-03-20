@@ -28,7 +28,11 @@ import { useProjectImages } from '@/hooks/useProjectImages';
 import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
-import { scoreAndSelectAllSlots, type SlotTarget, type SlotWinnerResult } from '@/lib/images/canonRebuildScoring';
+import {
+  scoreAndSelectAllSlots, buildRebuildResult, buildAlignmentAnchors,
+  classifySlotWeakness,
+  type SlotTarget, type SlotWinnerResult, type RebuildMode, type RebuildResult,
+} from '@/lib/images/canonRebuildScoring';
 import { ResetVisualCanonModal } from '@/components/images/ResetVisualCanonModal';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
