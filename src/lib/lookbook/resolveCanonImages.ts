@@ -389,6 +389,9 @@ async function fetchSectionImages(
   images = applyCanonicalExclusionGate(images);
   images = sortWithBindingPreference(images);
 
+  // ── Lane-aware presentation ranking (e.g. vertical_drama) ──
+  images = applyLanePresentationRanking(images, laneKey, sectionKey);
+
   await hydrateSignedUrls(images);
 
   console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images`,
