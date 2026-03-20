@@ -10,6 +10,12 @@
 
 import type { AssetGroup, ShotType, ProjectImage } from './types';
 import { SHOT_PACKS, IDENTITY_PACK } from './types';
+import {
+  resolveIdentityAnchorsFromImages,
+  classifyIdentityContinuity,
+  computeIdentityDriftPenalty,
+  type IdentityAnchorMap,
+} from './characterIdentityAnchorSet';
 
 /** Canonical aspect ratio for each slot type */
 export type AspectRatio = '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '9:16' | '16:9';
@@ -171,22 +177,29 @@ function buildSlot(
   existingImages: ProjectImage[],
   matchFn: (img: ProjectImage) => boolean,
   isPortrait = false,
+  anchorMap?: IdentityAnchorMap,
 ): RequiredSlot {
   const matching = existingImages.filter(matchFn);
   const primary = matching.find(i => i.is_primary && i.curation_state === 'active') || null;
   const candidates = matching.filter(i => i.curation_state === 'active' || i.curation_state === 'candidate');
   const dims = getDimensionsForShot(shotType, isPortrait);
 
-  // Identity-aware recommendation: prefer candidates generated with identity lock
+  // Identity-aware recommendation using canonical anchor helpers
   let recommended: ProjectImage | null = primary;
   if (!recommended && candidates.length > 0) {
-    if (isIdentity || assetGroup === 'character') {
-      // Prefer identity-locked candidates over arbitrary first
-      const lockedCandidate = candidates.find(c => {
-        const gc = (c.generation_config || {}) as Record<string, unknown>;
-        return gc.identity_locked || gc.identity_anchor_paths;
+    if (assetGroup === 'character' && subject && anchorMap) {
+      const anchorSet = anchorMap[subject] || null;
+      // Score each candidate: higher is better (penalty is negative)
+      const scored = candidates.map(c => {
+        const { penalty } = computeIdentityDriftPenalty(c, anchorSet);
+        return { image: c, penalty };
       });
-      recommended = lockedCandidate || candidates[0];
+      // Sort: least penalty first, then by created_at descending for recency tiebreak
+      scored.sort((a, b) => {
+        if (a.penalty !== b.penalty) return b.penalty - a.penalty; // less negative = better
+        return (b.image.created_at || '').localeCompare(a.image.created_at || '');
+      });
+      recommended = scored[0].image;
     } else {
       recommended = candidates[0];
     }
@@ -220,6 +233,9 @@ export function resolveRequiredVisualSet(
 ): RequiredVisualSet {
   const slots: RequiredSlot[] = [];
 
+  // Resolve identity anchors once for all character recommendation logic
+  const anchorMap = resolveIdentityAnchorsFromImages(existingImages);
+
   // ── Character Identity slots ──
   for (const char of characters) {
     for (const shotType of IDENTITY_PACK) {
@@ -231,6 +247,7 @@ export function resolveRequiredVisualSet(
         i => i.asset_group === 'character' && i.subject === char.name &&
           i.shot_type === shotType && i.generation_purpose === 'character_identity',
         isPortrait,
+        anchorMap,
       ));
     }
 
@@ -244,6 +261,7 @@ export function resolveRequiredVisualSet(
         i => i.asset_group === 'character' && i.subject === char.name &&
           i.shot_type === shotType && i.generation_purpose !== 'character_identity',
         isPortrait,
+        anchorMap,
       ));
     }
   }
