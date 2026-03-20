@@ -24,9 +24,8 @@ import { ImageLightbox } from './ImageLightbox';
 import { ImageComparisonView } from './ImageComparisonView';
 import type { ProjectImage, CurationState, ShotType } from '@/lib/images/types';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
-import { getOrientationLabel } from '@/lib/images/orientationUtils';
+import { getOrientationLabel, getDisplayAspectClass } from '@/lib/images/orientationUtils';
 import { classifyIdentityContinuity, resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
-
 type FilterState = 'candidate' | 'active' | 'archived' | 'all';
 type GroupBy = 'none' | 'section' | 'character' | 'shot_type';
 
