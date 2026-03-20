@@ -10,6 +10,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import type { VisualSimilarityResult } from '@/lib/images/anchorVisualSimilarity';
 import { useSlotCompetitionOrchestrator } from '@/hooks/useSlotCompetitionOrchestrator';
+import type { CandidateGroup } from '@/lib/competition/candidateCompetitionService';
 import { rankCharacterCandidates } from '@/lib/images/characterCandidateRanking';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
