@@ -60,34 +60,46 @@ export function ImageComparisonView({
 
   const resetZoom = useCallback(() => setZoom(1), []);
 
-  // Compute per-image continuity + provenance + find recommended
-  const analysis = useMemo(() => {
-    return images.map(img => {
-      const continuity = img.asset_group === 'character' && img.subject
-        ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null)
-        : { status: 'unknown' as const, reason: 'Non-character image' };
-      const provenance = getProvenance(img);
-      const score = scores?.[img.id] ?? null;
-      return { image: img, continuity, provenance, score };
-    });
-  }, [images, identityAnchorMap, scores]);
+  // Use canonical ranking helper for character candidates
+  const characterAnchorSet = useMemo(() => {
+    const firstChar = images.find(i => i.asset_group === 'character' && i.subject);
+    if (!firstChar?.subject || !identityAnchorMap) return null;
+    return identityAnchorMap[firstChar.subject] || null;
+  }, [images, identityAnchorMap]);
 
-  // Determine recommended candidate
-  const recommended = useMemo(() => {
-    const continuityRank: Record<string, number> = {
-      strong_match: 4, partial_match: 3, no_anchor_context: 2, unknown: 1, identity_drift: 0,
-    };
-    let best = analysis[0];
-    for (const entry of analysis) {
-      const entryRank = continuityRank[entry.continuity.status] ?? 0;
-      const bestRank = continuityRank[best.continuity.status] ?? 0;
-      if (entryRank > bestRank) { best = entry; continue; }
-      if (entryRank === bestRank && entry.score != null && (best.score == null || entry.score > best.score)) {
-        best = entry;
-      }
+  const ranking = useMemo(() => {
+    const isCharacterSet = images.some(i => i.asset_group === 'character');
+    if (isCharacterSet) {
+      return rankCharacterCandidates(images, characterAnchorSet, scores ?? undefined);
     }
-    return best;
-  }, [analysis]);
+    // Non-character: simple score-based ranking
+    const ranked = images.map(img => ({
+      image: img,
+      continuityStatus: 'unknown' as const,
+      continuityReason: 'Non-character image',
+      driftPenalty: 0,
+      score: scores?.[img.id] ?? null,
+      rankValue: scores?.[img.id] ?? 0,
+      rankReason: 'default ranking',
+    }));
+    ranked.sort((a, b) => (b.rankValue) - (a.rankValue));
+    return { ranked, top: ranked[0] || null, topReason: ranked[0]?.rankReason || 'No candidates' };
+  }, [images, characterAnchorSet, scores]);
+
+  // Compute per-image provenance for display
+  const analysis = useMemo(() => {
+    return ranking.ranked.map(rc => ({
+      image: rc.image,
+      continuity: { status: rc.continuityStatus, reason: rc.continuityReason },
+      provenance: getProvenance(rc.image),
+      score: rc.score,
+    }));
+  }, [ranking]);
+
+  const recommended = useMemo(() => {
+    if (!ranking.top) return analysis[0] || null;
+    return analysis.find(a => a.image.id === ranking.top!.image.id) || analysis[0] || null;
+  }, [ranking, analysis]);
 
   // Summary diagnostics
   const summary = useMemo(() => {
