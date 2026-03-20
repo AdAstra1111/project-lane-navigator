@@ -913,13 +913,13 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
   );
 }
 
-/** Landscape-only character card */
-function CharCard({ char, colors, fontBody, isLead, tall, isPortrait }: {
+/** Landscape-only character card — supports portrait-led contain mode */
+function CharCard({ char, colors, fontBody, isLead, tall, isPortrait, useContain = false }: {
   char: { name: string; role: string; description: string; imageUrl?: string };
   colors: LookBookVisualIdentity['colors']; fontBody: string;
-  isLead: boolean; tall: boolean; isPortrait: boolean;
+  isLead: boolean; tall: boolean; isPortrait: boolean; useContain?: boolean;
 }) {
-  const imgH = tall ? 280 : 180;
+  const imgH = tall ? (useContain ? 340 : 280) : (useContain ? 220 : 180);
   const padText = tall ? '24px 28px' : '16px 20px';
   return (
     <div style={{
@@ -930,7 +930,7 @@ function CharCard({ char, colors, fontBody, isLead, tall, isPortrait }: {
     }}>
       {char.imageUrl ? (
         <div style={{ height: imgH, overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgSecondary }}>
-          {isPortrait ? (
+          {(isPortrait || useContain) ? (
             <PortraitImage src={char.imageUrl} alt={char.name} style={{ objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
           ) : (
             <img src={char.imageUrl} alt={char.name} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 20%', filter: 'saturate(0.8) contrast(1.05)' }} />
