@@ -499,8 +499,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     const isPreserve = mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
 
     try {
+      let preGenImageCount = 0;
       let preGenImages: ProjectImage[] = [];
-
       if (isPreserve) {
         // ── PRESERVE MODE: Analyse incumbents, generate only weak/missing ──
         setRebuildStage('Analysing incumbents');
