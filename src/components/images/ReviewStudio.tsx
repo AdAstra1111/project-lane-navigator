@@ -47,6 +47,7 @@ const SECTION_LABELS: Record<string, string> = {
 };
 
 export function ReviewStudio({ projectId }: ReviewStudioProps) {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<FilterState>('candidate');
   const [groupBy, setGroupBy] = useState<GroupBy>('section');
   const [shotFilter, setShotFilter] = useState<string>('all');
