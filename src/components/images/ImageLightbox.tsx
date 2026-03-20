@@ -137,9 +137,30 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReas
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
             <span className="text-[10px] text-white/50 ml-1 tabular-nums">{Math.round(zoom * 100)}%</span>
+            {imageSet && currentIndex >= 0 && (
+              <span className="text-[10px] text-white/40 tabular-nums ml-1">
+                {currentIndex + 1}/{imageSet.length}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Quick approve/reject */}
+            {onApprove && image.curation_state === 'candidate' && (
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px] gap-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                onClick={() => { onApprove(image); goNext(); }} title="Approve (A)">
+                <CheckCircle className="h-3.5 w-3.5" /> Approve
+              </Button>
+            )}
+            {onReject && image.curation_state === 'candidate' && (
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px] gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                onClick={() => { onReject(image.id); goNext(); }} title="Reject (D)">
+                <XCircle className="h-3.5 w-3.5" /> Reject
+              </Button>
+            )}
+
+            <div className="w-px h-4 bg-white/10" />
+
             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-white/70 hover:text-white hover:bg-white/10"
               onClick={() => setShowOverlay(v => !v)} title="Toggle metadata">
               {showOverlay ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -150,6 +171,34 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReas
             </Button>
           </div>
         </div>
+
+        {/* Navigation arrows */}
+        {canPrev && (
+          <button
+            onClick={goPrev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        )}
+        {canNext && (
+          <button
+            onClick={goNext}
+            className="absolute right-2 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        )}
+
+        {/* Keyboard hint */}
+        {(onApprove || onReject || imageSet) && showOverlay && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 text-[9px] text-white/30">
+            {imageSet && <span>← → navigate</span>}
+            {onApprove && <span>A approve</span>}
+            {onReject && <span>D reject</span>}
+            <span>Esc close</span>
+          </div>
+        )}
 
         {/* Image viewport */}
         <div
