@@ -42,10 +42,12 @@ interface ApprovalWorkspaceProps {
   onSetPrimary?: (image: ProjectImage) => void;
   /** DNA traits per character name */
   dnaTraitsByCharacter?: Record<string, Array<{ label: string; value: string; region?: string }>>;
+  /** Identity anchor map for continuity classification */
+  identityAnchorMap?: IdentityAnchorMap;
 }
 
 export function ApprovalWorkspace({
-  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter,
+  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter, identityAnchorMap,
 }: ApprovalWorkspaceProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [lightboxImage, setLightboxImage] = useState<ProjectImage | null>(null);
