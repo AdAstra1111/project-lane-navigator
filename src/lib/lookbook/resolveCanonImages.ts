@@ -394,12 +394,15 @@ async function fetchSectionImages(
 
   await hydrateSignedUrls(images);
 
-  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images`,
-    images.map(i => ({
+  console.log(`[LookBook:resolveCanonImages] ${sectionKey}: resolved ${images.length} images (lane=${laneKey || 'none'})`,
+    images.slice(0, 6).map(i => ({
       id: i.id,
       curation: (i as any).curation_state,
       primary: (i as any).is_primary,
       binding: (i.generation_config as any)?.canonical_binding_status || 'unknown',
+      shot_type: i.shot_type,
+      portrait: i.width && i.height ? i.height > i.width : null,
+      laneScore: computeLanePresentationScore(i, laneKey, sectionKey),
     })));
 
   return {
