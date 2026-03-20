@@ -912,7 +912,6 @@ serve(async (req) => {
               canonical_binding_status: canonicalBindings.binding_status,
               canonical_binding_missing: canonicalBindings.missing,
               bound_character_names: canonicalBindings.characters.map(c => c.character_name),
-              bound_character_ids: canonicalBindings.characters.map(c => c.dna_version_id).filter(Boolean),
               bound_dna_version_ids: canonicalBindings.characters.map(c => c.dna_version_id).filter(Boolean),
               bound_location_ids: canonicalBindings.locations.map(l => l.location_id),
               bound_location_names: canonicalBindings.locations.map(l => l.canonical_name),

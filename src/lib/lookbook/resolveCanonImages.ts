@@ -95,6 +95,29 @@ function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
   });
 }
 
+/**
+ * CVBE Phase 2 — Canonical exclusion gate.
+ * If ANY fully-bound images exist, exclude unbound images entirely.
+ * If ANY bound or partially-bound exist, exclude unbound.
+ * This prevents unbound images from silently entering canonical output.
+ */
+function applyCanonicalExclusionGate(images: ProjectImage[]): ProjectImage[] {
+  if (images.length <= 1) return images;
+  const hasBound = images.some(i => getBindingRank(i) === 0);
+  const hasPartial = images.some(i => getBindingRank(i) === 1);
+  if (hasBound) {
+    // Exclude unbound; keep bound + partially_bound
+    const filtered = images.filter(i => getBindingRank(i) <= 1);
+    if (filtered.length > 0) return filtered;
+  } else if (hasPartial) {
+    // Exclude unbound; keep partially_bound
+    const filtered = images.filter(i => getBindingRank(i) <= 1);
+    if (filtered.length > 0) return filtered;
+  }
+  // All unbound — return as-is (diagnostic/legacy fallback)
+  return images;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function hydrateSignedUrls(images: ProjectImage[]): Promise<void> {
@@ -238,7 +261,8 @@ async function fetchSectionImages(
   // re-enter canonical resolution. Only active and candidate curation states
   // are eligible for lookbook builds.
 
-  // ── CVBE Phase 2: sort bound images before unbound within each tier ──
+  // ── CVBE Phase 2: exclude unbound when bound alternatives exist, then sort ──
+  images = applyCanonicalExclusionGate(images);
   images = sortWithBindingPreference(images);
 
   await hydrateSignedUrls(images);
