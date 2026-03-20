@@ -55,7 +55,7 @@ export const SHOT_ASPECT_RATIO: Record<string, AspectRatio> = {
   poster_alt: '2:3',
 };
 /** Portrait overrides for vertical drama — force portrait-safe ratios */
-const PORTRAIT_SHOT_OVERRIDE: Record<string, AspectRatio> = {
+export const PORTRAIT_SHOT_OVERRIDE: Record<string, AspectRatio> = {
   // Landscape shots → portrait equivalents
   wide: '9:16',
   atmospheric: '9:16',
