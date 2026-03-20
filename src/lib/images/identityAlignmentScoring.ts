@@ -469,6 +469,15 @@ export function scoreCandidate(
     warnings.push('Markers exist but none approved — marker scoring neutral');
   }
 
+  // Canon-promotable: only exact slot match can be promoted to primary
+  const canonPromotable = slotResult.exactMatch;
+
+  // If not canon-promotable, action cannot be 'promote' — cap at retain
+  if (!canonPromotable && recommendedAction === 'promote') {
+    recommendedAction = 'retain_candidate';
+    warnings.push('Advisory only — related shot type, not canon-promotable for this slot');
+  }
+
   return {
     candidateId: image.id,
     slot: targetSlot,
@@ -485,6 +494,7 @@ export function scoreCandidate(
     },
     recommendedAction,
     eligible: slotResult.eligible,
+    canonPromotable,
     reasons,
     warnings,
     confidence,
