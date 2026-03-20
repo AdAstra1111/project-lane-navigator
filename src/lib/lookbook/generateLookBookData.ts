@@ -620,6 +620,7 @@ export async function generateLookBookData(
   if (creativeStatement) {
     slides.push({
       type: 'creative_statement',
+      slide_id: makeSlideId('creative_statement'),
       title: 'Creative Vision',
       body: creativeStatement.slice(0, 500),
       credit: writerCredit,
