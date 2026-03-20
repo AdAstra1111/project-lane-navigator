@@ -126,8 +126,8 @@ export function classifyVerticalCompliance(
           reason: `Identity exception slot "${slotShotType}" — matches expected ${expectedAspectRatio}`,
         };
       }
-      // Even if not matching expected, portrait is OK for identity
-      if (ratio >= 1.0) {
+      // Even if not matching expected, portrait is OK for identity (but NOT square)
+      if (ratio > 1.0) {
         return {
           level: 'portrait_only',
           eligibleForWinnerSelection: true, // identity exceptions allow portrait
@@ -137,6 +137,19 @@ export function classifyVerticalCompliance(
           isIdentityException: true,
           dimensionSource: 'measured',
           reason: `Identity exception slot — portrait but not exact ${expectedAspectRatio}`,
+        };
+      }
+      // Square identity image — not eligible even for identity exceptions
+      if (Math.abs(ratio - 1.0) < 0.05) {
+        return {
+          level: 'square',
+          eligibleForWinnerSelection: false,
+          expectedAspectRatio,
+          actualAspectRatio: actualAR,
+          actualRatio: ratio,
+          isIdentityException: true,
+          dimensionSource: 'measured',
+          reason: `Identity exception slot — but image is square, not portrait`,
         };
       }
     }
