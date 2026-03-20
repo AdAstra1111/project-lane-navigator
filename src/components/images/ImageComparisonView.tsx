@@ -86,13 +86,15 @@ export function ImageComparisonView({
     return { ranked, top: ranked[0] || null, topReason: ranked[0]?.rankReason || 'No candidates' };
   }, [images, characterAnchorSet, scores]);
 
-  // Compute per-image provenance for display
+  // Compute per-image analysis with rank reason from canonical helper
   const analysis = useMemo(() => {
     return ranking.ranked.map(rc => ({
       image: rc.image,
       continuity: { status: rc.continuityStatus, reason: rc.continuityReason },
       provenance: getProvenance(rc.image),
       score: rc.score,
+      rankReason: rc.rankReason,
+      driftPenalty: rc.driftPenalty,
     }));
   }, [ranking]);
 
