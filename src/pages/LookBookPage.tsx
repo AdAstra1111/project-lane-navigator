@@ -59,7 +59,7 @@ export default function LookBookPage() {
   } = useSectionReset(projectId || '');
 
   useEffect(() => {
-    if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping) {
+    if (!sectionsLoading && !isBootstrapped && projectId && !isBootstrapping && !bootstrapMutation.isError) {
       bootstrap();
     }
   }, [sectionsLoading, isBootstrapped, projectId, isBootstrapping, bootstrap]);
