@@ -605,12 +605,14 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
           </div>
         )}
 
-        {/* ── Running state ── */}
+        {/* ── Running state with inline progress ── */}
         {isRunning && (
-          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2 animate-pulse">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            <span className="text-[11px] text-primary">Ingesting story… scenes → entities → states → distribution</span>
-          </div>
+          <InlineProcessBar
+            status="running"
+            stage="Story Ingestion"
+            description="Parsing scenes, extracting characters, locations, props, and state variants…"
+            className="rounded-md border border-primary/30 bg-primary/5 p-3"
+          />
         )}
 
         {/* ── Actions ── */}
@@ -619,7 +621,7 @@ export function StoryIngestionPanel({ projectId }: StoryIngestionPanelProps) {
             size="sm"
             className="h-8 text-xs gap-1.5"
             disabled={isRunning}
-            onClick={() => runIngestion({ force: true })}
+            onClick={handleRunIngestion}
           >
             {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
             {latestRun?.status === 'completed' ? 'Re-Ingest Story' : 'Ingest Story Package'}
