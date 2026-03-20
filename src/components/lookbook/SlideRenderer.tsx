@@ -775,6 +775,86 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   );
 }
 
+/* ═══ KEY MOMENTS — cinematic image showcase ═══ */
+function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides }: SlideProps) {
+  const imgs = (slide.imageUrls || []).filter(Boolean);
+  const imgCount = imgs.length;
+
+  // Determine grid layout based on image count
+  const getGridStyle = (): React.CSSProperties => {
+    if (imgCount === 1) return { gridTemplateColumns: '1fr', gridTemplateRows: '1fr' };
+    if (imgCount === 2) return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' };
+    if (imgCount === 3) return { gridTemplateColumns: '2fr 1fr', gridTemplateRows: '1fr 1fr' };
+    if (imgCount === 4) return { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' };
+    // 5-6: cinematic mosaic
+    return { gridTemplateColumns: '2fr 1fr 1fr', gridTemplateRows: '1fr 1fr' };
+  };
+
+  const getSpanStyle = (i: number): React.CSSProperties => {
+    if (imgCount === 3 && i === 0) return { gridRow: '1 / 3' };
+    if (imgCount >= 5 && i === 0) return { gridRow: '1 / 3' };
+    return {};
+  };
+
+  return (
+    <div style={baseStyle} className="slide-content">
+      <EdgeAccent color={colors.accent} />
+
+      {imgCount === 0 ? (
+        /* Text-forward fallback when no images */
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '80px 100px' }}>
+          <SectionTag label="Key Moments" color={colors.accent} />
+          <AccentRule color={colors.accent} />
+          <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
+          {slide.body && (
+            <p style={{ fontSize: 20, lineHeight: 1.65, color: colors.text, opacity: 0.9, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 800 }}>
+              {slide.body}
+            </p>
+          )}
+        </div>
+      ) : (
+        /* Image-dominant layout */
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          {/* Compact header */}
+          <div style={{ padding: '48px 100px 24px', flexShrink: 0 }}>
+            <SectionTag label="Key Moments" color={colors.accent} />
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 32 }}>
+              <h2 style={{ ...titleStyle, fontSize: 44, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
+              {slide.body && (
+                <p style={{ fontSize: 15, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 500 }}>
+                  {slide.body}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Image mosaic — fills remaining space */}
+          <div style={{
+            flex: 1,
+            padding: '0 48px 48px 48px',
+            display: 'grid',
+            ...getGridStyle(),
+            gap: 10,
+            minHeight: 0,
+          }}>
+            {imgs.slice(0, 6).map((url, i) => (
+              <div key={i} style={{
+                borderRadius: 6,
+                overflow: 'hidden',
+                border: `1px solid ${colors.accentMuted}`,
+                ...getSpanStyle(i),
+              }}>
+                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+    </div>
+  );
+}
+
 /* ═══ CONTENT — generic fallback ═══ */
 function ContentSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides }: SlideProps) {
   return (
