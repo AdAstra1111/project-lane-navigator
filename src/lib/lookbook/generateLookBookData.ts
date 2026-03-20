@@ -623,7 +623,13 @@ export async function generateLookBookData(
       imageUrl: seImages[0]?.signedUrl || undefined,
       imageUrls: seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[],
       _debug_image_ids: seImages.map(i => i.id).slice(0, 3),
-      _debug_provenance: seImages.map(img => buildProvenance(img, isVD, format, assignedLane)).slice(0, 3),
+      _debug_provenance: seImages.map(img => ({
+        imageId: img.id,
+        source: (img as any).is_primary && (img as any).curation_state === 'active' ? 'winner_primary' as const : 'active_non_primary' as const,
+        complianceClass: 'n/a',
+        actualWidth: img.width || null,
+        actualHeight: img.height || null,
+      })).slice(0, 3),
       _has_unresolved: seImages.length === 0 && canonImages.symbolic_motifs.unresolvedCount > 0,
     });
   }
