@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import { type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import { rankCharacterCandidates } from '@/lib/images/characterCandidateRanking';
+import { getSimilarityLabel, getSimilarityColor, type VisualSimilarityResult } from '@/lib/images/anchorVisualSimilarity';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
 
 // ── Continuity display helpers ──
@@ -49,10 +50,12 @@ interface ImageComparisonViewProps {
   scores?: Record<string, number>;
   /** Identity anchor map for continuity classification */
   identityAnchorMap?: IdentityAnchorMap;
+  /** Optional per-image visual similarity results */
+  visualSimilarities?: Record<string, VisualSimilarityResult>;
 }
 
 export function ImageComparisonView({
-  images, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap,
+  images, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap, visualSimilarities,
 }: ImageComparisonViewProps) {
   const [syncZoom, setSyncZoom] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -70,7 +73,7 @@ export function ImageComparisonView({
   const ranking = useMemo(() => {
     const isCharacterSet = images.some(i => i.asset_group === 'character');
     if (isCharacterSet) {
-      return rankCharacterCandidates(images, characterAnchorSet, scores ?? undefined);
+      return rankCharacterCandidates(images, characterAnchorSet, scores ?? undefined, visualSimilarities ?? null);
     }
     // Non-character: simple score-based ranking
     const ranked = images.map(img => ({
@@ -79,12 +82,14 @@ export function ImageComparisonView({
       continuityReason: 'Non-character image',
       driftPenalty: 0,
       score: scores?.[img.id] ?? null,
+      visualSimilarity: null as VisualSimilarityResult | null,
+      similarityAdjustment: 0,
       rankValue: scores?.[img.id] ?? 0,
       rankReason: 'default ranking',
     }));
     ranked.sort((a, b) => (b.rankValue) - (a.rankValue));
     return { ranked, top: ranked[0] || null, topReason: ranked[0]?.rankReason || 'No candidates' };
-  }, [images, characterAnchorSet, scores]);
+  }, [images, characterAnchorSet, scores, visualSimilarities]);
 
   // Compute per-image analysis with rank reason from canonical helper
   const analysis = useMemo(() => {
@@ -95,6 +100,8 @@ export function ImageComparisonView({
       score: rc.score,
       rankReason: rc.rankReason,
       driftPenalty: rc.driftPenalty,
+      visualSimilarity: rc.visualSimilarity,
+      similarityAdjustment: rc.similarityAdjustment,
     }));
   }, [ranking]);
 
@@ -226,6 +233,7 @@ export function ImageComparisonView({
               isRecommended={entry.image.id === summary.recommendedId}
               rankReason={entry.rankReason}
               driftPenalty={entry.driftPenalty}
+              visualSimilarity={entry.visualSimilarity}
               onSetPrimary={onSetPrimary}
               onReject={onReject}
             />
@@ -239,7 +247,7 @@ export function ImageComparisonView({
 // ── Comparison Cell ──
 
 function ComparisonCell({
-  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, rankReason, driftPenalty, onSetPrimary, onReject,
+  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, rankReason, driftPenalty, visualSimilarity, onSetPrimary, onReject,
 }: {
   image: ProjectImage;
   zoom?: number;
@@ -249,6 +257,7 @@ function ComparisonCell({
   isRecommended: boolean;
   rankReason?: string;
   driftPenalty?: number;
+  visualSimilarity?: VisualSimilarityResult | null;
   onSetPrimary?: (img: ProjectImage) => void;
   onReject?: (id: string) => void;
 }) {
@@ -342,7 +351,34 @@ function ComparisonCell({
           </p>
         )}
 
-        {/* Row 4: actions */}
+        {/* Row 4: visual similarity */}
+        {visualSimilarity?.isActionable && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className={cn('text-[8px] font-medium', getSimilarityColor(visualSimilarity.compositeScore))}>
+              {getSimilarityLabel(visualSimilarity.compositeScore)}
+            </span>
+            <span className="text-[7px] text-white/30 tabular-nums">
+              ({visualSimilarity.compositeScore})
+            </span>
+            {visualSimilarity.dimensions.face.confidence !== 'unavailable' && (
+              <span className="text-[7px] text-white/25" title={visualSimilarity.dimensions.face.reason}>
+                Face: {visualSimilarity.dimensions.face.score}
+              </span>
+            )}
+            {visualSimilarity.dimensions.hair.confidence !== 'unavailable' && (
+              <span className="text-[7px] text-white/25" title={visualSimilarity.dimensions.hair.reason}>
+                Hair: {visualSimilarity.dimensions.hair.score}
+              </span>
+            )}
+            {visualSimilarity.dimensions.age.confidence !== 'unavailable' && (
+              <span className="text-[7px] text-white/25" title={visualSimilarity.dimensions.age.reason}>
+                Age: {visualSimilarity.dimensions.age.score}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Row 5: actions */}
         <div className="flex items-center gap-1">
           {onSetPrimary && (
             <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-0.5 text-white/70 hover:text-white hover:bg-white/10 px-1.5"

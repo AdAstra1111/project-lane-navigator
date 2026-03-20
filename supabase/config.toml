@@ -278,3 +278,6 @@ verify_jwt = false
 
 [functions.extract-visual-dna]
 verify_jwt = false
+
+[functions.evaluate-visual-similarity]
+verify_jwt = false
