@@ -274,15 +274,31 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
   if (isPortrait) {
     return (
       <div style={baseStyle} className="slide-content">
-        {/* Full-bleed hero — native 9:16 image fills entire portrait frame */}
+        {/* Cover hero — strict VD: native-fit contain with atmospheric bg wash */}
         {hasHero && (
-          <div className="absolute inset-0" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: colors.bg }}>
-            <PortraitImage
+          <div className="absolute inset-0" style={{ background: colors.bg }}>
+            {/* Decorative blurred background wash — object-cover allowed (invisible crop) */}
+            <img
               src={slide.imageUrl!}
-              style={{ objectPosition: 'center top', filter: 'saturate(0.75) contrast(1.15)', objectFit: 'cover' }}
-              isBackground
+              alt=""
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                objectFit: 'cover', objectPosition: 'center top',
+                filter: 'saturate(0.3) blur(16px) contrast(1.1)',
+                opacity: 0.18, transform: 'scale(1.08)',
+              }}
             />
-            {/* Strong bottom-heavy scrim for readability */}
+            {/* Primary truth surface — object-contain, no crop rescue */}
+            <img
+              src={slide.imageUrl!}
+              alt=""
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                objectFit: 'contain', objectPosition: 'center 15%',
+                filter: 'saturate(0.75) contrast(1.15)',
+              }}
+            />
+            {/* Bottom-heavy scrim for title readability */}
             <div className="absolute inset-0" style={{
               background: `linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}f0 18%, ${colors.bg}99 40%, transparent 65%)`,
             }} />
