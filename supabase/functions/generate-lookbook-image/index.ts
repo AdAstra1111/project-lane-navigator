@@ -830,6 +830,22 @@ serve(async (req) => {
         }
       }
 
+      // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
+      // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
+      if (!isIdentityGeneration) {
+        // For non-identity shots, inject all relevant bindings
+        if (canonicalBindings.characterPromptBlock) {
+          prompt += `\n\n${canonicalBindings.characterPromptBlock}`;
+        }
+        if (canonicalBindings.locationPromptBlock) {
+          prompt += `\n\n${canonicalBindings.locationPromptBlock}`;
+        }
+      }
+      // World binding always applies (even to identity shots — grounds the project universe)
+      if (canonicalBindings.worldPromptBlock) {
+        prompt += `\n\n${canonicalBindings.worldPromptBlock}`;
+      }
+
       const resolverInput = { role: imageRole, styleMode, strategyKey: `lookbook_${section}` };
       const genConfig = resolveImageGenerationConfig(resolverInput);
       const repoMeta = buildImageRepositoryMeta(genConfig, resolverInput);
