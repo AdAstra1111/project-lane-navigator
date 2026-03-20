@@ -100,6 +100,8 @@ export function ImageComparisonView({
       score: rc.score,
       rankReason: rc.rankReason,
       driftPenalty: rc.driftPenalty,
+      visualSimilarity: rc.visualSimilarity,
+      similarityAdjustment: rc.similarityAdjustment,
     }));
   }, [ranking]);
 
