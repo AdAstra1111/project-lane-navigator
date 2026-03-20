@@ -1028,6 +1028,11 @@ serve(async (req) => {
           });
         if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`);
 
+        // ── VERTICAL COMPLIANCE: Store expected dimensions on image record ──
+        // This ensures scoring/compliance can use pixel data even before image analysis
+        const storedWidth = effectiveWidth;
+        const storedHeight = effectiveHeight;
+
         const { data: imgRecord, error: insertErr } = await supabase
           .from("project_images")
           .insert({
@@ -1042,6 +1047,8 @@ serve(async (req) => {
             canon_constraints: { source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
+            width: storedWidth,
+            height: storedHeight,
             is_primary: false,
             is_active: true,
             source_poster_id: null,
@@ -1082,6 +1089,11 @@ serve(async (req) => {
               resolved_location_names: canonicalBindings.locations.map(l => l.canonical_name),
               world_binding_active: canonicalBindings.world.bound,
               world_binding_era: canonicalBindings.world.era || null,
+              // ── VERTICAL COMPLIANCE: audit trail ──
+              requested_aspect_ratio: effectiveAspect,
+              requested_width: storedWidth,
+              requested_height: storedHeight,
+              vertical_drama_project: isVerticalDramaProject,
             },
             asset_group: assetGroup,
             subject: character_name || location_name || null,
