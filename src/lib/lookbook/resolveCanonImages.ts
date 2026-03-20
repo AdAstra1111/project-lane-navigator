@@ -426,8 +426,9 @@ export interface ResolvedCanonImages {
  * Resolves all canonical lookbook section images in parallel.
  * Uses identical query logic to the workspace panels.
  * Bound images are sorted ahead of unbound within each curation tier.
+ * When laneKey is provided, applies lane-aware presentation ranking.
  */
-export async function resolveAllCanonImages(projectId: string): Promise<ResolvedCanonImages> {
+export async function resolveAllCanonImages(projectId: string, laneKey: string | null = null): Promise<ResolvedCanonImages> {
   const sections: CanonicalSectionKey[] = [
     'character_identity',
     'world_locations',
@@ -439,13 +440,13 @@ export async function resolveAllCanonImages(projectId: string): Promise<Resolved
   ];
 
   const results = await Promise.all(
-    sections.map(key => fetchSectionImages(projectId, key)),
+    sections.map(key => fetchSectionImages(projectId, key, laneKey)),
   );
 
   const map: Record<string, SectionImageResult> = {};
   for (const r of results) map[r.sectionKey] = r;
 
-  console.log('[LookBook:resolveCanonImages] summary:', Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '));
+  console.log(`[LookBook:resolveCanonImages] summary (lane=${laneKey || 'generic'}):`, Object.entries(map).map(([k, v]) => `${k}=${v.images.length}`).join(', '));
 
   return map as unknown as ResolvedCanonImages;
 }
