@@ -209,8 +209,61 @@ function PortraitImage({ src, alt = '', style, isBackground = false }: {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   COVER — full-bleed poster with bottom title lockup
+/**
+ * Unresolved placeholder — elegant visual indicator that a strict VD slot
+ * has no compliant winner image. Used instead of silently omitting or
+ * showing a broken gap.
+ */
+function UnresolvedPlaceholder({ label = 'Awaiting compliant vertical image', colors }: {
+  label?: string; colors: { bg: string; textMuted: string; accent: string; accentMuted: string };
+}) {
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: `linear-gradient(160deg, ${colors.bg} 0%, ${colors.accentMuted} 100%)`,
+        border: `1px dashed ${colors.accent}44`,
+        borderRadius: 8,
+      }}
+    >
+      <div style={{
+        width: 40, height: 56, borderRadius: 6,
+        border: `2px dashed ${colors.accent}66`,
+        marginBottom: 12,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <span style={{ fontSize: 18, opacity: 0.4, color: colors.textMuted }}>9:16</span>
+      </div>
+      <span style={{ fontSize: 11, color: colors.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: 0.6 }}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Renders either the image or an unresolved placeholder based on slide state.
+ * For portrait strict VD slides, when _has_unresolved=true and no image URL exists.
+ */
+function PortraitImageOrPlaceholder({ src, colors, alt = '', style, isBackground = false, hasUnresolved = false }: {
+  src?: string; colors: { bg: string; textMuted: string; accent: string; accentMuted: string };
+  alt?: string; style?: React.CSSProperties; isBackground?: boolean; hasUnresolved?: boolean;
+}) {
+  if (src) {
+    return <PortraitImage src={src} alt={alt} style={style} isBackground={isBackground} />;
+  }
+  if (hasUnresolved) {
+    return <UnresolvedPlaceholder colors={colors} />;
+  }
+  return null;
+}
+
+
    Portrait: 9:16 hero fills frame via contain, title lockup at bottom
    ═══════════════════════════════════════════════════════════════════════ */
 function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
