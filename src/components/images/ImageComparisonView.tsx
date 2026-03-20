@@ -1,15 +1,42 @@
 /**
  * ImageComparisonView — Side-by-side comparison of 2–4 images.
  * Used for identity consistency evaluation and canon selection.
+ * Includes continuity classification, provenance badges, and recommendation summary.
  */
-import { useState, useCallback } from 'react';
-import { X, Crown, XCircle, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+import { X, Crown, XCircle, ZoomIn, ZoomOut, RotateCcw, ShieldCheck, ShieldAlert, AlertTriangle, Link, Unlink, Star, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
+import { classifyIdentityContinuity, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
+
+// ── Continuity display helpers ──
+
+const CONTINUITY_CONFIG: Record<string, { label: string; icon: typeof ShieldCheck; colorClass: string }> = {
+  strong_match:      { label: 'Locked',     icon: ShieldCheck,  colorClass: 'text-emerald-400 border-emerald-500/40' },
+  partial_match:     { label: 'Partial',    icon: Link,         colorClass: 'text-amber-400 border-amber-500/40' },
+  no_anchor_context: { label: 'No Anchor',  icon: Unlink,       colorClass: 'text-white/40 border-white/20' },
+  identity_drift:    { label: 'Drift Risk', icon: ShieldAlert,  colorClass: 'text-red-400 border-red-500/40' },
+  unknown:           { label: 'Unknown',    icon: AlertTriangle, colorClass: 'text-white/30 border-white/15' },
+};
+
+function getProvenance(image: ProjectImage) {
+  const gc = (image.generation_config || {}) as Record<string, unknown>;
+  const locked = !!gc.identity_locked;
+  const anchorPaths = gc.identity_anchor_paths as Record<string, string> | undefined;
+  const usedSlots: string[] = [];
+  if (anchorPaths) {
+    if (anchorPaths.headshot) usedSlots.push('H');
+    if (anchorPaths.profile) usedSlots.push('P');
+    if (anchorPaths.fullBody || anchorPaths.full_body) usedSlots.push('FB');
+  }
+  return { locked, usedSlots, hasAnchors: usedSlots.length > 0 };
+}
+
+// ── Props ──
 
 interface ImageComparisonViewProps {
   images: ProjectImage[];
@@ -19,15 +46,70 @@ interface ImageComparisonViewProps {
   onReject?: (imageId: string) => void;
   /** Optional scores per image id */
   scores?: Record<string, number>;
+  /** Identity anchor map for continuity classification */
+  identityAnchorMap?: IdentityAnchorMap;
 }
 
 export function ImageComparisonView({
-  images, open, onClose, onSetPrimary, onReject, scores,
+  images, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap,
 }: ImageComparisonViewProps) {
   const [syncZoom, setSyncZoom] = useState(true);
   const [zoom, setZoom] = useState(1);
+  const [showSummary, setShowSummary] = useState(true);
 
   const resetZoom = useCallback(() => setZoom(1), []);
+
+  // Compute per-image continuity + provenance + find recommended
+  const analysis = useMemo(() => {
+    return images.map(img => {
+      const continuity = img.asset_group === 'character' && img.subject
+        ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null)
+        : { status: 'unknown' as const, reason: 'Non-character image' };
+      const provenance = getProvenance(img);
+      const score = scores?.[img.id] ?? null;
+      return { image: img, continuity, provenance, score };
+    });
+  }, [images, identityAnchorMap, scores]);
+
+  // Determine recommended candidate
+  const recommended = useMemo(() => {
+    const continuityRank: Record<string, number> = {
+      strong_match: 4, partial_match: 3, no_anchor_context: 2, unknown: 1, identity_drift: 0,
+    };
+    let best = analysis[0];
+    for (const entry of analysis) {
+      const entryRank = continuityRank[entry.continuity.status] ?? 0;
+      const bestRank = continuityRank[best.continuity.status] ?? 0;
+      if (entryRank > bestRank) { best = entry; continue; }
+      if (entryRank === bestRank && entry.score != null && (best.score == null || entry.score > best.score)) {
+        best = entry;
+      }
+    }
+    return best;
+  }, [analysis]);
+
+  // Summary diagnostics
+  const summary = useMemo(() => {
+    const isCharacterSet = analysis.some(a => a.image.asset_group === 'character');
+    const statuses = analysis.map(a => a.continuity.status);
+    const hasDrift = statuses.includes('identity_drift');
+    const allStrong = statuses.every(s => s === 'strong_match');
+    const allNoAnchor = statuses.every(s => s === 'no_anchor_context' || s === 'unknown');
+
+    let continuityLabel = 'Mixed';
+    let continuityColor = 'text-amber-400';
+    if (allStrong) { continuityLabel = 'Strong'; continuityColor = 'text-emerald-400'; }
+    else if (allNoAnchor) { continuityLabel = 'No anchor context'; continuityColor = 'text-white/40'; }
+    else if (hasDrift) { continuityLabel = 'Drift detected'; continuityColor = 'text-red-400'; }
+
+    const mainRisk = hasDrift
+      ? 'One or more candidates generated without identity anchors'
+      : allNoAnchor
+        ? 'No identity anchors available for comparison'
+        : null;
+
+    return { isCharacterSet, continuityLabel, continuityColor, mainRisk, recommendedId: recommended.image.id };
+  }, [analysis, recommended]);
 
   const gridCols = images.length <= 2 ? 'grid-cols-2' : images.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4';
 
@@ -59,6 +141,14 @@ export function ImageComparisonView({
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            {summary.isCharacterSet && (
+              <Button size="sm" variant="ghost"
+                className={cn('h-7 text-[10px] px-2 text-white/70 hover:text-white hover:bg-white/10', showSummary && 'bg-white/10 text-white')}
+                onClick={() => setShowSummary(v => !v)}>
+                {showSummary ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                Summary
+              </Button>
+            )}
             <Button size="sm" variant="ghost"
               className={cn('h-7 text-[10px] px-2 text-white/70 hover:text-white hover:bg-white/10', syncZoom && 'bg-white/10 text-white')}
               onClick={() => setSyncZoom(v => !v)}>
@@ -71,14 +161,51 @@ export function ImageComparisonView({
           </div>
         </div>
 
+        {/* Comparison Summary Bar */}
+        {summary.isCharacterSet && showSummary && (
+          <div className="absolute top-10 left-0 right-0 z-10 px-3 py-1.5 bg-black/80 border-b border-white/10">
+            <div className="flex items-center gap-3 flex-wrap text-[10px]">
+              <span className="text-white/50">Continuity:</span>
+              <span className={cn('font-medium', summary.continuityColor)}>{summary.continuityLabel}</span>
+
+              <span className="text-white/20">|</span>
+
+              <span className="text-white/50">Recommended:</span>
+              <span className="text-white/80 font-medium">
+                {recommended.image.subject || 'Candidate'} — {SHOT_TYPE_LABELS[(recommended.image.shot_type as ShotType)] || recommended.image.shot_type || 'unknown'}
+              </span>
+              {recommended.score != null && (
+                <span className="text-white/40 tabular-nums">({recommended.score.toFixed(2)})</span>
+              )}
+
+              {summary.mainRisk && (
+                <>
+                  <span className="text-white/20">|</span>
+                  <span className="text-red-400/80 flex items-center gap-1">
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    {summary.mainRisk}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Comparison grid */}
-        <div className={cn('w-full h-full pt-12 pb-2 px-2 grid gap-2', gridCols)}>
-          {images.map(img => (
+        <div className={cn(
+          'w-full h-full pb-2 px-2 grid gap-2',
+          gridCols,
+          summary.isCharacterSet && showSummary ? 'pt-[4.5rem]' : 'pt-12',
+        )}>
+          {analysis.map(entry => (
             <ComparisonCell
-              key={img.id}
-              image={img}
+              key={entry.image.id}
+              image={entry.image}
               zoom={syncZoom ? zoom : undefined}
-              score={scores?.[img.id]}
+              score={entry.score}
+              continuity={entry.continuity}
+              provenance={entry.provenance}
+              isRecommended={entry.image.id === summary.recommendedId}
               onSetPrimary={onSetPrimary}
               onReject={onReject}
             />
@@ -89,20 +216,43 @@ export function ImageComparisonView({
   );
 }
 
+// ── Comparison Cell ──
+
 function ComparisonCell({
-  image, zoom: syncedZoom, score, onSetPrimary, onReject,
+  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, onSetPrimary, onReject,
 }: {
   image: ProjectImage;
   zoom?: number;
-  score?: number;
+  score: number | null;
+  continuity: { status: string; reason: string };
+  provenance: { locked: boolean; usedSlots: string[]; hasAnchors: boolean };
+  isRecommended: boolean;
   onSetPrimary?: (img: ProjectImage) => void;
   onReject?: (id: string) => void;
 }) {
   const [localZoom, setLocalZoom] = useState(1);
   const effectiveZoom = syncedZoom ?? localZoom;
 
+  const config = CONTINUITY_CONFIG[continuity.status] || CONTINUITY_CONFIG.unknown;
+  const ContinuityIcon = config.icon;
+
   return (
-    <div className="relative flex flex-col bg-black/50 rounded-md overflow-hidden border border-white/10">
+    <div className={cn(
+      'relative flex flex-col rounded-md overflow-hidden border transition-colors',
+      isRecommended
+        ? 'bg-emerald-950/30 border-emerald-500/40'
+        : 'bg-black/50 border-white/10',
+    )}>
+      {/* Recommended indicator */}
+      {isRecommended && (
+        <div className="absolute top-1 right-1 z-10">
+          <Badge className="text-[8px] px-1.5 py-0 gap-0.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40">
+            <Star className="h-2.5 w-2.5" />
+            Top
+          </Badge>
+        </div>
+      )}
+
       {/* Image area */}
       <div className="flex-1 overflow-hidden flex items-center justify-center"
         onDoubleClick={() => !syncedZoom && setLocalZoom(z => z === 1 ? 2.5 : 1)}>
@@ -122,8 +272,9 @@ function ComparisonCell({
         )}
       </div>
 
-      {/* Bottom info + actions */}
+      {/* Bottom info panel */}
       <div className="px-2 py-1.5 bg-black/60 space-y-1">
+        {/* Row 1: shot type, subject, score, dims */}
         <div className="flex items-center gap-1 flex-wrap">
           {image.shot_type && (
             <Badge variant="secondary" className="text-[8px] bg-white/10 text-white/80 border-0 px-1 py-0">
@@ -145,7 +296,21 @@ function ComparisonCell({
           )}
         </div>
 
-        {/* Actions */}
+        {/* Row 2: continuity + provenance */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <Badge variant="outline" className={cn('text-[8px] px-1 py-0 gap-0.5', config.colorClass)}>
+            <ContinuityIcon className="h-2.5 w-2.5" />
+            {config.label}
+          </Badge>
+          {provenance.locked && (
+            <span className="text-[8px] text-emerald-400/70">🔒</span>
+          )}
+          {provenance.hasAnchors && (
+            <span className="text-[8px] text-white/40">Anchors: {provenance.usedSlots.join('+')}</span>
+          )}
+        </div>
+
+        {/* Row 3: actions */}
         <div className="flex items-center gap-1">
           {onSetPrimary && (
             <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-0.5 text-white/70 hover:text-white hover:bg-white/10 px-1.5"
