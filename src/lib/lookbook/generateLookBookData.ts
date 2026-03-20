@@ -361,6 +361,7 @@ export async function generateLookBookData(
   const atmosphereImages = canonImages.atmosphere_lighting.images;
   const textureImages = canonImages.texture_detail.images;
   const motifImages = canonImages.symbolic_motifs.images;
+  const keyMomentImages = canonImages.key_moments.images;
 
   // Build character image maps
   const charImages = canonImages.character_identity.images;
@@ -478,6 +479,17 @@ export async function generateLookBookData(
       bullets: seCopy.bullets,
       imageUrl: motifImages[0]?.signedUrl || undefined,
       _debug_image_ids: canonImages.symbolic_motifs.imageIds.slice(0, 1),
+    });
+  }
+
+  // ── KEY MOMENTS ──
+  if (keyMomentImages.length > 0) {
+    slides.push({
+      type: 'key_moments',
+      title: 'Key Moments',
+      imageUrl: keyMomentImages[0]?.signedUrl || undefined,
+      imageUrls: keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.key_moments.imageIds,
     });
   }
 

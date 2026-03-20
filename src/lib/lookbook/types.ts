@@ -11,6 +11,7 @@ export type SlideType =
   | 'themes'
   | 'visual_language'
   | 'story_engine'
+  | 'key_moments'
   | 'comparables'
   | 'creative_statement'
   | 'closing';
