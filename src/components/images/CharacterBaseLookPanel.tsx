@@ -1037,6 +1037,11 @@ function CharacterIdentitySection({
         </Card>
       )}
 
+      {/* Identity Alignment Scoring */}
+      {alignment && identityImages.length > 0 && (
+        <IdentityAlignmentPanel alignment={alignment} />
+      )}
+
       {/* Character Visual DNA Panel */}
       <CharacterVisualDNAPanel
         projectId={projectId}
@@ -1044,6 +1049,7 @@ function CharacterIdentitySection({
         canonCharacter={canonCharacter as any}
         canonJson={canonJson}
         userNotes={localNotes}
+      />
       />
 
       {/* Identity Notes */}
