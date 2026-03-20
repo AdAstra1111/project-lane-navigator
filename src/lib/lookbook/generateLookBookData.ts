@@ -541,6 +541,7 @@ export async function generateLookBookData(
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
     slides.push({
       type: 'themes',
+      slide_id: makeSlideId('themes'),
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
