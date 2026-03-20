@@ -603,8 +603,8 @@ async function generateImage(
   model: string,
   gatewayUrl: string,
   referenceImageUrls?: string[],
-  _requestedWidth?: number,
-  _requestedHeight?: number,
+  requestedWidth?: number,
+  requestedHeight?: number,
 ): Promise<ProviderImageResult> {
   const content: Array<Record<string, unknown>> = [];
   if (referenceImageUrls?.length) {
@@ -614,14 +614,24 @@ async function generateImage(
   }
   content.push({ type: "text", text: prompt });
 
+  // Build request body — include size hints when available
+  const requestBody: Record<string, unknown> = {
+    model,
+    messages: [{ role: "user", content }],
+    modalities: ["image", "text"],
+  };
+
+  // Pass explicit image size parameters to provider when available
+  // The provider may or may not honor these, which is why we measure actual output
+  if (requestedWidth && requestedHeight) {
+    requestBody.image_size = { width: requestedWidth, height: requestedHeight };
+    console.log(`[generateImage] Requesting explicit dimensions: ${requestedWidth}x${requestedHeight}`);
+  }
+
   const resp = await fetch(gatewayUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content }],
-      modalities: ["image", "text"],
-    }),
+    body: JSON.stringify(requestBody),
   });
   if (!resp.ok) {
     const errText = await resp.text();
