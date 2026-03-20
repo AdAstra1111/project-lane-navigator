@@ -38,6 +38,11 @@ const SECTION_QUERY_MAP: Record<CanonicalSectionKey, {
     strategy_keys: ['lookbook_key_moment'],
     asset_groups: ['key_moment'],
   },
+  key_moments: {
+    strategy_keys: ['lookbook_key_moment'],
+    asset_groups: ['key_moment'],
+    fallback_roles: ['visual_reference'],
+  },
   poster_directions: {
     strategy_keys: [],
     asset_groups: ['poster'],
