@@ -142,6 +142,126 @@ interface SlideProps {
   isPortrait: boolean;
 }
 
+/* ─── Layout-family-aware image zone for landscape slides ─── */
+
+/**
+ * Renders the image zone of a landscape slide using layout family metadata.
+ * Supports portrait-hero, two-up-portrait, mixed-editorial, and standard.
+ * Falls back to standard grid when no layoutFamily is set.
+ */
+function LayoutAwareImageZone({ slide, colors, maxImages = 4 }: {
+  slide: SlideContent;
+  colors: LookBookVisualIdentity['colors'];
+  maxImages?: number;
+}) {
+  const imgs = (slide.imageUrls?.length ? slide.imageUrls : slide.imageUrl ? [slide.imageUrl] : []).slice(0, maxImages);
+  if (imgs.length === 0) return null;
+
+  const family = slide.layoutFamily || 'landscape_standard';
+  const border = `1px solid ${colors.accentMuted}`;
+
+  // ── Portrait Hero: single portrait image centered in landscape frame ──
+  if (family === 'landscape_portrait_hero') {
+    return (
+      <div style={{
+        width: 420, flexShrink: 0, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div style={{
+          width: '100%', height: '100%', maxWidth: 380,
+          borderRadius: 8, overflow: 'hidden', border,
+          background: colors.bgSecondary,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <img src={imgs[0]} alt="" style={{
+            width: '100%', height: '100%',
+            objectFit: 'contain',
+            filter: 'saturate(0.85) contrast(1.05)',
+          }} />
+        </div>
+      </div>
+    );
+  }
+
+  // ── Two-Up Portrait: two portrait images side by side ──
+  if (family === 'landscape_two_up_portrait') {
+    return (
+      <div style={{
+        width: 640, flexShrink: 0,
+        display: 'grid', gridTemplateColumns: '1fr 1fr',
+        gap: 12, alignItems: 'stretch',
+      }}>
+        {imgs.slice(0, 2).map((url, i) => (
+          <div key={i} style={{
+            borderRadius: 8, overflow: 'hidden', border,
+            background: colors.bgSecondary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <img src={url} alt="" style={{
+              width: '100%', height: '100%',
+              objectFit: 'contain',
+              filter: 'saturate(0.85) contrast(1.05)',
+            }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Mixed Editorial: primary large + secondary smaller ──
+  if (family === 'landscape_mixed_editorial' && imgs.length >= 2) {
+    return (
+      <div style={{
+        width: 680, flexShrink: 0,
+        display: 'grid',
+        gridTemplateColumns: '3fr 2fr',
+        gridTemplateRows: imgs.length > 2 ? '1fr 1fr' : '1fr',
+        gap: 8,
+      }}>
+        {imgs.slice(0, 4).map((url, i) => (
+          <div key={i} style={{
+            borderRadius: 6, overflow: 'hidden', border,
+            background: colors.bgSecondary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            ...(i === 0 && imgs.length > 2 ? { gridRow: '1 / 3' } : {}),
+          }}>
+            <img src={url} alt="" style={{
+              width: '100%', height: '100%',
+              objectFit: i === 0 ? 'contain' : 'cover',
+              filter: 'saturate(0.85) contrast(1.05)',
+            }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Landscape Standard (default grid) ──
+  return (
+    <div style={{
+      width: imgs.length === 1 ? 680 : 640, flexShrink: 0,
+      display: 'grid',
+      gridTemplateColumns: imgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
+      gridTemplateRows: imgs.length <= 2 ? '1fr' : 'repeat(2, 1fr)',
+      gap: 8,
+    }}>
+      {imgs.slice(0, 4).map((url, i) => (
+        <div key={i} style={{
+          borderRadius: 6, overflow: 'hidden', border,
+          ...(imgs.length === 1 ? { gridColumn: '1 / -1', gridRow: '1 / -1' } : {}),
+          ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+        }}>
+          <img src={url} alt="" style={{
+            width: '100%', height: '100%',
+            objectFit: 'cover',
+            filter: 'saturate(0.85) contrast(1.05)',
+          }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SlideNumber({ index, total, color }: { index: number; total: number; color: string }) {
   return (
     <div
