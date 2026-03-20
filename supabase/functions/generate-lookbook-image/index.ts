@@ -956,9 +956,10 @@ serve(async (req) => {
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
-        // For non-identity shots, inject all relevant bindings
-        if (canonicalBindings.characterPromptBlock) {
-          prompt += `\n\n${canonicalBindings.characterPromptBlock}`;
+        // For non-identity shots, build shot-specific character binding with framing rules
+        if (canonicalBindings.characters.length > 0) {
+          const shotSpecificCharBlock = buildCharacterBindingBlock(canonicalBindings.characters, shotType as ShotType | null);
+          prompt += `\n\n${shotSpecificCharBlock}`;
         }
         if (canonicalBindings.locationPromptBlock) {
           prompt += `\n\n${canonicalBindings.locationPromptBlock}`;
