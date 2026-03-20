@@ -369,7 +369,7 @@ function SlotApprovalRow({
               image={img}
               isRecommended={img.id === slot.recommended?.id}
               isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
-              identityContinuity={img.asset_group === 'character' && img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
+              identityContinuity={img.asset_group === 'character' && img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null).status : undefined}
               rankReason={img.id === slot.recommended?.id ? (slot.recommendedReason ?? undefined) : undefined}
               onApprove={() => onApprove(img)}
               onReject={() => onReject(img.id, false)}
