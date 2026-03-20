@@ -615,7 +615,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     setFullRebuilding(false);
     setRebuildStage(null);
-  }, [fullRebuilding, rebuildMode, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, canonJson, projectId, isVerticalDrama, projectFormat, projectLane]);
+  }, [fullRebuilding, rebuildMode, resetScopedCanon, refetchImages, handleAutoPopulate, onLookbookRebuild, canonJson, projectId, isVerticalDrama, projectFormat, projectLane, rebuildBridge, currentStages]);
 
   // ── Download winners only (not all active images) ──
   const downloadWinnersOnly = useCallback(async (winnerIds: Set<string>) => {
