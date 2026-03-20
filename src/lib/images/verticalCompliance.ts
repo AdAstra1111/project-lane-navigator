@@ -216,7 +216,7 @@ export function classifyVerticalCompliance(
 
   // No measured dimensions + strict VD slot = NOT eligible
   return {
-    level: 'non_compliant',
+    level: 'unknown_unmeasured',
     eligibleForWinnerSelection: false,
     expectedAspectRatio,
     actualAspectRatio: 'unknown (no measured dimensions)',
