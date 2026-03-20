@@ -105,7 +105,7 @@ describe('getSimilarityLabel', () => {
 
 describe('ranking integration with visual similarity', () => {
   // Import ranking function
-  const { rankCharacterCandidates } = require('../characterCandidateRanking') as typeof import('../characterCandidateRanking');
+  const { rankCharacterCandidates } = await vi.importActual('../characterCandidateRanking') as typeof import('../characterCandidateRanking');
 
   const makeImage = (overrides: Partial<any> = {}): any => ({
     id: 'img-' + Math.random().toString(36).slice(2, 8),
