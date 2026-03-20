@@ -1,6 +1,7 @@
 /**
  * export-lookbook-pdf — Renders Look Book slides to a studio-grade PDF.
  * Consumes the same LookBookData schema as the in-browser viewer.
+ * Supports both landscape (1280×720) and portrait (720×1280) page geometries.
  * POST { projectId, lookBookData }
  * Returns { signed_url }
  */
@@ -44,6 +45,7 @@ interface LookBookData {
     typography: { titleFont: string; bodyFont: string; titleUppercase: boolean };
   };
   slides: SlideContent[];
+  deckFormat?: 'landscape' | 'portrait';
   writerCredit: string;
   companyName: string;
 }
@@ -81,12 +83,6 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   return lines;
 }
 
-// ── Page dimensions (16:9 landscape) ──
-const PAGE_W = 1280;
-const PAGE_H = 720;
-const MARGIN = 80;
-const CONTENT_W = PAGE_W - MARGIN * 2;
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -122,6 +118,15 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Resolve page geometry from deckFormat ──
+    const isPortrait = lookBookData.deckFormat === 'portrait';
+    const PAGE_W = isPortrait ? 720 : 1280;
+    const PAGE_H = isPortrait ? 1280 : 720;
+    const MARGIN = isPortrait ? 60 : 80;
+    const CONTENT_W = PAGE_W - MARGIN * 2;
+
+    console.log(`[export-lookbook-pdf] deckFormat=${lookBookData.deckFormat || 'landscape'} pageSize=${PAGE_W}x${PAGE_H}`);
+
     // ── Build PDF ──
     const pdfDoc = await PDFDocument.create();
     const fontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
@@ -155,16 +160,16 @@ Deno.serve(async (req) => {
       switch (slide.type) {
         case 'cover':
         case 'closing':
-          renderCoverPage(page, slide, fontBold, fontRegular, fontSans, textColor, mutedColor, accentColor, lookBookData);
+          renderCoverPage(page, slide, fontBold, fontRegular, fontSans, textColor, mutedColor, accentColor, lookBookData, PAGE_W, PAGE_H, MARGIN, CONTENT_W);
           break;
         case 'characters':
-          renderCharactersPage(page, slide, fontBold, fontRegular, fontSansBold, fontSans, textColor, mutedColor, accentColor);
+          renderCharactersPage(page, slide, fontBold, fontRegular, fontSansBold, fontSans, textColor, mutedColor, accentColor, PAGE_W, PAGE_H, MARGIN, CONTENT_W, isPortrait);
           break;
         case 'comparables':
-          renderComparablesPage(page, slide, fontBold, fontRegular, fontSansBold, fontSans, textColor, mutedColor, accentColor);
+          renderComparablesPage(page, slide, fontBold, fontRegular, fontSansBold, fontSans, textColor, mutedColor, accentColor, PAGE_W, PAGE_H, MARGIN, CONTENT_W, isPortrait);
           break;
         default:
-          renderContentPage(page, slide, fontBold, fontRegular, fontSans, textColor, mutedColor, accentColor);
+          renderContentPage(page, slide, fontBold, fontRegular, fontSans, textColor, mutedColor, accentColor, PAGE_W, PAGE_H, MARGIN, CONTENT_W, isPortrait);
           break;
       }
 
@@ -216,6 +221,7 @@ function renderCoverPage(
   fontBold: PDFFont, fontRegular: PDFFont, fontSans: PDFFont,
   textColor: any, mutedColor: any, accentColor: any,
   data: LookBookData,
+  PAGE_W: number, PAGE_H: number, MARGIN: number, CONTENT_W: number,
 ) {
   const title = slide.title || data.projectTitle;
   const titleSize = title.length > 20 ? 48 : 64;
@@ -264,6 +270,8 @@ function renderContentPage(
   page: PDFPage, slide: SlideContent,
   fontBold: PDFFont, fontRegular: PDFFont, fontSans: PDFFont,
   textColor: any, mutedColor: any, accentColor: any,
+  PAGE_W: number, PAGE_H: number, MARGIN: number, CONTENT_W: number,
+  isPortrait: boolean,
 ) {
   // Section label
   const label = (slide.type || '').replace(/_/g, ' ').toUpperCase();
@@ -273,17 +281,18 @@ function renderContentPage(
   });
 
   // Title
-  const titleSize = 36;
+  const titleSize = isPortrait ? 32 : 36;
   page.drawText(slide.title || '', {
     x: MARGIN, y: PAGE_H - MARGIN - 60,
     size: titleSize, font: fontBold, color: textColor,
   });
 
   let cursorY = PAGE_H - MARGIN - 100;
+  const bodyWidth = isPortrait ? CONTENT_W * 0.85 : CONTENT_W * 0.6;
 
   // Body
   if (slide.body) {
-    const lines = wrapText(slide.body, fontRegular, 14, CONTENT_W * 0.6);
+    const lines = wrapText(slide.body, fontRegular, 14, bodyWidth);
     for (const line of lines) {
       if (cursorY < 60) break;
       page.drawText(line, {
@@ -297,7 +306,7 @@ function renderContentPage(
 
   // Body secondary
   if (slide.bodySecondary) {
-    const lines = wrapText(slide.bodySecondary, fontRegular, 12, CONTENT_W * 0.6);
+    const lines = wrapText(slide.bodySecondary, fontRegular, 12, bodyWidth);
     for (const line of lines) {
       if (cursorY < 60) break;
       page.drawText(line, {
@@ -308,17 +317,18 @@ function renderContentPage(
     }
   }
 
-  // Bullets (right column)
+  // Bullets
   if (slide.bullets?.length) {
-    let bulletY = PAGE_H - MARGIN - 100;
-    const bulletX = PAGE_W * 0.55;
+    let bulletY = isPortrait ? cursorY - 20 : PAGE_H - MARGIN - 100;
+    const bulletX = isPortrait ? MARGIN : PAGE_W * 0.55;
+    const bulletWidth = isPortrait ? CONTENT_W * 0.85 : CONTENT_W * 0.4;
     for (const bullet of slide.bullets) {
       if (bulletY < 60) break;
       page.drawCircle({
         x: bulletX, y: bulletY + 4,
         size: 2, color: accentColor,
       });
-      const bLines = wrapText(bullet, fontRegular, 12, CONTENT_W * 0.4);
+      const bLines = wrapText(bullet, fontRegular, 12, bulletWidth);
       for (const bl of bLines) {
         page.drawText(bl, {
           x: bulletX + 12, y: bulletY,
@@ -344,6 +354,8 @@ function renderCharactersPage(
   fontBold: PDFFont, fontRegular: PDFFont,
   fontSansBold: PDFFont, fontSans: PDFFont,
   textColor: any, mutedColor: any, accentColor: any,
+  PAGE_W: number, PAGE_H: number, MARGIN: number, CONTENT_W: number,
+  isPortrait: boolean,
 ) {
   page.drawText('CHARACTERS', {
     x: MARGIN, y: PAGE_H - MARGIN - 20,
@@ -351,35 +363,61 @@ function renderCharactersPage(
   });
   page.drawText(slide.title || 'Characters', {
     x: MARGIN, y: PAGE_H - MARGIN - 60,
-    size: 36, font: fontBold, color: textColor,
+    size: isPortrait ? 32 : 36, font: fontBold, color: textColor,
   });
 
   const chars = slide.characters || [];
-  const colW = (CONTENT_W - 40) / 2;
-  chars.slice(0, 4).forEach((c, i) => {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const x = MARGIN + col * (colW + 40);
-    const y = PAGE_H - MARGIN - 120 - row * 200;
-
-    page.drawText(c.name, {
-      x, y, size: 18, font: fontSansBold, color: accentColor,
-    });
-    if (c.role) {
-      page.drawText(c.role.toUpperCase(), {
-        x, y: y - 24, size: 8, font: fontSans, color: mutedColor,
+  if (isPortrait) {
+    // Portrait: single-column character stack
+    chars.slice(0, 5).forEach((c, i) => {
+      const y = PAGE_H - MARGIN - 120 - i * 180;
+      if (y < 60) return;
+      page.drawText(c.name, {
+        x: MARGIN, y, size: 18, font: fontSansBold, color: accentColor,
       });
-    }
-    if (c.description) {
-      const lines = wrapText(c.description, fontRegular, 11, colW - 20);
-      lines.slice(0, 5).forEach((line, li) => {
-        page.drawText(line, {
-          x, y: y - 44 - li * 16,
-          size: 11, font: fontRegular, color: textColor, opacity: 0.85,
+      if (c.role) {
+        page.drawText(c.role.toUpperCase(), {
+          x: MARGIN, y: y - 24, size: 8, font: fontSans, color: mutedColor,
         });
+      }
+      if (c.description) {
+        const lines = wrapText(c.description, fontRegular, 11, CONTENT_W - 20);
+        lines.slice(0, 6).forEach((line, li) => {
+          page.drawText(line, {
+            x: MARGIN, y: y - 44 - li * 16,
+            size: 11, font: fontRegular, color: textColor, opacity: 0.85,
+          });
+        });
+      }
+    });
+  } else {
+    // Landscape: 2-col grid
+    const colW = (CONTENT_W - 40) / 2;
+    chars.slice(0, 4).forEach((c, i) => {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const x = MARGIN + col * (colW + 40);
+      const y = PAGE_H - MARGIN - 120 - row * 200;
+
+      page.drawText(c.name, {
+        x, y, size: 18, font: fontSansBold, color: accentColor,
       });
-    }
-  });
+      if (c.role) {
+        page.drawText(c.role.toUpperCase(), {
+          x, y: y - 24, size: 8, font: fontSans, color: mutedColor,
+        });
+      }
+      if (c.description) {
+        const lines = wrapText(c.description, fontRegular, 11, colW - 20);
+        lines.slice(0, 5).forEach((line, li) => {
+          page.drawText(line, {
+            x, y: y - 44 - li * 16,
+            size: 11, font: fontRegular, color: textColor, opacity: 0.85,
+          });
+        });
+      }
+    });
+  }
 }
 
 function renderComparablesPage(
@@ -387,6 +425,8 @@ function renderComparablesPage(
   fontBold: PDFFont, fontRegular: PDFFont,
   fontSansBold: PDFFont, fontSans: PDFFont,
   textColor: any, mutedColor: any, accentColor: any,
+  PAGE_W: number, PAGE_H: number, MARGIN: number, CONTENT_W: number,
+  isPortrait: boolean,
 ) {
   page.drawText('MARKET POSITIONING', {
     x: MARGIN, y: PAGE_H - MARGIN - 20,
@@ -394,12 +434,14 @@ function renderComparablesPage(
   });
   page.drawText(slide.title || 'Comparables', {
     x: MARGIN, y: PAGE_H - MARGIN - 60,
-    size: 36, font: fontBold, color: textColor,
+    size: isPortrait ? 32 : 36, font: fontBold, color: textColor,
   });
 
   const comps = slide.comparables || [];
-  comps.slice(0, 4).forEach((c, i) => {
-    const y = PAGE_H - MARGIN - 120 - i * 100;
+  const spacing = isPortrait ? 120 : 100;
+  comps.slice(0, isPortrait ? 6 : 4).forEach((c, i) => {
+    const y = PAGE_H - MARGIN - 120 - i * spacing;
+    if (y < 60) return;
     const num = String(i + 1).padStart(2, '0');
     page.drawText(num, {
       x: MARGIN, y, size: 28, font: fontBold, color: accentColor, opacity: 0.3,
