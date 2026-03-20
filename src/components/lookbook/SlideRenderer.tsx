@@ -972,12 +972,8 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
           </div>
         </div>
         {hasImages && (
-          <div style={{ width: '50%', padding: '48px 56px 48px 0', display: 'grid', gridTemplateColumns: imgs.length === 1 ? '1fr' : '1fr 1fr', gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr', gap: 10 }}>
-            {imgs.slice(0, 4).map((url, i) => (
-              <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`, ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}) }}>
-                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.7) contrast(1.1)' }} />
-              </div>
-            ))}
+          <div style={{ width: '50%', padding: '48px 56px 48px 0', display: 'flex', alignItems: 'center' }}>
+            <LayoutAwareImageZone slide={slide} colors={colors} />
           </div>
         )}
       </div>
