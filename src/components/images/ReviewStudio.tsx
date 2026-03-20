@@ -215,6 +215,23 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
             <Eye className="h-3 w-3" /> Compare ({selectedForCompare.length})
           </Button>
         )}
+
+        {/* Bulk approve suggested — only when viewing pending candidates */}
+        {filter === 'candidate' && suggestedApproval.safe.length > 0 && (
+          <ConfirmDialog
+            title="Approve Suggested Images"
+            description={`${suggestedApproval.safe.length} image${suggestedApproval.safe.length === 1 ? '' : 's'} passed safety checks and will be approved into canon. ${suggestedApproval.skipped.length > 0 ? `${suggestedApproval.skipped.length} skipped (${[...new Set(suggestedApproval.skipped.map(s => s.reason))].join(', ')}).` : ''} First candidate per slot becomes primary.`}
+            confirmLabel={`Approve ${suggestedApproval.safe.length} Images`}
+            variant="default"
+            onConfirm={handleBulkApproveSuggested}
+          >
+            <Button size="sm" className="h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={bulkApproving}>
+              <Sparkles className="h-3 w-3" />
+              {bulkApproving ? 'Approving…' : `Approve Suggested (${suggestedApproval.safe.length})`}
+            </Button>
+          </ConfirmDialog>
+        )}
       </div>
 
       {/* ── Filter bar ── */}
