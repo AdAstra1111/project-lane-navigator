@@ -256,6 +256,7 @@ function SlotApprovalRow({
               isRecommended={img.id === slot.recommended?.id}
               isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
               identityContinuity={img.asset_group === 'character' && img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
+              rankReason={img.id === slot.recommended?.id ? (slot.recommendedReason ?? undefined) : undefined}
               onApprove={() => onApprove(img)}
               onReject={() => onReject(img.id, false)}
               onRejectReuse={() => onReject(img.id, true)}
