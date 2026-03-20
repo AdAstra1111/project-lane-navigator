@@ -12,6 +12,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { CorpusIntegrityBanner } from "@/components/corpus/CorpusIntegrityBanner";
 import { UIModeProvider } from "@/hooks/useUIMode";
+import { ProcessingProvider } from "@/lib/processing/ProcessingContext";
 
 // Eagerly load landing + auth (first paint)
 import Index from "./pages/Index";
