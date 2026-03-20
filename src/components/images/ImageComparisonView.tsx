@@ -239,7 +239,7 @@ export function ImageComparisonView({
 // ── Comparison Cell ──
 
 function ComparisonCell({
-  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, onSetPrimary, onReject,
+  image, zoom: syncedZoom, score, continuity, provenance, isRecommended, rankReason, driftPenalty, onSetPrimary, onReject,
 }: {
   image: ProjectImage;
   zoom?: number;
@@ -247,6 +247,8 @@ function ComparisonCell({
   continuity: { status: string; reason: string };
   provenance: { locked: boolean; usedSlots: string[]; hasAnchors: boolean };
   isRecommended: boolean;
+  rankReason?: string;
+  driftPenalty?: number;
   onSetPrimary?: (img: ProjectImage) => void;
   onReject?: (id: string) => void;
 }) {
