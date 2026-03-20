@@ -228,6 +228,8 @@ async function fetchSectionImages(
   projectFormat = '',
   projectLane = '',
 ): Promise<SectionImageResult> {
+  // Character identity needs a higher limit to ensure all characters are represented
+  const effectiveLimit = sectionKey === 'character_identity' ? Math.max(limit, 40) : limit;
   const mapping = SECTION_QUERY_MAP[sectionKey];
   const shotFilter = SECTION_SHOT_FILTER[sectionKey];
   const isVDStrict = strictDeckMode;
