@@ -74,6 +74,8 @@ interface SectionContext {
   worldBindingBlock?: string;
   locationBindingBlock?: string;
   characterBindingBlock?: string;
+  /** Bound character names from canonical binding resolution */
+  boundCharacterNames?: string[];
 }
 
 // ── Canonical Visual Binding Types ──────────────────────────────────────────
