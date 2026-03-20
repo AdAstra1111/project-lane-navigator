@@ -668,6 +668,22 @@ export async function generateLookBookData(
     });
   }
 
+  // ── POSTER DIRECTIONS ── (dedicated poster showcase when posters exist)
+  const posterImages = canonImages.poster_directions.images;
+  if (posterImages.length > 1) {
+    slides.push({
+      type: 'key_moments' as any,
+      slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
+      title: 'Poster Directions',
+      body: 'Key art explorations — the visual identity that anchors the marketing campaign and defines the audience\'s first impression.',
+      imageUrl: posterImages[0]?.signedUrl || undefined,
+      imageUrls: posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 4),
+      _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 4),
+      _has_unresolved: false,
+    });
+  }
+
   // ── CLOSING ──
   slides.push({
     type: 'closing',
@@ -677,6 +693,7 @@ export async function generateLookBookData(
     credit: writerCredit,
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
+    imageUrl: coverImageUrl || undefined,
   });
 
   // ── Enrich slides with layout family metadata (landscape decks only) ──
