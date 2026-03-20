@@ -65,7 +65,7 @@ export function LookbookSectionPanel({
   const upstream = SECTION_UPSTREAM_MAP[sectionKey];
   const IconComp = upstream ? ICON_MAP[upstream.icon] || Globe : Globe;
 
-  const [filter, setFilter] = useState<CurationFilter>('all');
+  const [filter, setFilter] = useState<CurationFilter>('working');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const { images, total, isLoading, blockers } = useLookbookSectionContent(
     projectId,
