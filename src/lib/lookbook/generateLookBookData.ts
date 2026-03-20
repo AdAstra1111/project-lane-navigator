@@ -16,12 +16,35 @@ import { resolveLookbookLayoutFamily, summarizeOrientations, type LayoutFamilyKe
 import { matchImagesToSlots, type ImageCandidate } from './lookbookSlotMatcher';
 
 /**
- * Generate a deterministic slide_id from slide type and an optional ordinal.
- * This must be stable across rebuilds for the same semantic slide.
+ * Generate a deterministic semantic slide_id from a kind and optional variant.
+ * Semantic IDs are stable across rebuilds regardless of slide ordering.
+ * 
+ * Examples: 'cover:main', 'characters:main', 'key_moments:act1'
+ * 
+ * Do NOT use ordinals. If a variant is needed, use a semantic discriminator.
  */
-function makeSlideId(slideType: string, ordinal = 0): string {
-  return ordinal > 0 ? `${slideType}_${ordinal}` : slideType;
+export function makeSemanticSlideId(kind: string, variant: string = 'main'): string {
+  return `${kind}:${variant}`;
 }
+
+/**
+ * Legacy ordinal-to-semantic migration map.
+ * Maps old ordinal IDs (from prior builds) to their new semantic equivalents.
+ * Used only during mergeUserDecisions for one-time forward migration.
+ */
+const LEGACY_ORDINAL_TO_SEMANTIC: Record<string, string> = {
+  'cover': 'cover:main',
+  'overview': 'overview:main',
+  'world': 'world:main',
+  'characters': 'characters:main',
+  'themes': 'themes:main',
+  'visual_language': 'visual_language:main',
+  'story_engine': 'story_engine:main',
+  'key_moments': 'key_moments:main',
+  'comparables': 'comparables:main',
+  'creative_statement': 'creative_statement:main',
+  'closing': 'closing:main',
+};
 
 /**
  * Merge forward valid user decisions from a previous build into freshly generated slides.
@@ -30,7 +53,7 @@ function makeSlideId(slideType: string, ordinal = 0): string {
 export function mergeUserDecisions(
   freshSlides: SlideContent[],
   previousSlides: SlideContent[],
-): { merged: SlideContent[]; preservedCount: number; droppedCount: number; dropReasons: string[] } {
+): { merged: SlideContent[]; preservedCount: number; droppedCount: number; dropReasons: string[]; migratedCount: number } {
   const prevBySlideId = new Map<string, SlideUserDecisions>();
   for (const s of previousSlides) {
     if (s.slide_id && s.user_decisions && Object.keys(s.user_decisions).length > 0) {
@@ -39,27 +62,45 @@ export function mergeUserDecisions(
   }
 
   if (prevBySlideId.size === 0) {
-    return { merged: freshSlides, preservedCount: 0, droppedCount: 0, dropReasons: [] };
+    return { merged: freshSlides, preservedCount: 0, droppedCount: 0, dropReasons: [], migratedCount: 0 };
   }
 
   let preservedCount = 0;
   let droppedCount = 0;
+  let migratedCount = 0;
   const dropReasons: string[] = [];
 
   const merged = freshSlides.map(slide => {
-    const prevDecisions = prevBySlideId.get(slide.slide_id);
+    // 1. Try exact semantic slide_id match first
+    let prevDecisions = prevBySlideId.get(slide.slide_id);
+    let matchSource = 'exact';
+
+    // 2. If not found, try legacy ordinal-to-semantic migration
+    if (!prevDecisions) {
+      for (const [legacyId, semanticId] of Object.entries(LEGACY_ORDINAL_TO_SEMANTIC)) {
+        if (semanticId === slide.slide_id && prevBySlideId.has(legacyId)) {
+          prevDecisions = prevBySlideId.get(legacyId);
+          matchSource = 'legacy_migration';
+          migratedCount++;
+          console.log(`[LookBook merge] migrated legacy ID '${legacyId}' → '${slide.slide_id}'`);
+          break;
+        }
+      }
+    }
+
     if (!prevDecisions) return slide;
 
     // If slide has unresolved images, do not preserve layout override
     if (slide._has_unresolved && prevDecisions.layout_family) {
       droppedCount++;
-      dropReasons.push(`${slide.slide_id}: dropped layout_family (unresolved images)`);
+      dropReasons.push(`${slide.slide_id}: dropped layout_family (unresolved images, match=${matchSource})`);
       return slide;
     }
 
     // Preserve valid decisions
     const effectiveFamily = prevDecisions.layout_family || slide.layoutFamily || 'landscape_standard';
     preservedCount++;
+    console.log(`[LookBook merge] preserved user_decisions for '${slide.slide_id}' (match=${matchSource})`);
     return {
       ...slide,
       user_decisions: { ...prevDecisions },
@@ -69,7 +110,8 @@ export function mergeUserDecisions(
     };
   });
 
-  return { merged, preservedCount, droppedCount, dropReasons };
+  console.log(`[LookBook merge] result: preserved=${preservedCount}, dropped=${droppedCount}, migrated=${migratedCount}`);
+  return { merged, preservedCount, droppedCount, dropReasons, migratedCount };
 }
 // ── Color palettes by tone/genre ──
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
@@ -471,7 +513,7 @@ export async function generateLookBookData(
   // ── COVER ──
   slides.push({
     type: 'cover',
-    slide_id: makeSlideId('cover'),
+    slide_id: makeSemanticSlideId('cover'),
     title,
     subtitle: logline || undefined,
     credit: writerCredit,
@@ -489,7 +531,7 @@ export async function generateLookBookData(
   const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
   slides.push({
     type: 'overview',
-    slide_id: makeSlideId('overview'),
+    slide_id: makeSemanticSlideId('overview'),
     title: 'Project Overview',
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
@@ -506,7 +548,7 @@ export async function generateLookBookData(
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     slides.push({
       type: 'world',
-      slide_id: makeSlideId('world'),
+      slide_id: makeSemanticSlideId('world'),
       title: 'The World',
       body: normalizedCanon.world_rules || undefined,
       bodySecondary: normalizedCanon.locations || undefined,
@@ -524,7 +566,7 @@ export async function generateLookBookData(
   if (normalizedCharacters.length > 0) {
     slides.push({
       type: 'characters',
-      slide_id: makeSlideId('characters'),
+      slide_id: makeSemanticSlideId('characters'),
       title: 'Characters',
       characters: normalizedCharacters,
       _debug_image_ids: canonImages.character_identity.imageIds,
@@ -541,7 +583,7 @@ export async function generateLookBookData(
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
     slides.push({
       type: 'themes',
-      slide_id: makeSlideId('themes'),
+      slide_id: makeSemanticSlideId('themes'),
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
@@ -558,7 +600,7 @@ export async function generateLookBookData(
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
-    slide_id: makeSlideId('visual_language'),
+    slide_id: makeSemanticSlideId('visual_language'),
     title: 'Visual Language',
     body: vlCopy.body,
     imageUrl: visualImages[0]?.signedUrl || undefined,
@@ -574,7 +616,7 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
       type: 'story_engine',
-      slide_id: makeSlideId('story_engine'),
+      slide_id: makeSemanticSlideId('story_engine'),
       title: 'Story Engine',
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
@@ -594,7 +636,7 @@ export async function generateLookBookData(
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     slides.push({
       type: 'key_moments',
-      slide_id: makeSlideId('key_moments'),
+      slide_id: makeSemanticSlideId('key_moments'),
       title: 'Key Moments',
       body: keyMomentBody,
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
@@ -610,7 +652,7 @@ export async function generateLookBookData(
   if (comps.length > 0) {
     slides.push({
       type: 'comparables',
-      slide_id: makeSlideId('comparables'),
+      slide_id: makeSemanticSlideId('comparables'),
       title: 'Comparables',
       comparables: comps,
     });
@@ -620,7 +662,7 @@ export async function generateLookBookData(
   if (creativeStatement) {
     slides.push({
       type: 'creative_statement',
-      slide_id: makeSlideId('creative_statement'),
+      slide_id: makeSemanticSlideId('creative_statement'),
       title: 'Creative Vision',
       body: creativeStatement.slice(0, 500),
       credit: writerCredit,
@@ -630,7 +672,7 @@ export async function generateLookBookData(
   // ── CLOSING ──
   slides.push({
     type: 'closing',
-    slide_id: makeSlideId('closing'),
+    slide_id: makeSemanticSlideId('closing'),
     title,
     subtitle: logline || undefined,
     credit: writerCredit,
