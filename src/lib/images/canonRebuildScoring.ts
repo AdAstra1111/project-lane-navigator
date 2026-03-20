@@ -1,36 +1,36 @@
 /**
  * Canon Rebuild Scoring Engine — General-purpose slot scorer for Full Canon Rebuild.
  *
- * Unlike identityAlignmentScoring.ts (which targets identity slots only),
- * this scorer works for ALL visual set slot types:
- *   - character identity (headshot, profile, full_body)
- *   - character reference (close_up, medium, full_body, profile, emotional_variant)
- *   - world (wide, atmospheric, detail, time_variant)
- *   - visual language (lighting_ref, texture_ref, composition_ref, color_ref)
- *   - key moments (tableau, medium, close_up, wide)
- *   - poster (poster_theatrical, poster_alt)
+ * Uses classifyVerticalCompliance from verticalCompliance.ts as THE
+ * canonical compliance evaluator. No separate "portrait-safe" heuristics.
  *
  * Scoring components:
  *   1. slot_match       — does shot_type match target? (0.30)
  *   2. aspect_fit       — correct aspect ratio for slot? (0.15)
- *   3. portrait_suit    — portrait suitability for vertical drama (0.20 when VD, else 0.00)
- *   4. curation_quality — governance verdict from image_evaluations (0.10)
- *   5. binding_fidelity — entity binding precision (exact > derived > heuristic) (0.15)
- *   6. freshness        — newer images preferred in rebuild context (0.10)
+ *   3. vertical_compliance — strict VD compliance score (0.25 when VD, else 0.00)
+ *   4. curation_quality — governance verdict (0.10)
+ *   5. binding_fidelity — entity binding precision (0.15)
+ *   6. freshness        — newer images preferred (0.10)
  *
  * Returns deterministic ranking per slot with exactly one winner.
+ * For vertical drama: non-compliant images are HARD EXCLUDED, no fallback.
  */
 
 import type { ProjectImage } from './types';
 import { SHOT_ASPECT_RATIO, PORTRAIT_SHOT_OVERRIDE, type AspectRatio } from './requiredVisualSet';
+import {
+  classifyVerticalCompliance,
+  type VerticalComplianceResult,
+  type VerticalComplianceLevel,
+} from './verticalCompliance';
 
 // ── Types ──
 
 export interface SlotTarget {
-  key: string;                // unique slot identifier
-  assetGroup: string;         // character, world, visual_language, key_moment, poster
-  subject: string | null;     // character name, location name, or null
-  shotType: string;           // identity_headshot, wide, etc.
+  key: string;
+  assetGroup: string;
+  subject: string | null;
+  shotType: string;
   expectedAspectRatio: AspectRatio;
   isIdentity: boolean;
 }
@@ -42,12 +42,15 @@ export interface ScoredSlotCandidate {
   components: {
     slotMatch: number;
     aspectFit: number;
-    portraitSuitability: number;
+    verticalCompliance: number;
     curationQuality: number;
     bindingFidelity: number;
     freshness: number;
   };
-  isPortraitSafe: boolean;
+  /** Strict VD compliance classification */
+  complianceLevel: VerticalComplianceLevel;
+  /** Whether this image is eligible for winner selection in current project context */
+  eligibleForSelection: boolean;
   eligible: boolean;
   reasons: string[];
 }
@@ -60,14 +63,11 @@ export interface SlotWinnerResult {
 }
 
 // ── Weights ──
-// When dimensions are available, use full weight set.
-// When dimensions are NULL (common with generated images), redistribute
-// portrait/aspect weights to slotMatch and binding since we can't measure pixels.
 
 const WEIGHTS_STANDARD = {
   slotMatch: 0.35,
   aspectFit: 0.15,
-  portraitSuitability: 0.00, // disabled for non-VD
+  verticalCompliance: 0.00,
   curationQuality: 0.15,
   bindingFidelity: 0.20,
   freshness: 0.15,
@@ -76,26 +76,25 @@ const WEIGHTS_STANDARD = {
 const WEIGHTS_VERTICAL_DRAMA = {
   slotMatch: 0.25,
   aspectFit: 0.10,
-  portraitSuitability: 0.25, // heavily weighted for VD
+  verticalCompliance: 0.25,
   curationQuality: 0.10,
   bindingFidelity: 0.15,
   freshness: 0.15,
 };
 
-// Redistributed weights when no pixel dimensions are available
 const WEIGHTS_VERTICAL_DRAMA_NO_DIMS = {
-  slotMatch: 0.35,        // boost slot correctness
-  aspectFit: 0.00,        // can't score without dims
-  portraitSuitability: 0.15, // use shot-type inference instead
+  slotMatch: 0.35,
+  aspectFit: 0.00,
+  verticalCompliance: 0.15,
   curationQuality: 0.15,
-  bindingFidelity: 0.25,  // boost canon fidelity
+  bindingFidelity: 0.25,
   freshness: 0.10,
 };
 
 const WEIGHTS_STANDARD_NO_DIMS = {
   slotMatch: 0.40,
   aspectFit: 0.00,
-  portraitSuitability: 0.00,
+  verticalCompliance: 0.00,
   curationQuality: 0.20,
   bindingFidelity: 0.25,
   freshness: 0.15,
@@ -111,7 +110,6 @@ function scoreSlotMatch(imageShotType: string | null, targetShotType: string): {
     return { score: 100, eligible: true, reason: `Exact slot match: ${target}` };
   }
 
-  // Related shot partial credit
   const RELATED: Record<string, Record<string, number>> = {
     wide: { atmospheric: 40, composition_ref: 30, tableau: 50 },
     atmospheric: { wide: 40, lighting_ref: 50, time_variant: 30 },
@@ -136,12 +134,11 @@ function scoreSlotMatch(imageShotType: string | null, targetShotType: string): {
 }
 
 function scoreAspectFit(image: ProjectImage, expectedAR: AspectRatio): { score: number; reason: string } {
-  const w = (image as any).width as number | null;
-  const h = (image as any).height as number | null;
+  const w = image.width as number | null;
+  const h = image.height as number | null;
   if (!w || !h) {
-    // Infer from shot_type: if the image's shot_type has a known canonical AR that matches expected, score higher
     const shotAR = SHOT_ASPECT_RATIO[(image.shot_type || '') as string];
-    if (shotAR === expectedAR) return { score: 80, reason: `No dims but shot_type "${image.shot_type}" matches expected AR ${expectedAR}` };
+    if (shotAR === expectedAR) return { score: 80, reason: `No dims but shot_type matches expected AR ${expectedAR}` };
     if (shotAR) return { score: 40, reason: `No dims; shot_type AR ${shotAR} ≠ expected ${expectedAR}` };
     return { score: 50, reason: 'No dimensions — neutral aspect score' };
   }
@@ -157,56 +154,33 @@ function scoreAspectFit(image: ProjectImage, expectedAR: AspectRatio): { score: 
   return { score: 10, reason: `Aspect ratio far from ${expectedAR} (ratio: ${imageRatio.toFixed(2)})` };
 }
 
-function scorePortraitSuitability(image: ProjectImage): { score: number; isPortraitSafe: boolean; reason: string } {
-  const w = (image as any).width as number | null;
-  const h = (image as any).height as number | null;
+/**
+ * Score vertical compliance using the canonical classifyVerticalCompliance evaluator.
+ * Returns 0-100 score AND eligibility determination.
+ */
+function scoreVerticalCompliance(
+  image: ProjectImage,
+  slotShotType: string,
+  projectFormat: string,
+  projectLane: string,
+): { score: number; compliance: VerticalComplianceResult; reason: string } {
+  const result = classifyVerticalCompliance(image, slotShotType, projectFormat, projectLane);
 
-  // If dimensions exist, use pixel-based scoring
-  if (w && h) {
-    const ratio = h / w;
-    if (ratio >= 1.5) return { score: 100, isPortraitSafe: true, reason: 'Strong portrait orientation (≥3:2)' };
-    if (ratio >= 1.2) return { score: 85, isPortraitSafe: true, reason: 'Portrait orientation (≥6:5)' };
-    if (ratio >= 1.0) return { score: 65, isPortraitSafe: true, reason: 'Square-ish portrait (≥1:1)' };
-    if (ratio >= 0.8) return { score: 30, isPortraitSafe: false, reason: 'Mild landscape — not portrait-safe' };
-    return { score: 5, isPortraitSafe: false, reason: 'Strong landscape — not portrait-safe' };
-  }
+  // Score mapping
+  const LEVEL_SCORES: Record<VerticalComplianceLevel, number> = {
+    strict_vertical_compliant: 100,
+    portrait_only: 30,       // low score — not eligible for VD winner
+    non_compliant: 0,        // blocked
+  };
 
-  // ── NULL dimensions: infer from shot_type + generation metadata ──
-  // If the image was generated with a portrait-mapped shot type, treat as portrait-safe.
-  const shotType = (image.shot_type || '').toLowerCase();
-
-  // Shot types that are inherently portrait-safe (their canonical AR ≥ 1:1)
-  const PORTRAIT_NATIVE_SHOTS = new Set([
-    'identity_headshot', 'identity_profile', 'identity_full_body',
-    'close_up', 'full_body', 'profile', 'detail',
-    'texture_ref', 'color_ref',
-    'poster_theatrical', 'poster_alt',
-  ]);
-
-  // Shot types that become portrait-safe when PORTRAIT_SHOT_OVERRIDE maps them
-  const PORTRAIT_OVERRIDDEN_SHOTS = new Set(Object.keys(PORTRAIT_SHOT_OVERRIDE));
-
-  if (PORTRAIT_NATIVE_SHOTS.has(shotType)) {
-    return { score: 85, isPortraitSafe: true, reason: `Shot type "${shotType}" is inherently portrait-safe (no dims)` };
-  }
-
-  if (PORTRAIT_OVERRIDDEN_SHOTS.has(shotType)) {
-    // These were requested with portrait override dimensions during generation
-    return { score: 75, isPortraitSafe: true, reason: `Shot type "${shotType}" was portrait-overridden at generation (no dims)` };
-  }
-
-  // Unknown shot type with no dimensions — assume portrait-safe if generation_purpose suggests identity
-  const purpose = (image as any).generation_purpose as string | null;
-  if (purpose === 'character_identity') {
-    return { score: 70, isPortraitSafe: true, reason: 'Identity generation purpose implies portrait (no dims)' };
-  }
-
-  // Truly unknown — neutral but NOT portrait-safe
-  return { score: 40, isPortraitSafe: false, reason: 'No dimensions and no portrait-safe inference available' };
+  return {
+    score: LEVEL_SCORES[result.level],
+    compliance: result,
+    reason: `VD compliance: ${result.level} — ${result.reason}`,
+  };
 }
 
 function scoreCurationQuality(image: ProjectImage): { score: number; reason: string } {
-  // Use evaluation_score if available from the image metadata
   const evalScore = (image as any).evaluation_score as number | null;
   if (evalScore != null && evalScore > 0) {
     return { score: Math.min(100, evalScore), reason: `Evaluation score: ${evalScore}` };
@@ -225,7 +199,6 @@ function scoreBindingFidelity(image: ProjectImage, slot: SlotTarget): { score: n
   const precision = (image as any).entity_binding_precision as string | null;
   const boundTarget = (image as any).bound_entity_name as string | null;
 
-  // Exact entity binding
   if (precision === 'exact' && boundTarget && slot.subject && boundTarget === slot.subject) {
     return { score: 100, reason: `Exact entity binding: ${boundTarget}` };
   }
@@ -233,12 +206,10 @@ function scoreBindingFidelity(image: ProjectImage, slot: SlotTarget): { score: n
   if (precision === 'derived') return { score: 60, reason: 'Derived binding' };
   if (precision === 'heuristic') return { score: 40, reason: 'Heuristic binding' };
 
-  // Subject match without precision metadata
   if (slot.subject && image.subject === slot.subject) {
     return { score: 70, reason: `Subject match: ${slot.subject}` };
   }
 
-  // No binding info
   if (!slot.subject) return { score: 60, reason: 'Slot has no target subject — neutral' };
   return { score: 20, reason: 'No entity binding detected' };
 }
@@ -254,8 +225,8 @@ function scoreFreshness(image: ProjectImage, allImages: ProjectImage[]): { score
 
   if (range === 0) return { score: 80, reason: 'All same age' };
 
-  const normalised = (myTime - oldest) / range; // 0 = oldest, 1 = newest
-  const score = Math.round(40 + normalised * 60); // 40–100
+  const normalised = (myTime - oldest) / range;
+  const score = Math.round(40 + normalised * 60);
   return { score, reason: `Freshness: ${Math.round(normalised * 100)}% newest` };
 }
 
@@ -263,14 +234,17 @@ function scoreFreshness(image: ProjectImage, allImages: ProjectImage[]): { score
 
 /**
  * Score a single candidate image against a target slot.
+ * projectFormat and projectLane are needed for vertical compliance evaluation.
  */
 export function scoreCandidateForSlot(
   image: ProjectImage,
   slot: SlotTarget,
   allSlotCandidates: ProjectImage[],
   isVerticalDrama: boolean,
+  projectFormat = '',
+  projectLane = '',
 ): ScoredSlotCandidate {
-  const hasDims = !!((image as any).width && (image as any).height);
+  const hasDims = !!(image.width && image.height);
   const weights = isVerticalDrama
     ? (hasDims ? WEIGHTS_VERTICAL_DRAMA : WEIGHTS_VERTICAL_DRAMA_NO_DIMS)
     : (hasDims ? WEIGHTS_STANDARD : WEIGHTS_STANDARD_NO_DIMS);
@@ -282,8 +256,13 @@ export function scoreCandidateForSlot(
   const aspectFit = scoreAspectFit(image, slot.expectedAspectRatio);
   reasons.push(aspectFit.reason);
 
-  const portrait = scorePortraitSuitability(image);
-  reasons.push(portrait.reason);
+  // Use canonical vertical compliance evaluator
+  const vdCompliance = scoreVerticalCompliance(
+    image, slot.shotType,
+    projectFormat || (isVerticalDrama ? 'vertical-drama' : 'film'),
+    projectLane || (isVerticalDrama ? 'vertical_drama' : ''),
+  );
+  reasons.push(vdCompliance.reason);
 
   const curation = scoreCurationQuality(image);
   reasons.push(curation.reason);
@@ -297,7 +276,7 @@ export function scoreCandidateForSlot(
   const weighted =
     slotMatch.score * weights.slotMatch +
     aspectFit.score * weights.aspectFit +
-    portrait.score * weights.portraitSuitability +
+    vdCompliance.score * weights.verticalCompliance +
     curation.score * weights.curationQuality +
     binding.score * weights.bindingFidelity +
     freshness.score * weights.freshness;
@@ -311,12 +290,13 @@ export function scoreCandidateForSlot(
     components: {
       slotMatch: slotMatch.score,
       aspectFit: aspectFit.score,
-      portraitSuitability: portrait.score,
+      verticalCompliance: vdCompliance.score,
       curationQuality: curation.score,
       bindingFidelity: binding.score,
       freshness: freshness.score,
     },
-    isPortraitSafe: portrait.isPortraitSafe,
+    complianceLevel: vdCompliance.compliance.level,
+    eligibleForSelection: vdCompliance.compliance.eligibleForWinnerSelection,
     eligible: slotMatch.eligible,
     reasons,
   };
@@ -324,39 +304,50 @@ export function scoreCandidateForSlot(
 
 /**
  * Rank all candidates for a slot, return deterministic winner.
- * For vertical drama: landscape images are excluded from winning.
+ *
+ * For vertical drama: NON-COMPLIANT IMAGES ARE HARD EXCLUDED.
+ * If no compliant candidate exists, the slot remains UNRESOLVED.
+ * There is NO fallback to landscape/non-compliant images.
  */
 export function selectSlotWinner(
   candidates: ProjectImage[],
   slot: SlotTarget,
   isVerticalDrama: boolean,
+  projectFormat = '',
+  projectLane = '',
 ): SlotWinnerResult {
   if (candidates.length === 0) {
     return { slotKey: slot.key, winner: null, allScored: [], noWinnerReason: 'No candidates' };
   }
 
   const scored = candidates
-    .map(img => scoreCandidateForSlot(img, slot, candidates, isVerticalDrama))
+    .map(img => scoreCandidateForSlot(img, slot, candidates, isVerticalDrama, projectFormat, projectLane))
     .filter(s => s.eligible);
 
   if (scored.length === 0) {
     return { slotKey: slot.key, winner: null, allScored: [], noWinnerReason: 'No eligible candidates for this slot type' };
   }
 
-  // For vertical drama: hard-filter non-portrait images
+  // ── VERTICAL DRAMA HARD FILTER — no fallback ──
   let eligiblePool = scored;
   if (isVerticalDrama) {
-    const portraitOnly = scored.filter(s => s.isPortraitSafe);
-    if (portraitOnly.length > 0) {
-      eligiblePool = portraitOnly;
+    const compliantOnly = scored.filter(s => s.eligibleForSelection);
+    if (compliantOnly.length > 0) {
+      eligiblePool = compliantOnly;
+    } else {
+      // HARD EXCLUSION: no compliant images → slot unresolved
+      return {
+        slotKey: slot.key,
+        winner: null,
+        allScored: scored.sort((a, b) => b.totalScore - a.totalScore),
+        noWinnerReason: `No vertical-compliant candidates (${scored.length} scored but all ${scored.map(s => s.complianceLevel).join(', ')})`,
+      };
     }
-    // If no portrait-safe images exist, fall back to all eligible but log warning
   }
 
-  // Deterministic sort: score desc → created_at desc → id asc
+  // Deterministic sort: score desc → id asc
   eligiblePool.sort((a, b) => {
     if (a.totalScore !== b.totalScore) return b.totalScore - a.totalScore;
-    // Tiebreak by image id for determinism
     return a.imageId.localeCompare(b.imageId);
   });
 
@@ -375,9 +366,11 @@ export function scoreAndSelectAllSlots(
   slots: SlotTarget[],
   imagesBySlotKey: Map<string, ProjectImage[]>,
   isVerticalDrama: boolean,
+  projectFormat = '',
+  projectLane = '',
 ): SlotWinnerResult[] {
   return slots.map(slot => {
     const candidates = imagesBySlotKey.get(slot.key) || [];
-    return selectSlotWinner(candidates, slot, isVerticalDrama);
+    return selectSlotWinner(candidates, slot, isVerticalDrama, projectFormat, projectLane);
   });
 }
