@@ -361,7 +361,7 @@ async function resolveCanonicalBindings(
     resolveLocationBindings(sb, projectId, sectionKey, explicitLocationId, explicitLocationName, explicitLocationIds),
   ]);
   const world = resolveWorldBinding(canonJson);
-  const characterPromptBlock = buildCharacterBindingBlock(characters);
+  const characterPromptBlock = buildCharacterBindingBlock(characters, null);
   const locationPromptBlock = buildLocationBindingBlock(locations);
   const worldPromptBlock = buildWorldBindingBlock(world);
   const missing: string[] = [];
