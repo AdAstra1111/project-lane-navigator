@@ -494,7 +494,7 @@ export async function generateLookBookData(
   // ── COVER ──
   slides.push({
     type: 'cover',
-    slide_id: makeSlideId('cover'),
+    slide_id: makeSemanticSlideId('cover'),
     title,
     subtitle: logline || undefined,
     credit: writerCredit,
@@ -512,7 +512,7 @@ export async function generateLookBookData(
   const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
   slides.push({
     type: 'overview',
-    slide_id: makeSlideId('overview'),
+    slide_id: makeSemanticSlideId('overview'),
     title: 'Project Overview',
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
@@ -529,7 +529,7 @@ export async function generateLookBookData(
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     slides.push({
       type: 'world',
-      slide_id: makeSlideId('world'),
+      slide_id: makeSemanticSlideId('world'),
       title: 'The World',
       body: normalizedCanon.world_rules || undefined,
       bodySecondary: normalizedCanon.locations || undefined,
@@ -547,7 +547,7 @@ export async function generateLookBookData(
   if (normalizedCharacters.length > 0) {
     slides.push({
       type: 'characters',
-      slide_id: makeSlideId('characters'),
+      slide_id: makeSemanticSlideId('characters'),
       title: 'Characters',
       characters: normalizedCharacters,
       _debug_image_ids: canonImages.character_identity.imageIds,
@@ -564,7 +564,7 @@ export async function generateLookBookData(
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount;
     slides.push({
       type: 'themes',
-      slide_id: makeSlideId('themes'),
+      slide_id: makeSemanticSlideId('themes'),
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
@@ -581,7 +581,7 @@ export async function generateLookBookData(
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
-    slide_id: makeSlideId('visual_language'),
+    slide_id: makeSemanticSlideId('visual_language'),
     title: 'Visual Language',
     body: vlCopy.body,
     imageUrl: visualImages[0]?.signedUrl || undefined,
@@ -597,7 +597,7 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
       type: 'story_engine',
-      slide_id: makeSlideId('story_engine'),
+      slide_id: makeSemanticSlideId('story_engine'),
       title: 'Story Engine',
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
@@ -617,7 +617,7 @@ export async function generateLookBookData(
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     slides.push({
       type: 'key_moments',
-      slide_id: makeSlideId('key_moments'),
+      slide_id: makeSemanticSlideId('key_moments'),
       title: 'Key Moments',
       body: keyMomentBody,
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
@@ -633,7 +633,7 @@ export async function generateLookBookData(
   if (comps.length > 0) {
     slides.push({
       type: 'comparables',
-      slide_id: makeSlideId('comparables'),
+      slide_id: makeSemanticSlideId('comparables'),
       title: 'Comparables',
       comparables: comps,
     });
@@ -643,7 +643,7 @@ export async function generateLookBookData(
   if (creativeStatement) {
     slides.push({
       type: 'creative_statement',
-      slide_id: makeSlideId('creative_statement'),
+      slide_id: makeSemanticSlideId('creative_statement'),
       title: 'Creative Vision',
       body: creativeStatement.slice(0, 500),
       credit: writerCredit,
@@ -653,7 +653,7 @@ export async function generateLookBookData(
   // ── CLOSING ──
   slides.push({
     type: 'closing',
-    slide_id: makeSlideId('closing'),
+    slide_id: makeSemanticSlideId('closing'),
     title,
     subtitle: logline || undefined,
     credit: writerCredit,
