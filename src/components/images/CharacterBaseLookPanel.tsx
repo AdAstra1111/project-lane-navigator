@@ -607,6 +607,33 @@ function CharacterIdentitySection({
   const { setPrimary, setCurationState, updating } = useImageCuration(projectId);
   const { notes: savedNotes, canonCheckStatus, canonCheckMessages, isSaving, save: saveNotes } = useCharacterIdentityNotes(projectId, character.name);
 
+  // Resolve local DNA for scoring
+  const localDNAForScoring = useMemo(() => {
+    try {
+      return resolveLocalDNA(character.name, canonCharacter, canonJson, '', false);
+    } catch { return null; }
+  }, [character.name, canonCharacter, canonJson]);
+
+  // Fetch current DNA record for composite signature
+  const [dnaRecord, setDnaRecord] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('character_visual_dna')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('character_name', character.name)
+        .eq('is_current', true)
+        .maybeSingle();
+      setDnaRecord(data);
+    })();
+  }, [projectId, character.name]);
+
+  // Identity Alignment Scoring
+  const { alignment } = useIdentityAlignmentScoring(
+    projectId, character.name, identityImages, localDNAForScoring, dnaRecord,
+  );
+
   useEffect(() => {
     setLocalNotes(savedNotes);
     setLocalCanonCheck({ status: canonCheckStatus, messages: canonCheckMessages });
