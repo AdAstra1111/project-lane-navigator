@@ -62,7 +62,7 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     limit: 500,
   });
 
-  const { approveIntoCanon, rejectCandidate } = useVisualCanonReset(projectId);
+  const { approveIntoCanon, rejectCandidate, batchApproveAll } = useVisualCanonReset(projectId);
   const { setCurationState } = useImageCuration(projectId);
 
   // Derive identity anchors
