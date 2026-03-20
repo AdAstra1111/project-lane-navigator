@@ -233,6 +233,7 @@ export function ImageComparisonView({
               isRecommended={entry.image.id === summary.recommendedId}
               rankReason={entry.rankReason}
               driftPenalty={entry.driftPenalty}
+              visualSimilarity={entry.visualSimilarity}
               onSetPrimary={onSetPrimary}
               onReject={onReject}
             />
