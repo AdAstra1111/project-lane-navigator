@@ -482,6 +482,17 @@ export async function generateLookBookData(
     });
   }
 
+  // ── KEY MOMENTS ──
+  if (keyMomentImages.length > 0) {
+    slides.push({
+      type: 'key_moments',
+      title: 'Key Moments',
+      imageUrl: keyMomentImages[0]?.signedUrl || undefined,
+      imageUrls: keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[],
+      _debug_image_ids: canonImages.key_moments.imageIds,
+    });
+  }
+
   // ── COMPARABLES ──
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
