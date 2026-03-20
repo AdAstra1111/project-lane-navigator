@@ -4,6 +4,7 @@
  * Identity-aware: displays anchor continuity status per character candidate.
  */
 import { useState, useMemo, useCallback } from 'react';
+import type { VisualSimilarityResult } from '@/lib/images/anchorVisualSimilarity';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
   Users, ChevronRight, Crown, Link, Unlink, AlertTriangle, ShieldCheck,
