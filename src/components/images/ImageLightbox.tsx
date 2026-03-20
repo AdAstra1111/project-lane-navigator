@@ -198,6 +198,15 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReas
               );
             })()}
 
+            {/* Recommendation context from canonical ranking */}
+            {rankReason && (
+              <div className="mt-1.5">
+                <Badge variant="outline" className="text-[8px] border-primary/30 text-primary/80 bg-primary/5">
+                  ★ {rankReason}
+                </Badge>
+              </div>
+            )}
+
             {/* DNA traits */}
             {dnaTraits && dnaTraits.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
