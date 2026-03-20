@@ -250,6 +250,70 @@ export function resolveCharacterVisualDNA(
     }
   }
   
+  // ── Cross-category inference from ALL evidence (including 'other') ──
+  // Occupation, social status, period, and role traits can inform multiple categories
+  const inferredContext = new Map<TraitCategory, { text: string; confidence: 'high' | 'medium' | 'low'; sources: string[] }>();
+  
+  const INFERENCE_RULES: Array<{
+    pattern: RegExp;
+    infers: Array<{ category: TraitCategory; text: string; confidence: 'medium' | 'low' }>;
+  }> = [
+    { pattern: /\b(potter|blacksmith|carpenter|mason|farmer|miner|fisher(?:man)?|woodcutter|tailor|cobbler|tanner|baker|butcher|weaver|smith|craftsman|artisan)\b/i,
+      infers: [
+        { category: 'clothing', text: 'practical workwear suited to manual trade', confidence: 'low' },
+        { category: 'build', text: 'physique shaped by manual labor', confidence: 'low' },
+        { category: 'skin', text: 'work-weathered complexion', confidence: 'low' },
+      ] },
+    { pattern: /\b(commoner|peasant|serf|servant|labourer|laborer|working.?class|lower.?class)\b/i,
+      infers: [
+        { category: 'clothing', text: 'plain, practical commoner attire', confidence: 'low' },
+      ] },
+    { pattern: /\b(noble|aristocrat|royal|wealthy|upper.?class|lord|lady|duke|duchess|count|baron|gentry)\b/i,
+      infers: [
+        { category: 'clothing', text: 'refined, status-signaling attire', confidence: 'low' },
+      ] },
+    { pattern: /\b(soldier|warrior|knight|guard|mercenary|veteran|fighter|officer|military)\b/i,
+      infers: [
+        { category: 'build', text: 'combat-conditioned physique', confidence: 'low' },
+        { category: 'clothing', text: 'military or combat-functional attire', confidence: 'low' },
+        { category: 'posture', text: 'disciplined or alert bearing', confidence: 'low' },
+      ] },
+    { pattern: /\b(scholar|priest|monk|nun|cleric|scribe|teacher|professor|healer|doctor|physician|apothecary)\b/i,
+      infers: [
+        { category: 'clothing', text: 'scholarly or clerical attire', confidence: 'low' },
+      ] },
+    { pattern: /\b(elder|patriarch|matriarch|grandmother|grandfather)\b/i,
+      infers: [
+        { category: 'age', text: 'older / elder figure', confidence: 'low' },
+      ] },
+    { pattern: /\b(outdoor|field.?work|sun.?exposed|tanned|weathered|wind.?beaten)\b/i,
+      infers: [
+        { category: 'skin', text: 'outdoor-weathered complexion', confidence: 'low' },
+      ] },
+  ];
+  
+  // Build corpus from all evidence labels + other-categorized traits
+  const inferenceCorpus = [
+    ...persistentEvidence.map(e => e.label),
+    ...transientStates.map(t => t.label),
+    ...allTraits.filter(t => t.category === 'other').map(t => t.label),
+  ].join(' ');
+  
+  for (const rule of INFERENCE_RULES) {
+    if (rule.pattern.test(inferenceCorpus)) {
+      for (const inf of rule.infers) {
+        if (!inferredContext.has(inf.category)) {
+          const match = inferenceCorpus.match(rule.pattern);
+          inferredContext.set(inf.category, {
+            text: inf.text,
+            confidence: inf.confidence,
+            sources: [match?.[0] || 'context'],
+          });
+        }
+      }
+    }
+  }
+  
   // Identify missing clarifications with resolution status and answer candidates
   const coveredCategories = new Set(allTraits.map(t => t.category));
   const markerCategories = new Set(mergedMarkers.filter(m => m.status !== 'rejected').map(() => 'marker' as TraitCategory));
@@ -316,6 +380,23 @@ export function resolveCharacterVisualDNA(
           text: transientForCat[0].label + ' (transient — not permanent)',
           confidence: 'low' as const,
           basis: 'transient_state' as const,
+        },
+      };
+    }
+    
+    // Check cross-category inferred context
+    const inferred = inferredContext.get(c.category);
+    if (inferred) {
+      return {
+        category: c.category,
+        question: c.question,
+        importance: c.importance,
+        status: 'partial' as ClarificationStatus,
+        resolvedBy: `inferred from ${inferred.sources.join(', ')}`,
+        answerCandidate: {
+          text: inferred.text,
+          confidence: inferred.confidence,
+          basis: 'inferred_context' as const,
         },
       };
     }
