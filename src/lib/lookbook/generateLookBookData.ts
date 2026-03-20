@@ -16,12 +16,35 @@ import { resolveLookbookLayoutFamily, summarizeOrientations, type LayoutFamilyKe
 import { matchImagesToSlots, type ImageCandidate } from './lookbookSlotMatcher';
 
 /**
- * Generate a deterministic slide_id from slide type and an optional ordinal.
- * This must be stable across rebuilds for the same semantic slide.
+ * Generate a deterministic semantic slide_id from a kind and optional variant.
+ * Semantic IDs are stable across rebuilds regardless of slide ordering.
+ * 
+ * Examples: 'cover:main', 'characters:main', 'key_moments:act1'
+ * 
+ * Do NOT use ordinals. If a variant is needed, use a semantic discriminator.
  */
-function makeSlideId(slideType: string, ordinal = 0): string {
-  return ordinal > 0 ? `${slideType}_${ordinal}` : slideType;
+export function makeSemanticSlideId(kind: string, variant: string = 'main'): string {
+  return `${kind}:${variant}`;
 }
+
+/**
+ * Legacy ordinal-to-semantic migration map.
+ * Maps old ordinal IDs (from prior builds) to their new semantic equivalents.
+ * Used only during mergeUserDecisions for one-time forward migration.
+ */
+const LEGACY_ORDINAL_TO_SEMANTIC: Record<string, string> = {
+  'cover': 'cover:main',
+  'overview': 'overview:main',
+  'world': 'world:main',
+  'characters': 'characters:main',
+  'themes': 'themes:main',
+  'visual_language': 'visual_language:main',
+  'story_engine': 'story_engine:main',
+  'key_moments': 'key_moments:main',
+  'comparables': 'comparables:main',
+  'creative_statement': 'creative_statement:main',
+  'closing': 'closing:main',
+};
 
 /**
  * Merge forward valid user decisions from a previous build into freshly generated slides.
