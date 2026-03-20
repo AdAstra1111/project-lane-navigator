@@ -34,6 +34,8 @@ import type { ProjectImage, AssetGroup } from '@/lib/images/types';
 
 interface VisualCanonResetPanelProps {
   projectId: string;
+  /** Optional callback to trigger lookbook rebuild after full canon rebuild */
+  onLookbookRebuild?: () => Promise<void>;
 }
 
 function extractEntities(canonJson: any): { characters: { name: string }[]; locations: { name: string }[] } {
@@ -57,7 +59,7 @@ function extractEntities(canonJson: any): { characters: { name: string }[]; loca
   return { characters: characters.slice(0, 10), locations: locations.slice(0, 10) };
 }
 
-export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps) {
+export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCanonResetPanelProps) {
   const [canonJson, setCanonJson] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showApprovalQueue, setShowApprovalQueue] = useState(false);
@@ -66,6 +68,12 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
   const [showResetModal, setShowResetModal] = useState(false);
   const [batchApproving, setBatchApproving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [projectFormat, setProjectFormat] = useState<string>('');
+  const [projectLane, setProjectLane] = useState<string>('');
+
+  // Full Canon Rebuild state
+  const [fullRebuilding, setFullRebuilding] = useState(false);
+  const [rebuildStage, setRebuildStage] = useState<string | null>(null);
 
   // Auto-populate state
   const [populating, setPopulating] = useState(false);
@@ -94,18 +102,22 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
     limit: 500,
   });
 
-  // Load canon
+  // Load canon + project format
   useEffect(() => {
     (async () => {
-      const { data } = await (supabase as any)
-        .from('project_canon')
-        .select('canon_json')
-        .eq('project_id', projectId)
-        .maybeSingle();
-      setCanonJson(data?.canon_json || null);
+      const [canonRes, projectRes] = await Promise.all([
+        (supabase as any).from('project_canon').select('canon_json').eq('project_id', projectId).maybeSingle(),
+        (supabase as any).from('projects').select('format, assigned_lane').eq('id', projectId).maybeSingle(),
+      ]);
+      setCanonJson(canonRes.data?.canon_json || null);
+      setProjectFormat((projectRes.data?.format || '').toLowerCase());
+      setProjectLane(projectRes.data?.assigned_lane || '');
       setLoading(false);
     })();
   }, [projectId]);
+
+  /** Detect vertical drama from format or lane */
+  const isVerticalDrama = projectFormat.includes('vertical') || projectLane === 'vertical_drama';
 
   // Fetch ALL project images (including archived/rejected) for the resolver
   const { data: allImages = [], isLoading: imagesLoading } = useProjectImages(projectId, {
@@ -331,8 +343,8 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
         currentPhase: PHASE_LABELS[slot.phase] || null,
       } : prev);
 
-      // Build request body with enforced aspect ratio dimensions
-      const dims = getDimensionsForShot(slot.shotType);
+      // Build request body with enforced aspect ratio dimensions (portrait for vertical drama)
+      const dims = getDimensionsForShot(slot.shotType, isVerticalDrama);
       const genBody: Record<string, any> = {
         project_id: projectId,
         section: slot.section,
@@ -433,7 +445,82 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
     } else {
       toast.error(`Generation failed for all ${failed} slots`);
     }
-  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs]);
+  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama]);
+
+  // ── Full Canon Rebuild — one-click end-to-end pipeline ──
+  const REBUILD_STAGES = [
+    'Resetting canon',
+    'Archiving images',
+    'Generating images',
+    'Approving candidates',
+    'Attaching to canon',
+    'Building lookbook',
+    'Preparing download',
+    'Complete',
+  ] as const;
+
+  const handleFullCanonRebuild = useCallback(async () => {
+    if (fullRebuilding) return;
+    setFullRebuilding(true);
+
+    try {
+      // Stage 1: Reset canon
+      setRebuildStage('Resetting canon');
+      await resetScopedCanon({
+        sections: [],
+        clearPrimary: true,
+        targetState: 'archived',
+        regenerateAfter: false,
+      });
+      await refetchImages();
+
+      // Stage 2: Archive confirmation
+      setRebuildStage('Archiving images');
+      // resetScopedCanon already archived — brief pause for DB propagation
+      await new Promise(r => setTimeout(r, 500));
+      await refetchImages();
+
+      // Stage 3: Generate full visual set
+      setRebuildStage('Generating images');
+      await handleAutoPopulate(false);
+      await refetchImages();
+
+      // Stage 4: Approve all candidates
+      setRebuildStage('Approving candidates');
+      const freshImages = await refetchImages();
+      const candidates = (freshImages?.data || []).filter((i: any) => i.curation_state === 'candidate');
+      if (candidates.length > 0) {
+        await batchApproveAll(candidates);
+        await refetchImages();
+      }
+
+      // Stage 5: Attach to canon (confirm primaries)
+      setRebuildStage('Attaching to canon');
+      const postApproval = await refetchImages();
+      const activeCount = (postApproval?.data || []).filter((i: any) => i.curation_state === 'active' && i.is_primary).length;
+      toast.success(`Visual canon confirmed: ${activeCount} primary images bound`);
+
+      // Stage 6: Build lookbook
+      setRebuildStage('Building lookbook');
+      if (onLookbookRebuild) {
+        await onLookbookRebuild();
+      }
+
+      // Stage 7: Download
+      setRebuildStage('Preparing download');
+      await handleDownloadAll();
+
+      // Done
+      setRebuildStage('Complete');
+      toast.success('Full Canon Rebuild complete');
+    } catch (err: any) {
+      console.error('[full-canon-rebuild] Error:', err);
+      toast.error('Rebuild failed at stage: ' + (rebuildStage || 'unknown') + ' — ' + (err.message || 'Unknown error'));
+    } finally {
+      setFullRebuilding(false);
+      setRebuildStage(null);
+    }
+  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, batchApproveAll, onLookbookRebuild, handleDownloadAll, rebuildStage]);
 
   if (loading || imagesLoading) {
     return (
@@ -653,6 +740,52 @@ export function VisualCanonResetPanel({ projectId }: VisualCanonResetPanelProps)
           </CardContent>
         </Card>
       )}
+
+      {/* ── Full Canon Rebuild ── */}
+      <Card className="border-primary/40 bg-primary/5">
+        <CardContent className="p-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <RefreshCw className="h-3.5 w-3.5 text-primary" />
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-foreground">
+              Full Canon Rebuild
+            </span>
+            {isVerticalDrama && (
+              <Badge variant="secondary" className="text-[8px] px-1 py-0">Portrait 9:16</Badge>
+            )}
+          </div>
+
+          {fullRebuilding && rebuildStage && (
+            <div className="mb-2 flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin text-primary" />
+              <span className="text-[10px] text-primary font-medium">{rebuildStage}</span>
+              <Progress
+                value={
+                  REBUILD_STAGES.indexOf(rebuildStage as any) >= 0
+                    ? ((REBUILD_STAGES.indexOf(rebuildStage as any) + 1) / REBUILD_STAGES.length) * 100
+                    : 0
+                }
+                className="h-1 flex-1"
+              />
+            </div>
+          )}
+
+          <div className="flex items-start gap-2">
+            <Button
+              size="sm"
+              className="gap-1.5 text-[10px] h-8 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+              disabled={fullRebuilding || populating}
+              onClick={handleFullCanonRebuild}
+            >
+              {fullRebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Full Canon Rebuild
+            </Button>
+            <p className="text-[9px] text-muted-foreground leading-tight pt-1">
+              Reset → Generate → Score → Approve → Attach → Build Lookbook → Download.
+              {isVerticalDrama && ' All images enforced portrait (9:16).'}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* ── Workflow Action Bar: Reset → Generate → Approve → Lock → Export ── */}
       <Card className="border-border/40 bg-muted/10">

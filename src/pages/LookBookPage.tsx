@@ -263,7 +263,10 @@ export default function LookBookPage() {
 
         {projectId && (
           <div className="mx-4 mt-3 mb-0 shrink-0">
-            <VisualCanonResetPanel projectId={projectId} />
+            <VisualCanonResetPanel
+              projectId={projectId}
+              onLookbookRebuild={handleGenerate}
+            />
           </div>
         )}
 

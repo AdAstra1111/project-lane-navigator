@@ -54,10 +54,27 @@ export const SHOT_ASPECT_RATIO: Record<string, AspectRatio> = {
   poster_theatrical: '2:3',
   poster_alt: '2:3',
 };
+/** Portrait overrides for vertical drama — force portrait-safe ratios */
+const PORTRAIT_SHOT_OVERRIDE: Record<string, AspectRatio> = {
+  // Landscape shots → portrait equivalents
+  wide: '9:16',
+  atmospheric: '9:16',
+  time_variant: '9:16',
+  lighting_ref: '9:16',
+  composition_ref: '9:16',
+  tableau: '9:16',
+  medium: '3:4',
+  emotional_variant: '3:4',
+  over_shoulder: '3:4',
+  // Already portrait-safe: identity_headshot (1:1), identity_profile (3:4),
+  // identity_full_body (2:3), close_up (1:1), full_body (2:3), profile (3:4),
+  // detail (1:1), texture_ref (1:1), color_ref (1:1), poster_* (2:3)
+};
 
-/** Get dimensions for a shot type */
-export function getDimensionsForShot(shotType: string): { width: number; height: number; aspectRatio: AspectRatio } {
-  const ar = SHOT_ASPECT_RATIO[shotType] || '16:9';
+/** Get dimensions for a shot type. When isPortrait=true, forces portrait-safe ratios. */
+export function getDimensionsForShot(shotType: string, isPortrait = false): { width: number; height: number; aspectRatio: AspectRatio } {
+  const baseAr = SHOT_ASPECT_RATIO[shotType] || '16:9';
+  const ar = isPortrait ? (PORTRAIT_SHOT_OVERRIDE[shotType] || baseAr) : baseAr;
   return { ...ASPECT_DIMENSIONS[ar], aspectRatio: ar };
 }
 
