@@ -1039,14 +1039,43 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
             )}
           </div>
 
+          {/* Mode selector */}
+          <div className="flex gap-1 mb-2">
+            <Button
+              size="sm"
+              variant={rebuildMode === 'RESET_FULL_CANON_REBUILD' ? 'default' : 'outline'}
+              className="text-[9px] h-6 px-2"
+              disabled={fullRebuilding}
+              onClick={() => setRebuildMode('RESET_FULL_CANON_REBUILD')}
+            >
+              Reset &amp; Rebuild
+            </Button>
+            <Button
+              size="sm"
+              variant={rebuildMode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' ? 'default' : 'outline'}
+              className="text-[9px] h-6 px-2"
+              disabled={fullRebuilding}
+              onClick={() => setRebuildMode('PRESERVE_PRIMARIES_FULL_CANON_REBUILD')}
+            >
+              Preserve &amp; Repair
+            </Button>
+          </div>
+
+          <p className="text-[9px] text-muted-foreground leading-tight mb-2">
+            {rebuildMode === 'RESET_FULL_CANON_REBUILD'
+              ? 'Clears all primaries → regenerates → scores → attaches winners from scratch.'
+              : 'Keeps valid primaries → generates only weak/missing → replaces only when challenger significantly better.'}
+            {isVerticalDrama && ' Strict 9:16 compliance enforced.'}
+          </p>
+
           {fullRebuilding && rebuildStage && (
             <div className="mb-2 flex items-center gap-2">
               <Loader2 className="h-3 w-3 animate-spin text-primary" />
               <span className="text-[10px] text-primary font-medium">{rebuildStage}</span>
               <Progress
                 value={
-                  REBUILD_STAGES.indexOf(rebuildStage as any) >= 0
-                    ? ((REBUILD_STAGES.indexOf(rebuildStage as any) + 1) / REBUILD_STAGES.length) * 100
+                  (currentStages as readonly string[]).indexOf(rebuildStage) >= 0
+                    ? (((currentStages as readonly string[]).indexOf(rebuildStage) + 1) / currentStages.length) * 100
                     : 0
                 }
                 className="h-1 flex-1"
@@ -1054,21 +1083,46 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
             </div>
           )}
 
-          <div className="flex items-start gap-2">
-            <Button
-              size="sm"
-              className="gap-1.5 text-[10px] h-8 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
-              disabled={fullRebuilding || populating}
-              onClick={handleFullCanonRebuild}
-            >
-              {fullRebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-              Full Canon Rebuild
-            </Button>
-            <p className="text-[9px] text-muted-foreground leading-tight pt-1">
-              Reset → Generate → Score → Approve → Attach → Build Lookbook → Download.
-              {isVerticalDrama && ' All images enforced portrait (9:16).'}
-            </p>
-          </div>
+          {/* Last rebuild result diagnostics strip */}
+          {lastRebuildResult && !fullRebuilding && (
+            <div className="mb-2 p-2 rounded border border-border/40 bg-muted/20 text-[9px] space-y-0.5">
+              <div className="flex items-center gap-1">
+                {lastRebuildResult.unresolvedSlots > 0
+                  ? <AlertTriangle className="h-3 w-3 text-amber-500" />
+                  : <CheckCircle className="h-3 w-3 text-green-600" />}
+                <span className="font-semibold">
+                  {lastRebuildResult.mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' ? 'Preserve' : 'Reset'} rebuild
+                </span>
+              </div>
+              <div className="text-muted-foreground">
+                {lastRebuildResult.resolvedSlots}/{lastRebuildResult.totalSlots} resolved
+                {lastRebuildResult.preservedPrimaryCount > 0 && ` · ${lastRebuildResult.preservedPrimaryCount} preserved`}
+                {lastRebuildResult.replacedPrimaryCount > 0 && ` · ${lastRebuildResult.replacedPrimaryCount} replaced`}
+                {lastRebuildResult.unresolvedSlots > 0 && ` · ${lastRebuildResult.unresolvedSlots} unresolved`}
+                {lastRebuildResult.rejectedNonCompliantCount > 0 && ` · ${lastRebuildResult.rejectedNonCompliantCount} rejected (compliance)`}
+              </div>
+              {lastRebuildResult.unresolvedReasons.length > 0 && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-amber-600">Unresolved slots</summary>
+                  <ul className="mt-0.5 space-y-0.5 text-muted-foreground">
+                    {lastRebuildResult.unresolvedReasons.map((r, i) => (
+                      <li key={i}>• {r.slotKey}: {r.reason}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
+          <Button
+            size="sm"
+            className="gap-1.5 text-[10px] h-8 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+            disabled={fullRebuilding || populating}
+            onClick={handleFullCanonRebuild}
+          >
+            {fullRebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            {rebuildMode === 'RESET_FULL_CANON_REBUILD' ? 'Reset & Rebuild' : 'Preserve & Repair'}
+          </Button>
         </CardContent>
       </Card>
 
