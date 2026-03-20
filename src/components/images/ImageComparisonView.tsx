@@ -82,6 +82,10 @@ export function ImageComparisonView({
       continuityReason: 'Non-character image',
       driftPenalty: 0,
       score: scores?.[img.id] ?? null,
+      visualSimilarity: null,
+      similarityAdjustment: 0,
+      driftPenalty: 0,
+      score: scores?.[img.id] ?? null,
       rankValue: scores?.[img.id] ?? 0,
       rankReason: 'default ranking',
     }));
