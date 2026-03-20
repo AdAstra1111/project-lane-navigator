@@ -264,6 +264,8 @@ function PortraitImageOrPlaceholder({ src, colors, alt = '', style, isBackground
 }
 
 
+/* ═══════════════════════════════════════════════════════════════════════
+   COVER — full-bleed poster with bottom title lockup
    Portrait: 9:16 hero fills frame via contain, title lockup at bottom
    ═══════════════════════════════════════════════════════════════════════ */
 function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
