@@ -630,6 +630,7 @@ export async function generateLookBookData(
   // ── CLOSING ──
   slides.push({
     type: 'closing',
+    slide_id: makeSlideId('closing'),
     title,
     subtitle: logline || undefined,
     credit: writerCredit,
