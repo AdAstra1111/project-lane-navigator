@@ -167,6 +167,16 @@ export default function VisualDevHub() {
       </header>
 
         <main className="max-w-[1200px] mx-auto px-4 py-6 space-y-4">
+        {/* ── Workflow guidance ── */}
+        <div className="rounded-lg border border-border/50 bg-muted/20 px-4 py-2.5 flex items-center gap-3">
+          <BookOpen className="h-4 w-4 text-primary shrink-0" />
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Workflow:</span>{' '}
+            Approve images in Review Studio → Build your LookBook → Iterate.{' '}
+            <span className="text-muted-foreground/70">Visual Set Curation is optional for advanced governance.</span>
+          </p>
+        </div>
+
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}

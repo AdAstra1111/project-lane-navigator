@@ -254,6 +254,16 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
           <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-muted-foreground">
             {activeCount} approved
           </Badge>
+          {/* Build LookBook shortcut */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1.5 ml-2"
+            onClick={() => navigate(`/projects/${projectId}/lookbook`)}
+          >
+            <BookOpen className="h-3 w-3" />
+            Build LookBook
+          </Button>
         </div>
 
         {selectedForCompare.length >= 2 && (
