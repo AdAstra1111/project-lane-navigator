@@ -11,6 +11,7 @@
  * 7. Archive browser
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
@@ -130,6 +131,12 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   const reusePoolImages = useMemo(() => allImages.filter(i => (i as any).reuse_pool_eligible), [allImages]);
   const pendingSlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length > 0), [requiredSet]);
   const emptySlots = useMemo(() => requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0), [requiredSet]);
+
+  // Resolve identity anchor map from loaded images — used for generation + approval display
+  const identityAnchorMap: IdentityAnchorMap = useMemo(
+    () => resolveIdentityAnchorsFromImages(allImages),
+    [allImages],
+  );
 
   // ── Batch Approve All handler ──
   const handleBatchApprove = useCallback(async () => {
@@ -358,6 +365,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       if (slot.assetGroup === 'character') {
         genBody.character_name = slot.subject;
+        // ── Identity anchor injection for character generation ──
+        if (!slot.isIdentity && slot.subject && identityAnchorMap[slot.subject]) {
+          const anchors = identityAnchorMap[slot.subject];
+          if (anchors.anchorPaths.headshot || anchors.anchorPaths.fullBody) {
+            genBody.identity_anchor_paths = anchors.anchorPaths;
+            console.log(`[auto-populate] Injecting identity anchors for ${slot.subject}: completeness=${anchors.completeness}`);
+          }
+        }
       } else if (slot.assetGroup === 'world') {
         genBody.location_name = slot.subject;
       }
@@ -1149,6 +1164,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
               onApprove={approveIntoCanon}
               onReject={rejectCandidate}
               onSetPrimary={approveIntoCanon}
+              identityAnchorMap={identityAnchorMap}
             />
           </CardContent>
         </Card>

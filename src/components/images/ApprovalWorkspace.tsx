@@ -1,11 +1,12 @@
 /**
  * ApprovalWorkspace — Visual Decision Workspace replacing the simple approval queue.
  * Supports list view, character-grouped view, image lightbox, and side-by-side comparison.
+ * Identity-aware: displays anchor continuity status per character candidate.
  */
 import { useState, useMemo, useCallback } from 'react';
 import {
   CheckCircle, XCircle, Recycle, Eye, Expand, LayoutGrid, List,
-  Users, ChevronRight, Crown, Link, Unlink,
+  Users, ChevronRight, Crown, Link, Unlink, AlertTriangle, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import type { ProjectImage, ShotType } from '@/lib/images/types';
 import { SHOT_TYPE_LABELS } from '@/lib/images/types';
 import { getDisplayAspectClass, getOrientationLabel } from '@/lib/images/orientationUtils';
+import { classifyIdentityContinuity, type IdentityAnchorMap, type IdentityContinuityStatus } from '@/lib/images/characterIdentityAnchorSet';
 import { ImageLightbox } from './ImageLightbox';
 import { ImageComparisonView } from './ImageComparisonView';
 
@@ -40,10 +42,12 @@ interface ApprovalWorkspaceProps {
   onSetPrimary?: (image: ProjectImage) => void;
   /** DNA traits per character name */
   dnaTraitsByCharacter?: Record<string, Array<{ label: string; value: string; region?: string }>>;
+  /** Identity anchor map for continuity classification */
+  identityAnchorMap?: IdentityAnchorMap;
 }
 
 export function ApprovalWorkspace({
-  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter,
+  slots, onApprove, onReject, onSetPrimary, dnaTraitsByCharacter, identityAnchorMap,
 }: ApprovalWorkspaceProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [lightboxImage, setLightboxImage] = useState<ProjectImage | null>(null);
@@ -141,6 +145,7 @@ export function ApprovalWorkspace({
               onExpand={setLightboxImage}
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
+              identityAnchorMap={identityAnchorMap}
             />
           ))}
         </div>
@@ -159,6 +164,7 @@ export function ApprovalWorkspace({
               onExpand={setLightboxImage}
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
+              identityAnchorMap={identityAnchorMap}
             />
           ))}
           {/* Non-character pending slots */}
@@ -208,7 +214,7 @@ export function ApprovalWorkspace({
 // ── Slot Approval Row ──
 
 function SlotApprovalRow({
-  slot, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare,
+  slot, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap,
 }: {
   slot: RequiredSlot;
   onApprove: (img: ProjectImage) => void;
@@ -216,6 +222,7 @@ function SlotApprovalRow({
   onExpand: (img: ProjectImage) => void;
   onToggleCompare: (img: ProjectImage) => void;
   selectedForCompare: ProjectImage[];
+  identityAnchorMap?: IdentityAnchorMap;
 }) {
   const [expanded, setExpanded] = useState(slot.candidates.length <= 3);
 
@@ -246,6 +253,7 @@ function SlotApprovalRow({
               image={img}
               isRecommended={img.id === slot.recommended?.id}
               isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
+              identityContinuity={img.asset_group === 'character' && img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
               onApprove={() => onApprove(img)}
               onReject={() => onReject(img.id, false)}
               onRejectReuse={() => onReject(img.id, true)}
@@ -262,7 +270,7 @@ function SlotApprovalRow({
 // ── Character Group Row ──
 
 function CharacterGroupRow({
-  characterName, slots, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare,
+  characterName, slots, onApprove, onReject, onExpand, onToggleCompare, selectedForCompare, identityAnchorMap,
 }: {
   characterName: string;
   slots: RequiredSlot[];
@@ -271,6 +279,7 @@ function CharacterGroupRow({
   onExpand: (img: ProjectImage) => void;
   onToggleCompare: (img: ProjectImage) => void;
   selectedForCompare: ProjectImage[];
+  identityAnchorMap?: IdentityAnchorMap;
 }) {
   // Group slots by shot type category
   const slotsByType = useMemo(() => {
@@ -307,6 +316,7 @@ function CharacterGroupRow({
                       image={img}
                       isRecommended={groupSlots.some(s => s.recommended?.id === img.id)}
                       isSelectedForCompare={selectedForCompare.some(c => c.id === img.id)}
+                      identityContinuity={img.subject ? classifyIdentityContinuity(img, identityAnchorMap?.[img.subject] || null) : undefined}
                       onApprove={() => onApprove(img)}
                       onReject={() => onReject(img.id, false)}
                       onRejectReuse={() => onReject(img.id, true)}
@@ -329,13 +339,14 @@ function CharacterGroupRow({
 // ── Candidate Card ──
 
 function CandidateCard({
-  image, isRecommended, isSelectedForCompare, compact,
+  image, isRecommended, isSelectedForCompare, compact, identityContinuity,
   onApprove, onReject, onRejectReuse, onExpand, onToggleCompare,
 }: {
   image: ProjectImage;
   isRecommended: boolean;
   isSelectedForCompare: boolean;
   compact?: boolean;
+  identityContinuity?: { status: IdentityContinuityStatus; reason: string };
   onApprove: () => void;
   onReject: () => void;
   onRejectReuse: () => void;
@@ -374,23 +385,43 @@ function CandidateCard({
           </Badge>
         )}
 
-        {/* Identity continuity badge */}
+        {/* Identity continuity badge — uses canonical anchor-based classification */}
         {(() => {
-          const gc = (image.generation_config || {}) as Record<string, unknown>;
-          const hasLock = !!(gc.identity_locked || gc.identity_anchor_paths);
           const isChar = image.asset_group === 'character';
-          if (!isChar) return null;
-          return hasLock ? (
-            <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-emerald-500/70 text-white gap-0.5"
-              title="Generated with identity anchors — strong continuity">
-              <Link className="h-2 w-2" /> ID
-            </Badge>
-          ) : (
-            <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-amber-500/70 text-white gap-0.5"
-              title="Generated without identity anchors — potential drift">
-              <Unlink className="h-2 w-2" /> Drift
-            </Badge>
-          );
+          if (!isChar || !identityContinuity) return null;
+          const { status, reason } = identityContinuity;
+          switch (status) {
+            case 'strong_match':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-emerald-500/70 text-white gap-0.5"
+                  title={reason}>
+                  <ShieldCheck className="h-2 w-2" /> Locked
+                </Badge>
+              );
+            case 'partial_match':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-blue-500/70 text-white gap-0.5"
+                  title={reason}>
+                  <Link className="h-2 w-2" /> Partial
+                </Badge>
+              );
+            case 'identity_drift':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-destructive/70 text-white gap-0.5"
+                  title={reason}>
+                  <AlertTriangle className="h-2 w-2" /> Drift
+                </Badge>
+              );
+            case 'no_anchor_context':
+              return (
+                <Badge className="absolute top-0.5 right-6 text-[7px] px-1 py-0 bg-amber-500/70 text-white gap-0.5"
+                  title={reason}>
+                  <Unlink className="h-2 w-2" /> No Anchor
+                </Badge>
+              );
+            default:
+              return null;
+          }
         })()}
 
         {/* Compare selection indicator */}
