@@ -533,27 +533,72 @@ function CharCard({ char, colors, fontBody, isLead, tall }: {
   );
 }
 
-/* ═══ THEMES — centered typographic emphasis ═══ */
+/* ═══ THEMES — editorial with atmospheric imagery ═══ */
 function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides }: SlideProps) {
+  const imgs = (slide.imageUrls || []).filter(Boolean);
+  const hasImages = imgs.length > 0;
+
   return (
     <div style={baseStyle} className="slide-content">
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 160px', textAlign: 'center' }}>
-        <SectionTag label="Themes & Tone" color={colors.accent} />
-        <AccentRule color={colors.accent} width={40} />
-        <h2 style={{ ...titleStyle, fontSize: 56, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
-
-        <div style={{ maxWidth: 900 }}>
-          {slide.body && (
-            <p style={{ fontSize: 26, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 32 }}>
-              {slide.body}
-            </p>
-          )}
-          {slide.bodySecondary && (
-            <p style={{ fontSize: 17, lineHeight: 1.65, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>
-              {slide.bodySecondary}
-            </p>
-          )}
+      {/* Background wash from atmosphere image */}
+      {(slide.imageUrl || imgs[0]) && (
+        <div className="absolute inset-0">
+          <img src={slide.imageUrl || imgs[0]} alt="" className="w-full h-full object-cover" style={{ opacity: 0.12, filter: 'saturate(0.3) blur(4px)' }} />
+          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f2 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
         </div>
+      )}
+
+      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
+        {/* Text panel */}
+        <div style={{
+          width: hasImages ? '50%' : '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: hasImages ? 'flex-start' : 'center',
+          justifyContent: 'center',
+          padding: hasImages ? '80px 48px 80px 100px' : '80px 160px',
+          textAlign: hasImages ? 'left' : 'center',
+        }}>
+          <SectionTag label="Themes & Tone" color={colors.accent} />
+          <AccentRule color={colors.accent} width={40} />
+          <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
+
+          <div style={{ maxWidth: 720 }}>
+            {slide.body && (
+              <p style={{ fontSize: 22, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 28 }}>
+                {slide.body}
+              </p>
+            )}
+            {slide.bodySecondary && (
+              <p style={{ fontSize: 16, lineHeight: 1.65, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>
+                {slide.bodySecondary}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Atmospheric image strip */}
+        {hasImages && (
+          <div style={{
+            width: '50%',
+            padding: '48px 56px 48px 0',
+            display: 'grid',
+            gridTemplateColumns: imgs.length === 1 ? '1fr' : '1fr 1fr',
+            gridTemplateRows: imgs.length <= 2 ? '1fr' : '1fr 1fr',
+            gap: 10,
+          }}>
+            {imgs.slice(0, 4).map((url, i) => (
+              <div key={i} style={{
+                borderRadius: 6,
+                overflow: 'hidden',
+                border: `1px solid ${colors.accentMuted}`,
+                ...(imgs.length === 3 && i === 0 ? { gridRow: '1 / 3' } : {}),
+              }}>
+                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.7) contrast(1.1)' }} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
     </div>
