@@ -105,6 +105,8 @@ export interface RebuildResult {
   totalSlots: number;
   resolvedSlots: number;
   unresolvedSlots: number;
+  /** Slots resolved via fallback (related shot type, not exact) */
+  fallbackMatchCount: number;
   generatedCount: number;
   compliantCount: number;
   rejectedNonCompliantCount: number;
