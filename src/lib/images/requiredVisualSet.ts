@@ -168,6 +168,31 @@ export function validateLookbookReadiness(set: RequiredVisualSet): {
   };
 }
 
+/**
+ * Related shot types that can serve as fallback candidates for a given slot.
+ * This allows the scoring engine (which already has partial-match scoring)
+ * to consider images with related shot types instead of leaving slots empty.
+ */
+const BROADENED_SHOT_TYPES: Record<string, string[]> = {
+  wide: ['atmospheric', 'tableau', 'composition_ref'],
+  atmospheric: ['wide', 'lighting_ref', 'time_variant'],
+  close_up: ['identity_headshot', 'medium', 'emotional_variant'],
+  medium: ['close_up', 'full_body', 'over_shoulder'],
+  tableau: ['wide', 'medium'],
+  identity_headshot: ['close_up', 'medium', 'profile'],
+  identity_profile: ['profile', 'medium', 'close_up'],
+  identity_full_body: ['full_body', 'medium'],
+  lighting_ref: ['atmospheric', 'composition_ref'],
+  texture_ref: ['detail', 'color_ref'],
+  composition_ref: ['wide', 'lighting_ref'],
+  color_ref: ['texture_ref', 'detail'],
+  detail: ['texture_ref', 'close_up'],
+  time_variant: ['atmospheric', 'wide'],
+  emotional_variant: ['close_up', 'medium'],
+  full_body: ['identity_full_body', 'medium'],
+  profile: ['identity_profile', 'close_up'],
+};
+
 function buildSlot(
   key: string,
   assetGroup: AssetGroup,
@@ -180,9 +205,27 @@ function buildSlot(
   isPortrait = false,
   anchorMap?: IdentityAnchorMap,
 ): RequiredSlot {
-  const matching = existingImages.filter(matchFn);
-  const primary = matching.find(i => i.is_primary && i.curation_state === 'active') || null;
-  const candidates = matching.filter(i => i.curation_state === 'active' || i.curation_state === 'candidate');
+  // Primary pool: exact match
+  const exactMatching = existingImages.filter(matchFn);
+  const primary = exactMatching.find(i => i.is_primary && i.curation_state === 'active') || null;
+
+  // Broadened pool: same asset_group + subject but related shot_types
+  // This feeds the scoring engine which already handles partial-match scoring
+  const relatedTypes = BROADENED_SHOT_TYPES[shotType] || [];
+  const broadenedMatching = existingImages.filter(i => {
+    if (matchFn(i)) return true; // already in exact pool
+    if (i.asset_group !== assetGroup) return false;
+    if (subject && i.subject !== subject) return false;
+    if (!subject && i.subject) return false; // null-subject slots shouldn't grab entity-scoped images
+    if (!relatedTypes.includes(i.shot_type || '')) return false;
+    return (i.curation_state === 'active' || i.curation_state === 'candidate');
+  });
+
+  const candidates = [
+    ...exactMatching.filter(i => i.curation_state === 'active' || i.curation_state === 'candidate'),
+    ...broadenedMatching.filter(i => !exactMatching.includes(i)),
+  ];
+
   const dims = getDimensionsForShot(shotType, isPortrait);
 
   // Identity-aware recommendation using canonical ranking helper

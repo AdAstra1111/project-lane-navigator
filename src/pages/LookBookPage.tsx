@@ -360,9 +360,15 @@ export default function LookBookPage() {
                     const { executionStatus, rebuildResult } = result;
                     const modeLabel = rebuildResult.mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' ? 'Preserve' : 'Reset';
                     if (executionStatus === 'completed') {
-                      toast.success(`${modeLabel} auto-rebuild: ${rebuildResult.attachedWinnerCount} winners from ${rebuildResult.totalSlots} slots`);
+                      const fallbackNote = rebuildResult.fallbackMatchCount > 0
+                        ? ` (${rebuildResult.fallbackMatchCount} fallback matches — improvable)`
+                        : '';
+                      toast.success(`${modeLabel} auto-rebuild: ${rebuildResult.attachedWinnerCount} winners from ${rebuildResult.totalSlots} slots${fallbackNote}`);
                     } else if (executionStatus === 'completed_with_unresolved') {
-                      toast.warning(`${modeLabel} auto-rebuild: ${rebuildResult.unresolvedSlots} unresolved of ${rebuildResult.totalSlots} slots`);
+                      const fallbackNote = rebuildResult.fallbackMatchCount > 0
+                        ? `, ${rebuildResult.fallbackMatchCount} fallback matches (improvable)`
+                        : '';
+                      toast.warning(`${modeLabel} auto-rebuild: ${rebuildResult.unresolvedSlots} unresolved of ${rebuildResult.totalSlots} slots${fallbackNote}`);
                     } else if (executionStatus === 'no_op') {
                       toast.info('No weak slots — no rebuild performed');
                     } else if (executionStatus === 'failed') {

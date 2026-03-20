@@ -47,6 +47,9 @@ export interface SlotTarget {
   isIdentity: boolean;
 }
 
+/** Match quality classification for slot resolution */
+export type SlotMatchQuality = 'exact' | 'fallback' | 'weak';
+
 /** Identity continuity classification for a candidate relative to character anchors */
 export type IdentityContinuityClass =
   | 'strong_match'       // generated with identity lock, anchors used
@@ -92,6 +95,8 @@ export interface SlotWinnerResult {
   incumbentReplaced: boolean;
   /** ID of the incumbent primary if one existed */
   incumbentId: string | null;
+  /** Match quality classification */
+  matchQuality: SlotMatchQuality;
 }
 
 /** Structured rebuild result — mandatory output from any rebuild */
@@ -100,6 +105,8 @@ export interface RebuildResult {
   totalSlots: number;
   resolvedSlots: number;
   unresolvedSlots: number;
+  /** Slots resolved via fallback (related shot type, not exact) */
+  fallbackMatchCount: number;
   generatedCount: number;
   compliantCount: number;
   rejectedNonCompliantCount: number;
@@ -746,6 +753,7 @@ export function selectSlotWinner(
       noWinnerReason: 'No candidates',
       complianceGate: null,
       incumbentPreserved: false, incumbentReplaced: false, incumbentId: null,
+      matchQuality: 'weak',
     };
   }
 
@@ -757,35 +765,43 @@ export function selectSlotWinner(
     : candidates;
 
   const scored = allCandidates
-    .map(img => scoreCandidateForSlot(img, slot, allCandidates, isVerticalDrama, projectFormat, projectLane, scoringOptions))
-    .filter(s => s.eligible);
+    .map(img => scoreCandidateForSlot(img, slot, allCandidates, isVerticalDrama, projectFormat, projectLane, scoringOptions));
 
-  if (scored.length === 0) {
+  // Separate exact-eligible from fallback candidates
+  const eligible = scored.filter(s => s.eligible);
+
+  // ── FALLBACK: if no exact-eligible, allow all scored candidates as fallback ──
+  const useFallback = eligible.length === 0 && scored.length > 0;
+  const pool = useFallback ? scored : eligible;
+
+  if (pool.length === 0) {
     return {
       slotKey: slot.key, winner: null, allScored: [],
       noWinnerReason: 'No eligible candidates for this slot type',
       complianceGate: null,
       incumbentPreserved: false, incumbentReplaced: false,
       incumbentId: incumbent?.id || null,
+      matchQuality: 'weak',
     };
   }
 
   // ── VERTICAL DRAMA HARD FILTER — no fallback ──
-  let eligiblePool = scored;
+  let eligiblePool = pool;
   if (isVerticalDrama) {
-    const compliantOnly = scored.filter(s => s.eligibleForSelection);
+    const compliantOnly = pool.filter(s => s.eligibleForSelection);
     if (compliantOnly.length > 0) {
       eligiblePool = compliantOnly;
     } else {
-      const rejectedLevels = scored.map(s => s.complianceLevel);
+      const rejectedLevels = pool.map(s => s.complianceLevel);
       return {
         slotKey: slot.key,
         winner: null,
-        allScored: scored.sort((a, b) => b.totalScore - a.totalScore),
-        noWinnerReason: `No vertical-compliant candidates (${scored.length} scored: ${rejectedLevels.join(', ')})`,
+        allScored: pool.sort((a, b) => b.totalScore - a.totalScore),
+        noWinnerReason: `No vertical-compliant candidates (${pool.length} scored: ${rejectedLevels.join(', ')})`,
         complianceGate: { allowed: false, reason: 'All candidates failed strict vertical compliance' },
         incumbentPreserved: false, incumbentReplaced: false,
         incumbentId: incumbent?.id || null,
+        matchQuality: 'weak',
       };
     }
   }
@@ -797,6 +813,13 @@ export function selectSlotWinner(
   });
 
   const topCandidate = eligiblePool[0];
+
+  // Determine match quality based on whether fallback was used and winner's slot match score
+  const resolveMatchQuality = (winnerScored: ScoredSlotCandidate): SlotMatchQuality => {
+    if (useFallback) return 'fallback';
+    if (winnerScored.components.slotMatch >= 80) return 'exact';
+    return 'fallback';
+  };
 
   // ── PRESERVE MODE: check replacement threshold ──
   if (mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' && incumbent) {
@@ -820,6 +843,7 @@ export function selectSlotWinner(
             incumbentPreserved: true,
             incumbentReplaced: false,
             incumbentId: incumbent.id,
+            matchQuality: resolveMatchQuality(incumbentScored),
           };
         }
         // Fall through to replace with topCandidate
@@ -835,6 +859,7 @@ export function selectSlotWinner(
           incumbentPreserved: true,
           incumbentReplaced: false,
           incumbentId: incumbent.id,
+          matchQuality: resolveMatchQuality(incumbentScored),
         };
       }
     }
@@ -859,6 +884,7 @@ export function selectSlotWinner(
       incumbentPreserved: false,
       incumbentReplaced: false,
       incumbentId: incumbent?.id || null,
+      matchQuality: 'weak',
     };
   }
 
@@ -871,6 +897,7 @@ export function selectSlotWinner(
     incumbentPreserved: false,
     incumbentReplaced: incumbent ? winner.imageId !== incumbent.id : false,
     incumbentId: incumbent?.id || null,
+    matchQuality: resolveMatchQuality(winner),
   };
 }
 
@@ -941,11 +968,14 @@ export function buildRebuildResult(
     r.allScored.length > 0 && !r.allScored.some(s => s.eligibleForSelection)
   ).length;
 
+  const fallbackMatchCount = slotResults.filter(r => r.winner !== null && r.matchQuality === 'fallback').length;
+
   return {
     mode,
     totalSlots: slotResults.length,
     resolvedSlots: resolved.length,
     unresolvedSlots: unresolved.length,
+    fallbackMatchCount,
     generatedCount,
     compliantCount,
     rejectedNonCompliantCount,

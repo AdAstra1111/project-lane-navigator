@@ -135,9 +135,9 @@ describe('selectSlotWinner — RESET vs PRESERVE', () => {
 describe('buildRebuildResult — no double counting', () => {
   it('reports preserved and replaced counts honestly', () => {
     const results = [
-      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: true, incumbentReplaced: false, incumbentId: 'w1' },
-      { slotKey: 's2', winner: { imageId: 'w2' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: true, incumbentId: 'old' },
-      { slotKey: 's3', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: true, incumbentReplaced: false, incumbentId: 'w1', matchQuality: 'exact' as const },
+      { slotKey: 's2', winner: { imageId: 'w2' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: true, incumbentId: 'old', matchQuality: 'exact' as const },
+      { slotKey: 's3', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'weak' as const },
     ];
     const r = buildRebuildResult('PRESERVE_PRIMARIES_FULL_CANON_REBUILD', results, 10);
     expect(r.preservedPrimaryCount).toBe(1);
@@ -149,9 +149,9 @@ describe('buildRebuildResult — no double counting', () => {
 
   it('totalSlots = resolvedSlots + unresolvedSlots (disjoint partition)', () => {
     const results = [
-      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
-      { slotKey: 's2', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'Gate blocked', complianceGate: { allowed: false, reason: 'VD fail' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
-      { slotKey: 's3', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'exact' as const },
+      { slotKey: 's2', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'Gate blocked', complianceGate: { allowed: false, reason: 'VD fail' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'weak' as const },
+      { slotKey: 's3', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'weak' as const },
     ];
     const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 5);
     expect(r.totalSlots).toBe(3);
@@ -162,9 +162,8 @@ describe('buildRebuildResult — no double counting', () => {
   });
 
   it('gate-blocked rows are not double-counted as unresolved', () => {
-    // Gate-blocked rows already have winner=null, so they appear in unresolved once
     const results = [
-      { slotKey: 's1', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'Gate blocked: VD fail', complianceGate: { allowed: false, reason: 'VD fail' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's1', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'Gate blocked: VD fail', complianceGate: { allowed: false, reason: 'VD fail' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'weak' as const },
     ];
     const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 0);
     expect(r.unresolvedSlots).toBe(1);
@@ -175,22 +174,21 @@ describe('buildRebuildResult — no double counting', () => {
 
   it('unresolvedReasons has exactly one entry per unresolved slot', () => {
     const results = [
-      { slotKey: 's1', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
-      { slotKey: 's2', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'All failed VD', complianceGate: { allowed: false, reason: 'VD' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
-      { slotKey: 's3', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's1', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'weak' as const },
+      { slotKey: 's2', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'All failed VD', complianceGate: { allowed: false, reason: 'VD' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'weak' as const },
+      { slotKey: 's3', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'exact' as const },
     ];
     const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 0);
     expect(r.unresolvedReasons).toHaveLength(2);
     const slotKeys = r.unresolvedReasons.map(u => u.slotKey);
     expect(slotKeys).toContain('s1');
     expect(slotKeys).toContain('s2');
-    // No duplicates
     expect(new Set(slotKeys).size).toBe(slotKeys.length);
   });
 
   it('generatedCount is passed through honestly', () => {
     const results = [
-      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null, matchQuality: 'exact' as const },
     ];
     const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 7);
     expect(r.generatedCount).toBe(7);

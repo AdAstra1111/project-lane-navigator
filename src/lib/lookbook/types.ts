@@ -72,6 +72,7 @@ export interface RebuildResult {
   totalSlots: number;
   resolvedSlots: number;
   unresolvedSlots: number;
+  fallbackMatchCount?: number;
   generatedCount: number;
   compliantCount: number;
   rejectedNonCompliantCount: number;
