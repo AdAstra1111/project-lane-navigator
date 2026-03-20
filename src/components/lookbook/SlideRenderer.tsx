@@ -500,7 +500,8 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
   }
 
   // ── Landscape cover ──
-  const isPortraitHero = slide.layoutFamily === 'landscape_portrait_hero';
+  const effectiveFamily = slide.layoutFamilyEffective || slide.layoutFamily || 'landscape_standard';
+  const isPortraitHero = effectiveFamily === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       {hasHero && (
