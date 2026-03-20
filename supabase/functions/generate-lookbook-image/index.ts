@@ -544,7 +544,7 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `- ${driftExclusions}`,
     `- Must look indistinguishable from a still frame from a theatrically released film`,
     ``,
-    `TECHNICAL: 16:9 landscape. Premium cinematic quality. Anamorphic lens characteristics.`,
+    `TECHNICAL: Premium cinematic quality. Anamorphic lens characteristics.`,
   ].join("\n");
 }
 
