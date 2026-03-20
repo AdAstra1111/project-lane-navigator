@@ -536,6 +536,10 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     if (fullRebuilding) return;
     setFullRebuilding(true);
     setLastRebuildResult(null);
+    rebuildBridge.register({
+      stages: [...currentStages],
+      stageDescription: 'Starting visual canon rebuild…',
+    });
 
     const mode = rebuildMode;
     const isPreserve = mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
