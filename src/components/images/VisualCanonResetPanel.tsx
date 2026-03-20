@@ -12,6 +12,7 @@
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { resolveIdentityAnchorsFromImages, shouldPrioritizeIdentityGeneration, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { useVisualSimilarityCache } from '@/hooks/useVisualSimilarityCache';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
@@ -136,6 +137,11 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   const identityAnchorMap: IdentityAnchorMap = useMemo(
     () => resolveIdentityAnchorsFromImages(allImages),
     [allImages],
+  );
+
+  // Batch-load cached visual similarity results for all candidates
+  const { similarities: cachedSimilarities } = useVisualSimilarityCache(
+    projectId, candidateImages, identityAnchorMap,
   );
 
   // ── Batch Approve All handler ──
@@ -1233,6 +1239,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
               onReject={rejectCandidate}
               onSetPrimary={approveIntoCanon}
               identityAnchorMap={identityAnchorMap}
+              visualSimilarities={cachedSimilarities}
             />
           </CardContent>
         </Card>
