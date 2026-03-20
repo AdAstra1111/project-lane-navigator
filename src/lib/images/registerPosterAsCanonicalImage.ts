@@ -53,6 +53,8 @@ export async function registerPosterAsCanonicalImage(input: RegisterPosterInput)
     .insert({
       project_id: projectId,
       role,
+      asset_group: 'poster',
+      curation_state: 'active',
       prompt_used: promptUsed,
       negative_prompt: negativePrompt,
       canon_constraints: canonConstraints,
