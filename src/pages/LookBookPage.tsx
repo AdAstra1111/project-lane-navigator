@@ -20,6 +20,7 @@ import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
 import { useSectionReset } from '@/hooks/useSectionReset';
+import { useLookbookAutoRebuild } from '@/hooks/useLookbookAutoRebuild';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -27,6 +28,7 @@ import type { LookBookData } from '@/lib/lookbook/types';
 import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
+import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 
 type LookbookMode = 'workspace' | 'viewer';
 
@@ -43,6 +45,18 @@ export default function LookBookPage() {
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
   const [rebuildHistoryEpoch, setRebuildHistoryEpoch] = useState(0);
+
+  // ── Auto-rebuild orchestration ──
+  const autoRebuild = useLookbookAutoRebuild(projectId, {
+    onRebuildComplete: (result) => {
+      setRebuildHistoryEpoch(e => e + 1);
+      if (result.executionStatus === 'completed' || result.executionStatus === 'completed_with_unresolved') {
+        // Invalidate caches so next lookbook build uses fresh data
+        invalidateImageCaches();
+        setLookBookData(null);
+      }
+    },
+  });
 
   const {
     sections,
@@ -312,11 +326,34 @@ export default function LookBookPage() {
 
         {projectId && (
           <div className="mx-4 mt-3 mb-0 shrink-0 space-y-2">
+            <LookbookTriggerDiagnosticsStrip
+              diagnostics={autoRebuild.diagnostics}
+              evaluating={autoRebuild.evaluating}
+              rebuilding={autoRebuild.rebuilding}
+              onLaunchRebuild={() => {
+                autoRebuild.launchRebuild({ triggerSource: 'auto_run' }).then(result => {
+                  if (result) {
+                    const { executionStatus, rebuildResult } = result;
+                    const modeLabel = rebuildResult.mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD' ? 'Preserve' : 'Reset';
+                    if (executionStatus === 'completed') {
+                      toast.success(`${modeLabel} auto-rebuild: ${rebuildResult.attachedWinnerCount} winners from ${rebuildResult.totalSlots} slots`);
+                    } else if (executionStatus === 'completed_with_unresolved') {
+                      toast.warning(`${modeLabel} auto-rebuild: ${rebuildResult.unresolvedSlots} unresolved of ${rebuildResult.totalSlots} slots`);
+                    } else if (executionStatus === 'no_op') {
+                      toast.info('No weak slots — no rebuild performed');
+                    } else if (executionStatus === 'failed') {
+                      toast.error(`Auto-rebuild failed: ${result.failureMessage || 'Unknown error'}`);
+                    }
+                  }
+                });
+              }}
+            />
             <VisualCanonResetPanel
               projectId={projectId}
               onLookbookRebuild={async () => {
                 await handleGenerate();
                 setRebuildHistoryEpoch(e => e + 1);
+                autoRebuild.reevaluate();
               }}
             />
             <LookbookRebuildHistoryStrip
