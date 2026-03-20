@@ -37,6 +37,19 @@ const MAX_ZOOM = 6;
 const ZOOM_STEP = 0.5;
 
 export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReason, imageSet, onNavigate, onApprove, onReject }: ImageLightboxProps) {
+  // Early null guard — if no image, render nothing
+  if (!image) {
+    return open ? (
+      <Dialog open={open} onOpenChange={() => onClose()}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] w-full h-full p-0 bg-black/95 border-none overflow-hidden">
+          <DialogTitle className="sr-only">Image Viewer</DialogTitle>
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+            No image selected
+          </div>
+        </DialogContent>
+      </Dialog>
+    ) : null;
+  }
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showOverlay, setShowOverlay] = useState(true);

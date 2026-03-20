@@ -360,14 +360,20 @@ function ReviewCard({
       isSelectedForCompare && 'ring-2 ring-primary',
       isActive && 'ring-1 ring-emerald-500/30',
     )}>
-      {/* Image */}
-      <div className="relative aspect-[3/4] overflow-hidden bg-muted cursor-pointer" onClick={onExpand}>
-        <img
-          src={image.signedUrl || image.storage_path}
-          alt={image.subject || 'Image'}
-          className="w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
-          loading="lazy"
-        />
+      {/* Image — orientation-aware aspect ratio from measured dimensions */}
+      <div className={cn("relative overflow-hidden bg-muted cursor-pointer", getDisplayAspectClass(image.width, image.height))} onClick={onExpand}>
+        {image.signedUrl ? (
+          <img
+            src={image.signedUrl}
+            alt={image.subject || 'Image'}
+            className="w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <ImageIcon className="h-6 w-6 text-muted-foreground/30" />
+          </div>
+        )}
 
         {/* Top-left badges */}
         <div className="absolute top-1.5 left-1.5 flex flex-col gap-0.5">
