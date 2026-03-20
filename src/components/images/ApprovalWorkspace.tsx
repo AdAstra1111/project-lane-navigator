@@ -344,63 +344,93 @@ function CandidateCard({
 }) {
   return (
     <div className={cn(
-      'group relative rounded-md overflow-hidden border-2 transition-all',
-      getDisplayAspectClass(image.width, image.height),
+      'rounded-md overflow-hidden border-2 transition-all flex flex-col',
       isSelectedForCompare
         ? 'border-accent ring-1 ring-accent/40'
         : isRecommended
           ? 'border-primary/60 ring-1 ring-primary/20'
-          : 'border-border/40 hover:border-border/60',
+          : 'border-border/40',
     )}>
-      {image.signedUrl ? (
-        <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center bg-muted">
-          <Eye className="h-3 w-3 text-muted-foreground/30" />
+      {/* Image area */}
+      <div
+        className={cn(
+          'relative cursor-pointer',
+          getDisplayAspectClass(image.width, image.height),
+        )}
+        onClick={onExpand}
+      >
+        {image.signedUrl ? (
+          <img src={image.signedUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-muted">
+            <Eye className="h-3 w-3 text-muted-foreground/30" />
+          </div>
+        )}
+
+        {/* Recommended badge */}
+        {isRecommended && (
+          <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5">
+            <Crown className="h-2 w-2" /> Top
+          </Badge>
+        )}
+
+        {/* Compare selection indicator */}
+        {isSelectedForCompare && (
+          <Badge className="absolute top-0.5 right-0.5 text-[7px] px-1 py-0 bg-accent text-accent-foreground">
+            ✓
+          </Badge>
+        )}
+
+        {/* Orientation label */}
+        <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5">
+          <p className="text-[7px] text-white/70 truncate">
+            {getOrientationLabel(image.width, image.height)}
+            {image.width && image.height ? ` ${image.width}×${image.height}` : ''}
+          </p>
         </div>
-      )}
-
-      {/* Recommended badge */}
-      {isRecommended && (
-        <Badge className="absolute top-0.5 left-0.5 text-[7px] px-1 py-0 bg-primary/80 text-primary-foreground gap-0.5">
-          <Crown className="h-2 w-2" /> Top
-        </Badge>
-      )}
-
-      {/* Compare selection indicator */}
-      {isSelectedForCompare && (
-        <Badge className="absolute top-0.5 right-0.5 text-[7px] px-1 py-0 bg-accent text-accent-foreground">
-          ✓
-        </Badge>
-      )}
-
-      {/* Orientation label */}
-      <div className="absolute bottom-0 left-0 right-0 bg-black/50 px-1 py-0.5">
-        <p className="text-[7px] text-white/70 truncate">
-          {getOrientationLabel(image.width, image.height)}
-          {image.width && image.height ? ` ${image.width}×${image.height}` : ''}
-        </p>
       </div>
 
-      {/* Hover actions */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100">
-        <button className="p-1 rounded bg-emerald-500/90 text-white hover:bg-emerald-600 transition-colors"
-          onClick={(e) => { e.stopPropagation(); onApprove(); }} title="Approve">
-          <CheckCircle className="h-3 w-3" />
-        </button>
-        <button className="p-1 rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
-          onClick={(e) => { e.stopPropagation(); onExpand(); }} title="Expand">
-          <Expand className="h-3 w-3" />
-        </button>
-        <button className="p-1 rounded bg-white/20 text-white hover:bg-white/30 transition-colors"
+      {/* Persistent action bar — always visible */}
+      <div className={cn(
+        'flex items-center bg-muted/40 border-t border-border/30',
+        compact ? 'gap-0.5 px-0.5 py-0.5' : 'gap-1 px-1 py-1',
+      )}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={cn(
+            'flex-1 gap-0.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-500/10',
+            compact ? 'h-5 text-[7px] px-0.5' : 'h-6 text-[8px] px-1',
+          )}
+          onClick={(e) => { e.stopPropagation(); onApprove(); }}
+        >
+          <CheckCircle className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
+          {!compact && 'Approve'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={cn(
+            'flex-1 gap-0.5 text-destructive hover:text-destructive hover:bg-destructive/10',
+            compact ? 'h-5 text-[7px] px-0.5' : 'h-6 text-[8px] px-1',
+          )}
+          onClick={(e) => { e.stopPropagation(); onReject(); }}
+        >
+          <XCircle className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
+          {!compact && 'Reject'}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={cn(
+            'gap-0.5 text-muted-foreground hover:text-foreground',
+            compact ? 'h-5 w-5 p-0' : 'h-6 w-6 p-0',
+          )}
           onClick={(e) => { e.stopPropagation(); onToggleCompare(); }}
-          title={isSelectedForCompare ? 'Deselect' : 'Select for compare'}>
-          <LayoutGrid className="h-3 w-3" />
-        </button>
-        <button className="p-1 rounded bg-destructive/80 text-white hover:bg-destructive transition-colors"
-          onClick={(e) => { e.stopPropagation(); onReject(); }} title="Reject">
-          <XCircle className="h-3 w-3" />
-        </button>
+          title={isSelectedForCompare ? 'Deselect' : 'Select for compare'}
+        >
+          <LayoutGrid className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
+        </Button>
       </div>
     </div>
   );
