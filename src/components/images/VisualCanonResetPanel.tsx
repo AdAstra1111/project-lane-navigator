@@ -445,7 +445,78 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     } else {
       toast.error(`Generation failed for all ${failed} slots`);
     }
-  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs]);
+  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama]);
+
+  // ── Full Canon Rebuild — one-click end-to-end pipeline ──
+  const REBUILD_STAGES = [
+    'Resetting canon',
+    'Archiving images',
+    'Generating images',
+    'Approving candidates',
+    'Attaching to canon',
+    'Building lookbook',
+    'Preparing download',
+    'Complete',
+  ] as const;
+
+  const handleFullCanonRebuild = useCallback(async () => {
+    if (fullRebuilding) return;
+    setFullRebuilding(true);
+
+    try {
+      // Stage 1: Reset canon
+      setRebuildStage('Resetting canon');
+      const allSections = ['character_identity', 'world_locations', 'atmosphere_lighting', 'texture_detail', 'symbolic_motifs', 'key_moments', 'poster_directions'];
+      await resetScopedCanon(allSections, { archiveOnly: true, clearPrimaries: true });
+      await refetchImages();
+
+      // Stage 2: Archive confirmation
+      setRebuildStage('Archiving images');
+      // resetScopedCanon already archived — brief pause for DB propagation
+      await new Promise(r => setTimeout(r, 500));
+      await refetchImages();
+
+      // Stage 3: Generate full visual set
+      setRebuildStage('Generating images');
+      await handleAutoPopulate(false);
+      await refetchImages();
+
+      // Stage 4: Approve all candidates
+      setRebuildStage('Approving candidates');
+      const freshImages = await refetchImages();
+      const candidates = (freshImages?.data || []).filter((i: any) => i.curation_state === 'candidate');
+      if (candidates.length > 0) {
+        await batchApproveAll(candidates);
+        await refetchImages();
+      }
+
+      // Stage 5: Attach to canon (confirm primaries)
+      setRebuildStage('Attaching to canon');
+      const postApproval = await refetchImages();
+      const activeCount = (postApproval?.data || []).filter((i: any) => i.curation_state === 'active' && i.is_primary).length;
+      toast.success(`Visual canon confirmed: ${activeCount} primary images bound`);
+
+      // Stage 6: Build lookbook
+      setRebuildStage('Building lookbook');
+      if (onLookbookRebuild) {
+        await onLookbookRebuild();
+      }
+
+      // Stage 7: Download
+      setRebuildStage('Preparing download');
+      await handleDownloadAll();
+
+      // Done
+      setRebuildStage('Complete');
+      toast.success('Full Canon Rebuild complete');
+    } catch (err: any) {
+      console.error('[full-canon-rebuild] Error:', err);
+      toast.error('Rebuild failed at stage: ' + (rebuildStage || 'unknown') + ' — ' + (err.message || 'Unknown error'));
+    } finally {
+      setFullRebuilding(false);
+      setRebuildStage(null);
+    }
+  }, [fullRebuilding, resetScopedCanon, refetchImages, handleAutoPopulate, batchApproveAll, onLookbookRebuild, handleDownloadAll, rebuildStage]);
 
   if (loading || imagesLoading) {
     return (
