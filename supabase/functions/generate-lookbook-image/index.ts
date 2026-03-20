@@ -432,7 +432,12 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       }
       break;
     case "key_moment":
-      subjectDescription = ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.";
+      subjectDescription = [
+        ctx.conflict || ctx.logline || "A pivotal dramatic scene of tension and emotional stakes.",
+        "Stage this as a real moment captured on a live-action film set with real actors in a real physical environment.",
+        "Symbolic meaning must emerge through staging, composition, lighting, and actor placement — NOT through illustrative, painterly, or concept-art rendering.",
+        "This must look like a production still from a theatrically released live-action film.",
+      ].join(" ");
       break;
     case "visual_language":
       subjectDescription = `Production design reference for "${ctx.title}". Focus on real-world cinematography: lighting setups, lens choices, color grading, practical textures, and architectural composition. No abstract or symbolic imagery.`;
