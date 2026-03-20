@@ -1458,15 +1458,29 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
 /* ═══════════════════════════════════════════════════════════════════════
    CLOSING — minimal, authoritative
    ═══════════════════════════════════════════════════════════════════════ */
-function ClosingSlide({ slide, colors, titleStyle, baseStyle, isPortrait }: SlideProps) {
+function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
+  const hasHero = !!slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Atmospheric background from cover image if available */}
+      {hasHero && (
+        <div className="absolute inset-0">
+          <img src={slide.imageUrl!} alt="" className="w-full h-full" style={{
+            objectFit: 'cover', objectPosition: 'center top',
+            filter: 'saturate(0.2) blur(20px) contrast(1.1)',
+            opacity: 0.12, transform: 'scale(1.1)',
+          }} />
+          <div className="absolute inset-0" style={{
+            background: `radial-gradient(ellipse at center, ${colors.bg}cc 0%, ${colors.bg} 70%)`,
+          }} />
+        </div>
+      )}
+      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: 48, height: 3, background: colors.accent, opacity: 0.5, marginBottom: 36 }} />
         <h1 style={{
           ...titleStyle, fontSize: isPortrait ? 68 : 72, fontWeight: 700,
           marginBottom: 20, color: colors.text, textAlign: 'center',
-          padding: isPortrait ? '0 56px' : undefined,
+          padding: isPortrait ? '0 56px' : undefined, lineHeight: 0.95,
         }}>
           {slide.title}
         </h1>
