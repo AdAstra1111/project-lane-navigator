@@ -208,7 +208,7 @@ export default function LookBookPage() {
           </div>
         )}
 
-        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as LookbookMode)} className="w-full">
+        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as LookbookMode)} className="w-full flex-1 flex flex-col min-h-0">
           <TabsList className="mb-4">
             <TabsTrigger value="workspace">Workspace</TabsTrigger>
             <TabsTrigger value="viewer">Viewer</TabsTrigger>
