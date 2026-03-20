@@ -331,6 +331,23 @@ export default function LookBookPage() {
           </div>
         )}
 
+        {/* ── Staleness banner ── */}
+        {staleness.isStale && (
+          <div className="mx-4 mt-3 mb-0 shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-amber-600 dark:text-amber-400">LookBook is out of date</p>
+                <p className="text-xs text-muted-foreground">Images have changed since your last build. Rebuild to preview the latest approved images.</p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" className="gap-1 text-xs h-7 shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10" onClick={handleGenerate} disabled={generating}>
+              {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Rebuild Now
+            </Button>
+          </div>
+        )}
+
         {projectId && (
           <div className="mx-4 mt-3 mb-0 shrink-0 space-y-2">
             <LookbookTriggerDiagnosticsStrip
