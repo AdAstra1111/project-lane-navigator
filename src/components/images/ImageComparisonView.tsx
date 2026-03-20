@@ -55,8 +55,11 @@ interface ImageComparisonViewProps {
 }
 
 export function ImageComparisonView({
-  images, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap, visualSimilarities,
+  images: rawImages, open, onClose, onSetPrimary, onReject, scores, identityAnchorMap, visualSimilarities,
 }: ImageComparisonViewProps) {
+  // Guard: filter out any null/undefined entries before processing
+  const images = useMemo(() => rawImages.filter((img): img is ProjectImage => img != null && typeof img === 'object' && !!img.id), [rawImages]);
+
   const [syncZoom, setSyncZoom] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [showSummary, setShowSummary] = useState(true);
