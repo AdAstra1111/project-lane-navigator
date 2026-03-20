@@ -65,6 +65,8 @@ export interface CandidateVersion {
   version_ref_id: string;
   candidate_index: number;
   source_run_id: string | null;
+  source_candidate_version_id: string | null;
+  creation_mode: string;
   created_at: string;
 }
 
