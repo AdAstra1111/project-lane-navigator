@@ -114,6 +114,8 @@ export interface RequiredSlot {
   candidates: ProjectImage[];
   /** Recommended candidate (most recent active or candidate) */
   recommended: ProjectImage | null;
+  /** Canonical reason for recommendation from ranking helper */
+  recommendedReason: string | null;
   /** Whether this slot is identity-critical */
   isIdentity: boolean;
 }
