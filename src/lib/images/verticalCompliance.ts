@@ -35,7 +35,7 @@ export const VERTICAL_STRICT_ASPECT: AspectRatio = '9:16';
 
 // ── Classification Types ─────────────────────────────────────────────────────
 
-export type VerticalComplianceLevel = 'strict_vertical_compliant' | 'portrait_only' | 'non_compliant';
+export type VerticalComplianceLevel = 'strict_vertical_compliant' | 'portrait_only' | 'square' | 'non_compliant' | 'unknown_unmeasured';
 
 export type DimensionSource = 'measured' | 'requested_fallback' | 'inferred' | 'unknown';
 
