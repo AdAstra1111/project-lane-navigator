@@ -785,35 +785,47 @@ export function scoreAndSelectAllSlots(
 
 /**
  * Build a structured RebuildResult from slot results.
+ *
+ * Derives all counts from disjoint canonical outcome states:
+ * - resolved: winner !== null (winner is attachable)
+ * - unresolved: winner === null (includes gate-blocked, no candidates, etc.)
+ *
+ * No double counting. Each slot appears in exactly one category.
  */
 export function buildRebuildResult(
   mode: RebuildMode,
   slotResults: SlotWinnerResult[],
   generatedCount: number,
 ): RebuildResult {
+  // Disjoint partition: every slot is either resolved or unresolved
   const resolved = slotResults.filter(r => r.winner !== null);
   const unresolved = slotResults.filter(r => r.winner === null);
-  const gateBlocked = slotResults.filter(r => r.complianceGate && !r.complianceGate.allowed);
+
+  // compliantCount = slots where at least one candidate passed strict compliance
+  const compliantCount = slotResults.filter(r =>
+    r.allScored.some(s => s.eligibleForSelection)
+  ).length;
+
+  // rejectedNonCompliantCount = slots with candidates but NONE passed compliance
+  const rejectedNonCompliantCount = slotResults.filter(r =>
+    r.allScored.length > 0 && !r.allScored.some(s => s.eligibleForSelection)
+  ).length;
 
   return {
     mode,
     totalSlots: slotResults.length,
-    resolvedSlots: resolved.length - gateBlocked.length,
-    unresolvedSlots: unresolved.length + gateBlocked.length,
+    resolvedSlots: resolved.length,
+    unresolvedSlots: unresolved.length,
     generatedCount,
-    compliantCount: slotResults.filter(r => r.allScored.some(s => s.eligibleForSelection)).length,
-    rejectedNonCompliantCount: slotResults.filter(r =>
-      r.allScored.length > 0 && !r.allScored.some(s => s.eligibleForSelection)
-    ).length,
-    attachedWinnerCount: resolved.length - gateBlocked.length,
+    compliantCount,
+    rejectedNonCompliantCount,
+    attachedWinnerCount: resolved.length,
     preservedPrimaryCount: slotResults.filter(r => r.incumbentPreserved).length,
     replacedPrimaryCount: slotResults.filter(r => r.incumbentReplaced).length,
-    winnerIds: resolved
-      .filter(r => !r.complianceGate || r.complianceGate.allowed)
-      .map(r => r.winner!.imageId),
-    unresolvedReasons: [
-      ...unresolved.map(r => ({ slotKey: r.slotKey, reason: r.noWinnerReason || 'Unknown' })),
-      ...gateBlocked.map(r => ({ slotKey: r.slotKey, reason: `Gate blocked: ${r.complianceGate?.reason || 'Unknown'}` })),
-    ],
+    winnerIds: resolved.map(r => r.winner!.imageId),
+    unresolvedReasons: unresolved.map(r => ({
+      slotKey: r.slotKey,
+      reason: r.noWinnerReason || 'Unknown',
+    })),
   };
 }
