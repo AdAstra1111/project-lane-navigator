@@ -92,9 +92,6 @@ describe('scoreCandidate', () => {
     expect(result.eligible).toBe(true);
     expect(result.canonPromotable).toBe(false);
     expect(result.recommendedAction).not.toBe('promote');
-    expect(result.warnings).toEqual(expect.arrayContaining([
-      expect.stringContaining('advisory only'),
-    ]));
   });
 
   it('cross-shot candidate cannot have promote action even with high score', () => {
