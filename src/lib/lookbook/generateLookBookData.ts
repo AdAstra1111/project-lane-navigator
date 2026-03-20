@@ -271,6 +271,9 @@ export async function generateLookBookData(
   projectId: string,
   branding: { companyName: string | null; companyLogoUrl: string | null },
 ): Promise<LookBookData> {
+  /** Helper: is this a vertical-drama project? Checks both format and lane. */
+  const isVerticalDrama = (format: string, lane: string) =>
+    format.includes('vertical') || lane === 'vertical_drama';
   // 1. Load project metadata
   const { data: project, error: projectErr } = await supabase
     .from('projects')
@@ -349,7 +352,9 @@ export async function generateLookBookData(
   }
 
   // 4. Resolve canonical images per section — SAME logic as workspace, now lane-aware
-  const canonImages = await resolveAllCanonImages(projectId, assignedLane || null);
+  // Pass effective lane: if format is vertical-drama, treat as vertical_drama for ranking
+  const effectiveLane = isVerticalDrama(format, assignedLane) ? 'vertical_drama' : (assignedLane || null);
+  const canonImages = await resolveAllCanonImages(projectId, effectiveLane);
 
   const coverImageUrl =
     canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
@@ -540,9 +545,9 @@ export async function generateLookBookData(
     .join(', ');
   console.log('[LookBook] ✓ generation complete — slides:', slides.length, '| images:', provenanceSummary);
 
-  // Determine deck format from lane
-  const deckFormat = assignedLane === 'vertical_drama' ? 'portrait' as const : 'landscape' as const;
-  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'})`);
+  // Determine deck format — vertical-drama format OR vertical_drama lane → portrait
+  const deckFormat = isVerticalDrama(format, assignedLane) ? 'portrait' as const : 'landscape' as const;
+  console.log(`[LookBook] ✓ deck format: ${deckFormat} (lane=${assignedLane || 'none'}, format=${format})`);
 
   return {
     projectId,
