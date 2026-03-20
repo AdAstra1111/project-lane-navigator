@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, Zap, CheckCircle2, AlertTriangle, BookOpen, Shield, FileText,
   ChevronDown, ChevronRight, Eye, ThumbsUp, ThumbsDown, AlertCircle, Info,
@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { InlineProcessBar } from '@/components/system/InlineProcessBar';
+import { useProcessBridge } from '@/hooks/useProcessBridge';
 import {
   useStoryIngestion,
   IngestionRun,
