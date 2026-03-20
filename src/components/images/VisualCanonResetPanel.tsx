@@ -13,6 +13,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { resolveIdentityAnchorsFromImages, shouldPrioritizeIdentityGeneration, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import { useVisualSimilarityCache } from '@/hooks/useVisualSimilarityCache';
+import { useProcessBridge } from '@/hooks/useProcessBridge';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
