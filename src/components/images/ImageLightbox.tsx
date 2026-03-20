@@ -114,7 +114,19 @@ export function ImageLightbox({ image, open, onClose, dnaTraits, score, rankReas
     setPan({ x: 0, y: 0 });
   }, []);
 
-  if (!image) return null;
+  // Null guard — all hooks are above, safe to return early
+  if (!image) {
+    return open ? (
+      <Dialog open={open} onOpenChange={() => onClose()}>
+        <DialogContent className="max-w-[95vw] max-h-[95vh] w-full h-full p-0 bg-black/95 border-none overflow-hidden">
+          <DialogTitle className="sr-only">Image Viewer</DialogTitle>
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-sm">
+            No image selected
+          </div>
+        </DialogContent>
+      </Dialog>
+    ) : null;
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
