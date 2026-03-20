@@ -226,7 +226,7 @@ describe('ranking integration with visual similarity', async () => {
     const similarities: Record<string, VisualSimilarityResult> = {
       'img-sim': makeResult(85),
     };
-    const result = rankCharacterCandidates([img], fullAnchorSet, null, null, similarities);
+    const result = rankCharacterCandidates([img], fullAnchorSet, null, similarities);
     expect(result.top!.rankReason).toContain('strong visual match');
   });
 
