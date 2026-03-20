@@ -32,6 +32,12 @@ import {
 } from '@/lib/images/visualDNA';
 import { resolveCharacterIdentity } from '@/lib/images/identityResolver';
 import type { TraitCategory, TraitSource, BindingMarker, MarkerStatus } from '@/lib/images/characterTraits';
+import {
+  executeDnaAutoFlow,
+  type DnaAutoFlowMode,
+  type DnaAutoFlowResult,
+  DNA_AUTO_FLOW_MODE_DEFAULT,
+} from '@/lib/images/dnaAutoFlow';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -247,113 +253,89 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
   const [evidenceTraits, setEvidenceTraits] = useState<EvidenceTrait[]>([]);
   const [evidenceSources, setEvidenceSources] = useState<string[]>([]);
   const [bindingMarkers, setBindingMarkers] = useState<BindingMarker[]>([]);
+  const [autoFlowMode, setAutoFlowMode] = useState<DnaAutoFlowMode>(DNA_AUTO_FLOW_MODE_DEFAULT);
+  const [autoFlowResult, setAutoFlowResult] = useState<DnaAutoFlowResult | null>(null);
   
-  // Resolve DNA locally for immediate display
+  // Auto-resolve DNA on mount via canonical auto-flow (localOnly for speed)
   useEffect(() => {
     async function resolve() {
       try {
-        const identity = await resolveCharacterIdentity(projectId, characterName);
+        const result = await executeDnaAutoFlow({
+          projectId,
+          characterName,
+          canonCharacter,
+          canonJson,
+          userNotes,
+          config: { mode: autoFlowMode },
+          localOnly: true, // Don't call edge function on mount
+          existingMarkers: bindingMarkers.length > 0 ? bindingMarkers : undefined,
+          existingEvidence: evidenceTraits.length > 0 ? evidenceTraits : undefined,
+        });
         
-        // Load persisted markers and evidence from composite identity_signature
-        const persistedMarkers = currentDNA?.identity_signature
-          ? deserializeBindingMarkers(currentDNA.identity_signature as Record<string, any>)
-          : [];
-        const persistedEvidence = currentDNA?.identity_signature
-          ? deserializeEvidenceTraits(currentDNA.identity_signature as Record<string, any>)
-          : [];
-        const persistedTransient = currentDNA?.identity_signature
-          ? deserializeTransientStates(currentDNA.identity_signature as Record<string, any>)
-          : [];
+        setLocalDNA(result.dna);
+        setAutoFlowResult(result);
         
-        if (persistedMarkers.length > 0 && bindingMarkers.length === 0) {
-          setBindingMarkers(persistedMarkers);
+        // Sync markers/evidence from persisted state if not locally set
+        if (result.dna.bindingMarkers.length > 0 && bindingMarkers.length === 0) {
+          setBindingMarkers(result.dna.bindingMarkers);
         }
-        if (persistedEvidence.length > 0 && evidenceTraits.length === 0) {
-          setEvidenceTraits(persistedEvidence);
+        if (result.dna.evidenceTraits.length > 0 && evidenceTraits.length === 0) {
+          setEvidenceTraits(result.dna.evidenceTraits);
         }
-        
-        const dna = resolveCharacterVisualDNA(
-          characterName, canonCharacter, canonJson, userNotes, identity.locked,
-          bindingMarkers.length > 0 ? bindingMarkers : persistedMarkers,
-          evidenceTraits.length > 0 ? evidenceTraits : persistedEvidence,
-        );
-        setLocalDNA(dna);
       } catch {
         // Silently fail — DNA panel will show loading state
       }
     }
     resolve();
-  }, [projectId, characterName, canonCharacter, canonJson, userNotes, currentDNA]);
+  }, [projectId, characterName, canonCharacter, canonJson, userNotes, currentDNA, autoFlowMode]);
 
-  // Re-resolve when markers change
+  // Re-resolve when markers change (local-only, fast)
   useEffect(() => {
     if (!localDNA) return;
     const resolveWithMarkers = async () => {
-      const identity = await resolveCharacterIdentity(projectId, characterName);
-      const dna = resolveCharacterVisualDNA(
-        characterName, canonCharacter, canonJson, userNotes, identity.locked,
-        bindingMarkers, evidenceTraits,
-      );
-      setLocalDNA(dna);
+      const result = await executeDnaAutoFlow({
+        projectId,
+        characterName,
+        canonCharacter,
+        canonJson,
+        userNotes,
+        config: { mode: autoFlowMode },
+        localOnly: true,
+        existingMarkers: bindingMarkers,
+        existingEvidence: evidenceTraits,
+      });
+      setLocalDNA(result.dna);
+      setAutoFlowResult(result);
     };
     resolveWithMarkers();
   }, [bindingMarkers, evidenceTraits]);
 
-  // Auto-fill from project evidence
+  // Auto-fill from project evidence via canonical auto-flow (full extraction)
   const handleAutoFill = async () => {
     setExtracting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('extract-visual-dna', {
-        body: { project_id: projectId, character_name: characterName },
+      const result = await executeDnaAutoFlow({
+        projectId,
+        characterName,
+        canonCharacter,
+        canonJson,
+        userNotes,
+        config: { mode: autoFlowMode },
+        localOnly: false, // Call edge function for full extraction
+        existingMarkers: bindingMarkers,
+        existingEvidence: [], // Force fresh extraction
       });
-
-      if (error) throw error;
-
-      const extracted: EvidenceTrait[] = (data.traits || []).map((t: any) => ({
-        label: t.label,
-        category: t.category,
-        source: 'evidence' as TraitSource,
-        constraint: 'flexible' as const,
-        confidence: t.confidence,
-        evidenceSource: t.evidence_source,
-        evidenceExcerpt: t.evidence_excerpt,
-      }));
-
-      // Extract binding marker candidates from AI response
-      const markerCandidates: BindingMarker[] = (data.marker_candidates || []).map((m: any) => ({
-        id: m.id || `marker_${m.marker_type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        markerType: m.marker_type,
-        label: m.label,
-        bodyRegion: m.body_region || 'unspecified',
-        laterality: m.laterality || 'unknown',
-        size: m.size || 'unknown',
-        visibility: m.visibility || 'always_visible',
-        attributes: m.attributes || {},
-        status: (m.unresolved_fields?.length > 0 ? 'pending_resolution' : 'detected') as MarkerStatus,
-        requiresUserDecision: (m.unresolved_fields?.length || 0) > 0,
-        unresolvedFields: m.unresolved_fields || [],
-        confidence: m.confidence || 'high',
-        evidenceSource: m.evidence_source || 'extraction',
-        evidenceExcerpt: m.evidence_excerpt || '',
-        approvedAt: null,
-        approvedBy: null,
-      }));
-
-      setEvidenceTraits(extracted);
-      setEvidenceSources(data.evidence_sources || []);
       
-      // Merge new marker candidates with existing
-      if (markerCandidates.length > 0) {
-        setBindingMarkers(prev => {
-          const existingKeys = new Set(prev.map(m => `${m.markerType}:${m.bodyRegion}`));
-          const novel = markerCandidates.filter((m: BindingMarker) => !existingKeys.has(`${m.markerType}:${m.bodyRegion}`));
-          return [...prev, ...novel];
-        });
-      }
-
-      const totalCount = extracted.length + markerCandidates.length;
-      if (totalCount > 0) {
-        toast.success(`Extracted ${extracted.length} traits + ${markerCandidates.length} markers from ${(data.evidence_sources || []).length} sources`);
+      setLocalDNA(result.dna);
+      setAutoFlowResult(result);
+      setEvidenceTraits(result.dna.evidenceTraits);
+      setBindingMarkers(result.dna.bindingMarkers);
+      
+      const totalCount = result.dna.evidenceTraits.length + result.dna.bindingMarkers.length;
+      if (result.persisted) {
+        toast.success(`Extracted ${totalCount} traits — auto-saved DNA v${result.persistedVersionNumber} (Mode ${autoFlowMode === 'aggressive' ? 'B' : 'A'})`);
+      } else if (totalCount > 0) {
+        toast.success(`Extracted ${totalCount} traits (not yet saved — ${result.integrity.status})`);
       } else {
         toast.info('No visual traits found in project evidence for this character');
       }
@@ -425,6 +407,19 @@ export function CharacterVisualDNAPanel({ projectId, characterName, canonCharact
             <Badge variant={dna.identityStrength === 'strong' ? 'default' : 'secondary'} className="text-[9px] h-4">
               {dna.identityStrength === 'strong' ? '🔒 Strong' : dna.identityStrength === 'partial' ? '⚠ Partial' : '○ Weak'}
             </Badge>
+            <Badge variant="outline" className="text-[8px] h-3.5 px-1">
+              Mode {autoFlowMode === 'aggressive' ? 'B' : 'A'}
+            </Badge>
+            {autoFlowResult?.persisted && (
+              <Badge variant="outline" className="text-[8px] h-3.5 px-1 border-primary/30 text-primary/80">
+                Auto-saved v{autoFlowResult.persistedVersionNumber}
+              </Badge>
+            )}
+            {autoFlowResult && !autoFlowResult.persisted && (
+              <Badge variant="outline" className="text-[8px] h-3.5 px-1 text-muted-foreground">
+                {autoFlowResult.integrity.status.replace(/_/g, ' ')}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Button
