@@ -1,14 +1,17 @@
 /**
- * SlideRenderer — Premium cinematic slide compositions at 1920×1080.
- * Each slide type has a purpose-built editorial layout.
+ * SlideRenderer — Premium cinematic slide compositions.
+ * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
+ * Each slide type has a purpose-built editorial layout with portrait variants.
  */
-import type { SlideContent, LookBookVisualIdentity } from '@/lib/lookbook/types';
+import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
+import { getSlideDimensions } from '@/lib/lookbook/types';
 
 interface SlideRendererProps {
   slide: SlideContent;
   identity: LookBookVisualIdentity;
   slideIndex: number;
   totalSlides: number;
+  deckFormat?: DeckFormat;
 }
 
 const seenRenderDiagnostics = new Set<string>();
