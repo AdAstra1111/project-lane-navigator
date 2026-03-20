@@ -614,6 +614,7 @@ serve(async (req) => {
       count?: number;
       entity_id?: string;
       character_name?: string;
+      character_names?: string[];
       asset_group?: AssetGroup;
       pack_mode?: boolean;
       base_look_mode?: boolean;
@@ -621,6 +622,7 @@ serve(async (req) => {
       location_description?: string;
       location_ref_mode?: boolean;
       location_id?: string | null;
+      location_ids?: string[];
       state_key?: string | null;
       state_label?: string | null;
       state_prompt_modifier?: string | null;
