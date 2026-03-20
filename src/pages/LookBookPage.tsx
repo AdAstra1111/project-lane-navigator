@@ -149,16 +149,17 @@ export default function LookBookPage() {
     }
   }, [viewMode, lookBookData, generating, projectId, handleGenerate]);
 
-  // Persist layout-family override into canonical lookbook data
-  const handleSlideLayoutOverride = useCallback((slideIndex: number, familyKey: LayoutFamilyKey | null) => {
+  // Persist layout-family override into canonical lookbook data via slide_id
+  const handleSlideLayoutOverride = useCallback((slideId: string, familyKey: LayoutFamilyKey | null) => {
     setLookBookData(prev => {
       if (!prev) return prev;
-      const updatedSlides = prev.slides.map((slide, i) => {
-        if (i !== slideIndex) return slide;
+      const updatedSlides = prev.slides.map(slide => {
+        if (slide.slide_id !== slideId) return slide;
         if (familyKey === null) {
-          // Reset to auto
+          // Reset to auto — clear user decisions
           return {
             ...slide,
+            user_decisions: { ...slide.user_decisions, layout_family: null },
             layoutFamilyOverride: null,
             layoutFamilyOverrideSource: null,
             layoutFamilyEffective: slide.layoutFamily || 'landscape_standard',
@@ -166,6 +167,7 @@ export default function LookBookPage() {
         }
         return {
           ...slide,
+          user_decisions: { ...slide.user_decisions, layout_family: familyKey },
           layoutFamilyOverride: familyKey,
           layoutFamilyOverrideSource: 'user' as const,
           layoutFamilyEffective: familyKey,
