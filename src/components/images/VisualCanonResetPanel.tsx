@@ -11,7 +11,7 @@
  * 7. Archive browser
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { resolveIdentityAnchorsFromImages, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
+import { resolveIdentityAnchorsFromImages, shouldPrioritizeIdentityGeneration, type IdentityAnchorMap } from '@/lib/images/characterIdentityAnchorSet';
 import {
   RotateCcw, Loader2, CheckCircle, XCircle, Archive, RefreshCw,
   AlertTriangle, ChevronRight, Star, Recycle, Eye, ShieldCheck,
@@ -247,9 +247,15 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       }
     }
     if (!identityOnly) {
-      // Phase 2: Character refs
+      // Phase 2: Character refs — only for characters with at least partial identity lock
       for (const s of candidateSlots) {
         if (s.assetGroup === 'character' && !s.isIdentity && s.shotType && CHAR_REF_PACK.includes(s.shotType)) {
+          const charName = s.subject || '';
+          const priority = shouldPrioritizeIdentityGeneration(charName, identityAnchorMap);
+          if (priority.prioritize) {
+            console.log(`[buildSlotManifest] Deferring ref slot ${s.shotType} for ${charName}: ${priority.reason}`);
+            continue; // Skip — identity anchors incomplete
+          }
           slots.push({ assetGroup: 'character', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 2, label: s.label, section: 'character' });
         }
       }
@@ -274,7 +280,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
     slots.sort((a, b) => a.phase - b.phase);
     return slots;
-  }, [requiredSet]);
+  }, [requiredSet, identityAnchorMap]);
 
   // Extract character/location descriptions from canon
   const getCanonDescription = useCallback((subject: string | null, assetGroup: string) => {
