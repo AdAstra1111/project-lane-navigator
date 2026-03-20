@@ -69,15 +69,30 @@ const DEFAULT_MAX_REPAIR_ATTEMPTS = 3;
 // ── Retry Cap Check ──
 
 /**
- * Count completed + running + pending repair runs for a group.
- * Used to enforce retry cap.
+ * RETRY CAP ACCOUNTING POLICY:
+ *
+ * Statuses that COUNT toward the cap:
+ *   - pending   (attempt initiated, resources committed)
+ *   - running   (actively executing)
+ *   - completed (finished successfully)
+ *   - failed    (finished unsuccessfully — still consumed an attempt)
+ *
+ * Statuses that DO NOT count:
+ *   - cancelled (explicitly withdrawn before meaningful work; does not consume the attempt)
+ *
+ * RATIONALE: Failed attempts are real attempts that consumed compute/evaluation resources.
+ * Excluding them would allow infinite retries by failing repeatedly, making the cap meaningless.
+ * Cancelled attempts are explicitly withdrawn by user/operator before meaningful execution,
+ * so they are not counted to avoid penalizing legitimate workflow corrections.
  */
+const COUNTED_REPAIR_STATUSES = ['pending', 'running', 'completed', 'failed'] as const;
+
 async function countRepairAttempts(groupId: string): Promise<number> {
   const { count, error } = await (supabase as any)
     .from('repair_runs')
     .select('id', { count: 'exact', head: true })
     .eq('group_id', groupId)
-    .in('status', ['pending', 'running', 'completed']);
+    .in('status', [...COUNTED_REPAIR_STATUSES]);
 
   if (error) throw new Error(`Failed to count repair attempts: ${error.message}`);
   return count ?? 0;
