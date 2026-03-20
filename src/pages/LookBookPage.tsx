@@ -109,15 +109,16 @@ export default function LookBookPage() {
 
       // Preserve valid user decisions by slide_id (not slide.type)
       if (lookBookData?.slides) {
-        const { merged, preservedCount, droppedCount, dropReasons } = mergeUserDecisions(
+        const { merged, preservedCount, droppedCount, dropReasons, migratedCount } = mergeUserDecisions(
           freshData.slides,
           lookBookData.slides,
         );
         freshData.slides = merged;
-        if (preservedCount > 0 || droppedCount > 0) {
+        if (preservedCount > 0 || droppedCount > 0 || migratedCount > 0) {
           console.log('[LookBookPage] ✓ User decisions merge:', {
             preserved: preservedCount,
             dropped: droppedCount,
+            migrated: migratedCount,
             dropReasons,
           });
         }
