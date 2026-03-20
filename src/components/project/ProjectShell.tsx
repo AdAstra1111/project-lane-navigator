@@ -9,6 +9,7 @@ import {
   PanelRightOpen, PanelRightClose, ArrowLeft, Loader2,
   CheckCircle2, AlertTriangle, ArrowRight, X, ImagePlus, BookOpenCheck,
 } from 'lucide-react';
+import { ProcessingCenterButton } from '@/components/system/ProcessingCenter';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { cn } from '@/lib/utils';
 
