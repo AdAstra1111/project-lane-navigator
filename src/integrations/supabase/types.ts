@@ -1243,6 +1243,7 @@ export type Database = {
           ranked_at: string
           ranking_inputs_json: Json
           ranking_version_key: string
+          round_id: string | null
           score_json: Json
         }
         Insert: {
@@ -1254,6 +1255,7 @@ export type Database = {
           ranked_at?: string
           ranking_inputs_json?: Json
           ranking_version_key?: string
+          round_id?: string | null
           score_json?: Json
         }
         Update: {
@@ -1265,6 +1267,7 @@ export type Database = {
           ranked_at?: string
           ranking_inputs_json?: Json
           ranking_version_key?: string
+          round_id?: string | null
           score_json?: Json
         }
         Relationships: [
@@ -1282,6 +1285,13 @@ export type Database = {
             referencedRelation: "candidate_groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "candidate_rankings_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
+            referencedColumns: ["id"]
+          },
         ]
       }
       candidate_selections: {
@@ -1289,6 +1299,7 @@ export type Database = {
           group_id: string
           id: string
           rationale: string | null
+          round_id: string | null
           selected_at: string
           selected_by: string | null
           selected_candidate_version_id: string
@@ -1298,6 +1309,7 @@ export type Database = {
           group_id: string
           id?: string
           rationale?: string | null
+          round_id?: string | null
           selected_at?: string
           selected_by?: string | null
           selected_candidate_version_id: string
@@ -1307,6 +1319,7 @@ export type Database = {
           group_id?: string
           id?: string
           rationale?: string | null
+          round_id?: string | null
           selected_at?: string
           selected_by?: string | null
           selected_candidate_version_id?: string
@@ -1318,6 +1331,13 @@ export type Database = {
             columns: ["group_id"]
             isOneToOne: false
             referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_selections_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
             referencedColumns: ["id"]
           },
           {
@@ -2675,6 +2695,54 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      competition_rounds: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          group_id: string
+          id: string
+          round_index: number
+          round_type: string
+          source_round_id: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          group_id: string
+          id?: string
+          round_index?: number
+          round_type?: string
+          source_round_id?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          group_id?: string
+          id?: string
+          round_index?: number
+          round_type?: string
+          source_round_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competition_rounds_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "competition_rounds_source_round_id_fkey"
+            columns: ["source_round_id"]
+            isOneToOne: false
+            referencedRelation: "competition_rounds"
             referencedColumns: ["id"]
           },
         ]
