@@ -1050,7 +1050,6 @@ function CharacterIdentitySection({
         canonJson={canonJson}
         userNotes={localNotes}
       />
-      />
 
       {/* Identity Notes */}
       <div className="mb-3">
