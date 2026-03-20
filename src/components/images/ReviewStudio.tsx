@@ -119,6 +119,49 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     return groups;
   }, [filteredImages, groupBy]);
 
+  // ── Safe suggestion classification ──
+  // Uses existing identity continuity signals to determine which candidates are safe to auto-approve.
+  // Character images with identity_drift are excluded. Images without a valid URL are excluded.
+  const suggestedApproval = useMemo(() => {
+    const candidates = images.filter(i => i.curation_state === 'candidate');
+    const safe: ProjectImage[] = [];
+    const skipped: { image: ProjectImage; reason: string }[] = [];
+
+    for (const img of candidates) {
+      // Must have a renderable image
+      if (!img.signedUrl && !img.storage_path) {
+        skipped.push({ image: img, reason: 'No image data' });
+        continue;
+      }
+
+      // Character images: check identity continuity
+      if (img.asset_group === 'character' && img.subject) {
+        const anchors = identityAnchorMap[img.subject] || null;
+        const continuity = classifyIdentityContinuity(img, anchors);
+        if (continuity.status === 'identity_drift') {
+          skipped.push({ image: img, reason: 'Identity drift detected' });
+          continue;
+        }
+      }
+
+      safe.push(img);
+    }
+
+    return { safe, skipped };
+  }, [images, identityAnchorMap]);
+
+  const [bulkApproving, setBulkApproving] = useState(false);
+
+  const handleBulkApproveSuggested = useCallback(async () => {
+    if (bulkApproving || suggestedApproval.safe.length === 0) return;
+    setBulkApproving(true);
+    try {
+      await batchApproveAll(suggestedApproval.safe);
+    } finally {
+      setBulkApproving(false);
+    }
+  }, [bulkApproving, suggestedApproval.safe, batchApproveAll]);
+
   // Actions
   const handleApprove = useCallback((img: ProjectImage) => {
     approveIntoCanon(img);
