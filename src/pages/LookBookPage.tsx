@@ -47,6 +47,9 @@ export default function LookBookPage() {
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
   const [rebuildHistoryEpoch, setRebuildHistoryEpoch] = useState(0);
 
+  // ── Staleness detection ──
+  const staleness = useLookbookStaleness(projectId, lookbookBuildEpoch);
+
   // ── Auto-rebuild orchestration ──
   const autoRebuild = useLookbookAutoRebuild(projectId, {
     onRebuildComplete: (result) => {
