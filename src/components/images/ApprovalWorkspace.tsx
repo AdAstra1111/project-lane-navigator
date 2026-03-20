@@ -211,6 +211,7 @@ export function ApprovalWorkspace({
         onSetPrimary={onSetPrimary}
         onReject={(id) => onReject(id, false)}
         identityAnchorMap={identityAnchorMap}
+        visualSimilarities={visualSimilarities}
       />
     </div>
   );
