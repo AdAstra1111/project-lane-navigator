@@ -437,6 +437,25 @@ function CandidateCard({
             {getOrientationLabel(image.width, image.height)}
             {image.width && image.height ? ` ${image.width}×${image.height}` : ''}
           </p>
+          {/* Anchor provenance — grounded in actual generation_config */}
+          {(() => {
+            if (image.asset_group !== 'character') return null;
+            const gc = (image.generation_config || {}) as Record<string, unknown>;
+            const locked = !!gc.identity_locked;
+            const anchorPaths = gc.identity_anchor_paths as Record<string, string> | undefined;
+            const usedSlots: string[] = [];
+            if (anchorPaths) {
+              if (anchorPaths.headshot) usedSlots.push('H');
+              if (anchorPaths.fullBody) usedSlots.push('FB');
+            }
+            if (!locked && usedSlots.length === 0) return null;
+            return (
+              <p className="text-[6px] text-white/50 truncate mt-px">
+                {locked ? '🔒 Lock' : ''}
+                {usedSlots.length > 0 ? `${locked ? ' · ' : ''}Anchors: ${usedSlots.join('+')}` : ''}
+              </p>
+            );
+          })()}
         </div>
       </div>
 
