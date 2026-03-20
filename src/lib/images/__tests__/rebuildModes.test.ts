@@ -1,6 +1,7 @@
 /**
  * Rebuild Mode Tests — verifies RESET vs PRESERVE behavior,
- * replacement thresholds, primarySetAlignment, and slot weakness.
+ * replacement thresholds, primarySetAlignment, slot weakness,
+ * and buildRebuildResult honesty (no double counting).
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -131,7 +132,7 @@ describe('selectSlotWinner — RESET vs PRESERVE', () => {
   });
 });
 
-describe('buildRebuildResult', () => {
+describe('buildRebuildResult — no double counting', () => {
   it('reports preserved and replaced counts honestly', () => {
     const results = [
       { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: true, incumbentReplaced: false, incumbentId: 'w1' },
@@ -144,5 +145,64 @@ describe('buildRebuildResult', () => {
     expect(r.unresolvedSlots).toBe(1);
     expect(r.resolvedSlots).toBe(2);
     expect(r.winnerIds).toEqual(['w1', 'w2']);
+  });
+
+  it('totalSlots = resolvedSlots + unresolvedSlots (disjoint partition)', () => {
+    const results = [
+      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's2', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'Gate blocked', complianceGate: { allowed: false, reason: 'VD fail' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's3', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+    ];
+    const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 5);
+    expect(r.totalSlots).toBe(3);
+    expect(r.resolvedSlots).toBe(1);
+    expect(r.unresolvedSlots).toBe(2);
+    expect(r.resolvedSlots + r.unresolvedSlots).toBe(r.totalSlots);
+    expect(r.attachedWinnerCount).toBe(1);
+  });
+
+  it('gate-blocked rows are not double-counted as unresolved', () => {
+    // Gate-blocked rows already have winner=null, so they appear in unresolved once
+    const results = [
+      { slotKey: 's1', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'Gate blocked: VD fail', complianceGate: { allowed: false, reason: 'VD fail' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+    ];
+    const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 0);
+    expect(r.unresolvedSlots).toBe(1);
+    expect(r.resolvedSlots).toBe(0);
+    expect(r.unresolvedReasons).toHaveLength(1);
+    expect(r.unresolvedReasons[0].slotKey).toBe('s1');
+  });
+
+  it('unresolvedReasons has exactly one entry per unresolved slot', () => {
+    const results = [
+      { slotKey: 's1', winner: null, allScored: [], noWinnerReason: 'No candidates', complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's2', winner: null, allScored: [{ eligibleForSelection: false }] as any[], noWinnerReason: 'All failed VD', complianceGate: { allowed: false, reason: 'VD' }, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+      { slotKey: 's3', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+    ];
+    const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 0);
+    expect(r.unresolvedReasons).toHaveLength(2);
+    const slotKeys = r.unresolvedReasons.map(u => u.slotKey);
+    expect(slotKeys).toContain('s1');
+    expect(slotKeys).toContain('s2');
+    // No duplicates
+    expect(new Set(slotKeys).size).toBe(slotKeys.length);
+  });
+
+  it('generatedCount is passed through honestly', () => {
+    const results = [
+      { slotKey: 's1', winner: { imageId: 'w1' } as any, allScored: [], noWinnerReason: null, complianceGate: null, incumbentPreserved: false, incumbentReplaced: false, incumbentId: null },
+    ];
+    const r = buildRebuildResult('RESET_FULL_CANON_REBUILD', results, 7);
+    expect(r.generatedCount).toBe(7);
+  });
+
+  it('zero-slot preserve run produces honest empty result', () => {
+    const r = buildRebuildResult('PRESERVE_PRIMARIES_FULL_CANON_REBUILD', [], 0);
+    expect(r.totalSlots).toBe(0);
+    expect(r.resolvedSlots).toBe(0);
+    expect(r.unresolvedSlots).toBe(0);
+    expect(r.generatedCount).toBe(0);
+    expect(r.winnerIds).toEqual([]);
+    expect(r.unresolvedReasons).toEqual([]);
   });
 });

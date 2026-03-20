@@ -228,7 +228,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
   };
 
   // Build slot manifest from required visual set (mirrors edge function logic)
-  const buildSlotManifest = useCallback((identityOnly: boolean) => {
+  // targetSlotKeys: if provided, only generate for these specific slot keys (preserve-mode scoping)
+  const buildSlotManifest = useCallback((identityOnly: boolean, targetSlotKeys?: Set<string>) => {
     const IDENTITY_PACK = ['identity_headshot', 'identity_profile', 'identity_full_body'];
     const CHAR_REF_PACK = ['close_up', 'medium', 'full_body', 'profile', 'emotional_variant'];
     const WORLD_PACK = ['wide', 'atmospheric', 'detail', 'time_variant'];
@@ -241,34 +242,39 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     };
 
     const slots: SlotSpec[] = [];
-    const empty = requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0);
+
+    // When targetSlotKeys is provided (preserve mode), include ALL matching slots
+    // regardless of fill state — they were classified as weak/missing by the rebuild engine
+    const candidateSlots = targetSlotKeys
+      ? requiredSet.slots.filter(s => targetSlotKeys.has(s.key))
+      : requiredSet.slots.filter(s => !s.filled && s.candidates.length === 0);
 
     // Phase 1: Identity
-    for (const s of empty) {
+    for (const s of candidateSlots) {
       if (s.assetGroup === 'character' && s.isIdentity && s.shotType && IDENTITY_PACK.includes(s.shotType)) {
         slots.push({ assetGroup: 'character', subject: s.subject, shotType: s.shotType, isIdentity: true, phase: 1, label: s.label, section: 'character' });
       }
     }
     if (!identityOnly) {
       // Phase 2: Character refs
-      for (const s of empty) {
+      for (const s of candidateSlots) {
         if (s.assetGroup === 'character' && !s.isIdentity && s.shotType && CHAR_REF_PACK.includes(s.shotType)) {
           slots.push({ assetGroup: 'character', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 2, label: s.label, section: 'character' });
         }
       }
       // Phase 3: World
-      for (const s of empty) {
+      for (const s of candidateSlots) {
         if (s.assetGroup === 'world' && s.shotType && WORLD_PACK.includes(s.shotType)) {
           slots.push({ assetGroup: 'world', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 3, label: s.label, section: 'world' });
         }
       }
       // Phase 4: Visual Language + Key Moments
-      for (const s of empty) {
+      for (const s of candidateSlots) {
         if (s.assetGroup === 'visual_language' && s.shotType && VIS_LANG_PACK.includes(s.shotType)) {
           slots.push({ assetGroup: 'visual_language', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 4, label: s.label, section: 'visual_language' });
         }
       }
-      for (const s of empty) {
+      for (const s of candidateSlots) {
         if (s.assetGroup === 'key_moment' && s.shotType && KEY_MOMENT_PACK.includes(s.shotType)) {
           slots.push({ assetGroup: 'key_moment', subject: s.subject, shotType: s.shotType, isIdentity: false, phase: 4, label: s.label, section: 'key_moment' });
         }
@@ -301,10 +307,11 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
   // Progressive auto-populate — slot by slot with live UI updates
   // Now also wires generated images into governed visual sets
-  const handleAutoPopulate = useCallback(async (identityOnly: boolean) => {
-    const slots = buildSlotManifest(identityOnly);
+  // targetSlotKeys: if provided, only generate for these specific slot keys (preserve-mode scoping)
+  const handleAutoPopulate = useCallback(async (identityOnly: boolean, targetSlotKeys?: Set<string>) => {
+    const slots = buildSlotManifest(identityOnly, targetSlotKeys);
     if (slots.length === 0) {
-      toast.info('All slots already have candidates');
+      if (!targetSlotKeys) toast.info('All slots already have candidates');
       return;
     }
 
@@ -492,13 +499,14 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     const isPreserve = mode === 'PRESERVE_PRIMARIES_FULL_CANON_REBUILD';
 
     try {
+      let preGenImageCount = 0;
       let preGenImages: ProjectImage[] = [];
-
       if (isPreserve) {
         // ── PRESERVE MODE: Analyse incumbents, generate only weak/missing ──
         setRebuildStage('Analysing incumbents');
         const preResult = await refetchImages();
         preGenImages = (preResult?.data || []) as ProjectImage[];
+        preGenImageCount = preGenImages.length;
 
         const freshEntities = extractEntities(canonJson);
         const freshRequired = resolveRequiredVisualSet(freshEntities.characters, freshEntities.locations, preGenImages, isVerticalDrama);
@@ -528,10 +536,10 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
         console.log(`[preserve-rebuild] ${weakSlotKeys.size} of ${freshRequired.slots.length} slots targeted for regeneration`);
 
-        // Generate only weak/missing slots
+        // Generate only weak/missing slots — scoped to weakSlotKeys
         if (weakSlotKeys.size > 0) {
           setRebuildStage('Generating missing slots');
-          await handleAutoPopulate(false);
+          await handleAutoPopulate(false, weakSlotKeys);
           await new Promise(r => setTimeout(r, 500));
         }
       } else {
@@ -543,7 +551,8 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
           targetState: 'archived',
           regenerateAfter: false,
         });
-        await refetchImages();
+        const preResetResult = await refetchImages();
+        preGenImageCount = ((preResetResult?.data || []) as ProjectImage[]).length;
 
         setRebuildStage('Archiving images');
         await new Promise(r => setTimeout(r, 500));
@@ -557,6 +566,9 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
 
       const postGenResult = await refetchImages();
       const postGenImages: ProjectImage[] = (postGenResult?.data || []) as ProjectImage[];
+
+      // True per-run generation count: new images created in this rebuild
+      const newlyGeneratedCount = Math.max(0, postGenImages.length - preGenImageCount);
 
       // ── Common: Score all candidates per slot ──
       setRebuildStage('Scoring candidates');
@@ -598,7 +610,7 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
         { mode, anchors, incumbentsBySlotKey: isPreserve ? incumbentsBySlotKey : undefined },
       );
 
-      const rebuildResult = buildRebuildResult(mode, slotResults, postGenImages.length);
+      const rebuildResult = buildRebuildResult(mode, slotResults, newlyGeneratedCount);
       setLastRebuildResult(rebuildResult);
 
       const winnerIds = new Set(rebuildResult.winnerIds);
