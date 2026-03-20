@@ -473,11 +473,19 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
       }
 
       // Progressive update — refresh images and update counts after each slot
+      const pct = Math.round(((i + 1) / slots.length) * 100);
       setPopulateProgress({
         generated, total: slots.length, failed,
         currentSlot: i < slots.length - 1 ? slots[i + 1]?.label || null : null,
         currentPhase: i < slots.length - 1 ? PHASE_LABELS[slots[i + 1]?.phase] || null : null,
         completedSlots: [...completedSlots],
+      });
+      populateBridge.update({
+        processed: i + 1,
+        percent: pct,
+        stageDescription: i < slots.length - 1
+          ? `Generating: ${slots[i + 1]?.label || 'next slot'}…`
+          : 'Finalizing…',
       });
 
       // Refresh image queries so Approval Queue / Required Visual Set update live
@@ -488,11 +496,13 @@ export function VisualCanonResetPanel({ projectId, onLookbookRebuild }: VisualCa
     vs.invalidate(); // Refresh visual sets after autopopulate
 
     if (generated > 0) {
+      populateBridge.complete();
       toast.success(`Generated ${generated} candidate image${generated !== 1 ? 's' : ''}${failed > 0 ? ` (${failed} failed)` : ''}`);
     } else {
+      populateBridge.fail(`Generation failed for all ${failed} slots`);
       toast.error(`Generation failed for all ${failed} slots`);
     }
-  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama]);
+  }, [projectId, buildSlotManifest, useCanonDescriptions, getCanonDescription, refetchImages, entities, vs, isVerticalDrama, populateBridge]);
 
   // ── Full Canon Rebuild — score-based end-to-end pipeline ──
   const REBUILD_STAGES_RESET = [
