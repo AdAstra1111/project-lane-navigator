@@ -499,23 +499,53 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
     );
   }
 
-  // ── Landscape cover (unchanged) ──
+  // ── Landscape cover ──
+  const isPortraitHero = slide.layoutFamily === 'landscape_portrait_hero';
   return (
     <div style={baseStyle} className="slide-content">
       {hasHero && (
         <div className="absolute inset-0">
-          <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
-          <div className="absolute inset-0" style={{
-            background: `
-              linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
-              linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
-              linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
-            `,
-          }} />
+          {isPortraitHero ? (
+            <>
+              {/* Blurred background wash */}
+              <img src={slide.imageUrl} alt="" className="w-full h-full" style={{
+                objectFit: 'cover', filter: 'saturate(0.3) blur(16px) contrast(1.1)',
+                opacity: 0.15, transform: 'scale(1.08)',
+              }} />
+              {/* Portrait hero — contain, right-of-center */}
+              <div style={{
+                position: 'absolute', top: 40, bottom: 40, right: 80, width: 440,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 8, overflow: 'hidden',
+              }}>
+                <img src={slide.imageUrl} alt="" style={{
+                  width: '100%', height: '100%',
+                  objectFit: 'contain',
+                  filter: 'saturate(0.75) contrast(1.15)',
+                }} />
+              </div>
+            </>
+          ) : (
+            <>
+              <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
+              <div className="absolute inset-0" style={{
+                background: `
+                  linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 35%, transparent 65%),
+                  linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 25%, transparent 50%),
+                  linear-gradient(135deg, ${colors.bg}aa 0%, transparent 60%)
+                `,
+              }} />
+            </>
+          )}
+          {isPortraitHero && (
+            <div className="absolute inset-0" style={{
+              background: `linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 45%, transparent 70%)`,
+            }} />
+          )}
         </div>
       )}
       <div className="absolute inset-0 flex flex-col justify-end" style={{ padding: '80px 96px 88px' }}>
-        <div style={{ maxWidth: hasHero ? 960 : 1200 }}>
+        <div style={{ maxWidth: isPortraitHero ? 780 : hasHero ? 960 : 1200 }}>
           <div style={{ width: 48, height: 2, background: colors.accent, opacity: 0.6, marginBottom: 28 }} />
           <h1 style={{ ...titleStyle, fontSize: hasHero ? 96 : 112, fontWeight: 700, lineHeight: 0.95, color: colors.text, marginBottom: 16 }}>
             {slide.title}
