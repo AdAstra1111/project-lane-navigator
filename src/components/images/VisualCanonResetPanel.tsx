@@ -29,9 +29,7 @@ import { useVisualCanonReset } from '@/hooks/useVisualCanonReset';
 import { useVisualSets } from '@/hooks/useVisualSets';
 import { resolveRequiredVisualSet, getDimensionsForShot, type RequiredSlot, type RequiredVisualSet } from '@/lib/images/requiredVisualSet';
 import {
-  scoreAndSelectAllSlots, buildRebuildResult, buildAlignmentAnchors,
-  classifySlotWeakness,
-  type SlotTarget, type SlotWinnerResult, type RebuildMode, type RebuildResult,
+  type RebuildMode, type RebuildResult,
 } from '@/lib/images/canonRebuildScoring';
 import {
   executeCanonRebuild,
