@@ -54,7 +54,7 @@ export type ClarificationStatus = 'resolved' | 'partial' | 'missing';
 export interface ClarificationAnswer {
   text: string;
   confidence: 'high' | 'medium' | 'low';
-  basis: 'direct_evidence' | 'inferred_context' | 'persistent_marker' | 'transient_state' | 'canon';
+  basis: 'direct_evidence' | 'inferred_context' | 'persistent_marker' | 'transient_state' | 'canon' | 'descriptor_match';
 }
 
 export interface MissingClarification {
@@ -314,7 +314,66 @@ export function resolveCharacterVisualDNA(
     }
   }
   
-  // Identify missing clarifications with resolution status and answer candidates
+  // ── Descriptor mining: extract structured signals from text corpus ──
+  // Runs AFTER inferredContext; resolves age/gender/hair from literal descriptors
+  const descriptorContext = new Map<TraitCategory, { text: string; confidence: 'high' | 'medium'; sources: string[] }>();
+  
+  const descriptorCorpus = [
+    ...persistentEvidence.map(e => e.label),
+    ...persistentEvidence.map(e => e.evidenceExcerpt || ''),
+    ...transientStates.map(t => t.label),
+    ...allTraits.map(t => t.label),
+    userNotes || '',
+  ].join(' ');
+  
+  const DESCRIPTOR_RULES: Array<{
+    category: TraitCategory;
+    patterns: RegExp[];
+    confidence: 'high' | 'medium';
+  }> = [
+    {
+      category: 'age',
+      confidence: 'medium',
+      patterns: [
+        /\b(young|teen|teenage|adolescent|early\s?20s|twenties|youthful)\b/i,
+        /\b(middle[-\s]?aged|adult)\b/i,
+        /\b(old|elderly|aged|older|senior)\b/i,
+        /\b(child|boy|girl)\b/i,
+      ],
+    },
+    {
+      category: 'gender',
+      confidence: 'high',
+      patterns: [
+        /\b(man|male|boy)\b/i,
+        /\b(woman|female|girl)\b/i,
+        /\b(masculine|feminine|androgynous)\b/i,
+      ],
+    },
+    {
+      category: 'hair',
+      confidence: 'high',
+      patterns: [
+        /\b(long hair|short hair|cropped|shaved|bald|braided|plaited|tied back)\b/i,
+        /\b(curly hair|straight hair|wavy hair)\b/i,
+        /\b(blonde|blond|brown hair|dark hair|black hair|red hair|grey hair|white hair|auburn)\b/i,
+      ],
+    },
+  ];
+  
+  for (const rule of DESCRIPTOR_RULES) {
+    for (const pattern of rule.patterns) {
+      const match = descriptorCorpus.match(pattern);
+      if (match && !descriptorContext.has(rule.category)) {
+        descriptorContext.set(rule.category, {
+          text: match[0],
+          confidence: rule.confidence,
+          sources: [match[0]],
+        });
+      }
+    }
+  }
+
   const coveredCategories = new Set(allTraits.map(t => t.category));
   const markerCategories = new Set(mergedMarkers.filter(m => m.status !== 'rejected').map(() => 'marker' as TraitCategory));
   
@@ -380,6 +439,23 @@ export function resolveCharacterVisualDNA(
           text: transientForCat[0].label + ' (transient — not permanent)',
           confidence: 'low' as const,
           basis: 'transient_state' as const,
+        },
+      };
+    }
+    
+    // Check descriptor mining matches (literal text signals for age/gender/hair)
+    const descriptor = descriptorContext.get(c.category);
+    if (descriptor) {
+      return {
+        category: c.category,
+        question: c.question,
+        importance: c.importance,
+        status: (descriptor.confidence === 'high' ? 'resolved' : 'partial') as ClarificationStatus,
+        resolvedBy: `descriptor match (${descriptor.sources.join(', ')})`,
+        answerCandidate: {
+          text: descriptor.text,
+          confidence: descriptor.confidence,
+          basis: 'descriptor_match' as const,
         },
       };
     }
