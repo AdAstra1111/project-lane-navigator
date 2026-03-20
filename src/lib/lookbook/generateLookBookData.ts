@@ -558,6 +558,7 @@ export async function generateLookBookData(
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
+    slide_id: makeSlideId('visual_language'),
     title: 'Visual Language',
     body: vlCopy.body,
     imageUrl: visualImages[0]?.signedUrl || undefined,
