@@ -24,9 +24,9 @@ interface ImageStylePolicy {
 }
 
 const PHOTOREAL_DIRECTIVES =
-  "Photorealistic cinematic imagery. Live-action film still. Shot on ARRI Alexa or RED cinema camera with premium anamorphic lenses. Real-world materials, textures, surfaces. Believable natural or motivated cinematic lighting. Real lens behaviour including subtle flares, bokeh, and depth of field. Premium theatrical realism. No illustration, no concept art, no digital painting, no CGI render look.";
+  "Photorealistic cinematic imagery. Live-action film still. Shot on ARRI Alexa or RED cinema camera with premium anamorphic lenses. Real-world materials, textures, surfaces. Believable natural or motivated cinematic lighting. Real lens behaviour including subtle flares, bokeh, and depth of field. Premium theatrical realism. Film grain present. Imperfect real-world skin texture with pores and natural variation. No illustration, no concept art, no digital painting, no CGI render look. Avoid overly smooth, glossy, or airbrushed skin. Avoid flat even lighting. Avoid symmetrical or posed-looking staging. Must feel captured, not rendered.";
 const PHOTOREAL_NEGATIVES =
-  "painterly, illustrative, cartoon, anime, graphic-novel style, concept art rendering, abstract, surreal, watercolor, oil painting, sketch, line art, cel-shaded, pop art, storybook illustration, digital painting, CGI render look, stock photo aesthetic, 3D render, Unreal Engine, video game screenshot";
+  "painterly, illustrative, cartoon, anime, graphic-novel style, concept art rendering, abstract, surreal, watercolor, oil painting, sketch, line art, cel-shaded, pop art, storybook illustration, digital painting, CGI render look, stock photo aesthetic, 3D render, Unreal Engine, video game screenshot, airbrushed skin, overly smooth, glossy, plastic skin, symmetrical staging, concept art, AI-generated look";
 
 const ANIMATION_FORMATS = ["animation", "anim-feature", "anim-series", "animated"];
 const GRAPHIC_GENRES = ["graphic-novel", "comic", "manga"];
@@ -384,16 +384,16 @@ async function resolveCanonicalBindings(
 }
 
 const SHOT_FRAMING: Record<ShotType, string> = {
-  close_up: "Extreme close-up or tight close-up. Face filling the frame. Intimate, emotional, every pore visible. Shallow depth of field.",
-  medium: "Medium shot, waist-up. Character in environment context. Balanced composition. Clear facial expression with setting visible.",
-  wide: "Wide establishing shot. Sweeping, immersive cinematic scale. Characters small in frame against vast environment. Epic scope.",
+  close_up: "Extreme close-up or tight close-up. Face filling the frame. Intimate, emotionally raw, every imperfection visible. Shallow depth of field. Must convey strong internal emotion — tension, grief, desire, resolve. Eyes tell the story.",
+  medium: "Medium shot, waist-up. Character in environment context. Balanced composition. Clear facial expression with setting visible. Show relationship between character and space. Interaction-ready framing.",
+  wide: "Wide establishing shot. Sweeping, immersive cinematic scale. Spatial clarity is paramount — the viewer must understand the geography and atmosphere. Characters small in frame against vast environment. Epic scope with real depth and distance.",
   full_body: "Full body shot, head to toe. Character standing in environment. Clear silhouette and posture. Fashion editorial quality.",
   profile: "Profile view, side-on. Dramatic rim lighting. Strong silhouette against atmospheric background. Contemplative mood.",
   over_shoulder: "Over-the-shoulder perspective. Looking past one figure toward another or toward the scene. Creates depth and narrative tension.",
   detail: "Macro or detail shot. Close focus on a specific texture, object, or environmental detail. Shallow depth of field, rich texture.",
-  tableau: "Tableau composition. Multiple figures arranged in deliberate, cinematic blocking — as staged for a real camera on a real film set. Precise spatial relationships, motivated positioning. Shot as a wide or mid-wide with cinema lens. Real actors, real environment, real physics. NOT a painting or illustration.",
+  tableau: "Tableau composition. Multiple figures arranged in deliberate, cinematic blocking that reveals relationships and power dynamics through spatial positioning. Every placement is motivated — distance, height, facing direction all tell the story. Shot as a wide or mid-wide with cinema lens. Real actors, real environment, real physics. NOT a painting or illustration.",
   emotional_variant: "Same character, different emotional state. Raw emotional expression — tension, vulnerability, determination, or joy. Character-defining moment.",
-  atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling.",
+  atmospheric: "Atmospheric mid-shot. Focus on mood, weather, light quality. Fog, rain, golden hour, or dramatic clouds. Environmental storytelling through light and atmosphere.",
   time_variant: "Same location, different time of day. Dawn/dusk/night variant. Dramatic lighting shift. Temporal contrast.",
   lighting_ref: "Lighting reference — real film set lighting setup. Show practical and motivated light sources. Key light direction, fill ratio, color temperature, hard vs soft shadows. As seen on a professional film set with cinema-grade lighting fixtures. Real environments, real physics of light.",
   texture_ref: "Material and surface reference — real-world production design. Close-up on key physical materials: weathered wood, concrete, fabric weave, skin texture, metal patina, natural stone. Shot with macro lens, shallow DOF. Tactile, grounded, zero abstraction.",
@@ -1055,6 +1055,16 @@ FRAMING RULES:
         }
       }
 
+      // Step 8b: PRESTIGE STYLE — Inject lane grammar + prestige style composite
+      // This is the CORE style consistency layer. Without it, generated images
+      // lack specific lighting/palette/texture/tone direction and drift to generic AI output.
+      if (!isIdentityGeneration && prestigeComposite.promptBlock) {
+        prompt += `\n\n${prestigeComposite.promptBlock}`;
+        if (prestigeComposite.negativeBlock) {
+          prompt += `\n\nSTYLE PROHIBITIONS: ${prestigeComposite.negativeBlock}`;
+        }
+      }
+
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
@@ -1122,7 +1132,7 @@ FRAMING RULES:
             prompt_used: prompt,
             negative_prompt: isIdentityGeneration
               ? "cinematic scene, environmental context, narrative elements, dramatic lighting, props, costumes, action poses, text, watermarks, illustration, painting, CGI"
-              : stylePolicy.negativeStyleConstraints,
+              : [stylePolicy.negativeStyleConstraints, prestigeComposite.negativeBlock].filter(Boolean).join(", "),
             canon_constraints: { source_feature: isIdentityGeneration ? "character_identity_engine" : "lookbook_engine", section },
             storage_path: storagePath,
             storage_bucket: "project-posters",
