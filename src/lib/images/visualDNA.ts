@@ -314,7 +314,66 @@ export function resolveCharacterVisualDNA(
     }
   }
   
-  // Identify missing clarifications with resolution status and answer candidates
+  // ── Descriptor mining: extract structured signals from text corpus ──
+  // Runs AFTER inferredContext; resolves age/gender/hair from literal descriptors
+  const descriptorContext = new Map<TraitCategory, { text: string; confidence: 'high' | 'medium'; sources: string[] }>();
+  
+  const descriptorCorpus = [
+    ...persistentEvidence.map(e => e.label),
+    ...persistentEvidence.map(e => e.evidenceExcerpt || ''),
+    ...transientStates.map(t => t.label),
+    ...allTraits.map(t => t.label),
+    userNotes || '',
+  ].join(' ');
+  
+  const DESCRIPTOR_RULES: Array<{
+    category: TraitCategory;
+    patterns: RegExp[];
+    confidence: 'high' | 'medium';
+  }> = [
+    {
+      category: 'age',
+      confidence: 'medium',
+      patterns: [
+        /\b(young|teen|teenage|adolescent|early\s?20s|twenties|youthful)\b/i,
+        /\b(middle[-\s]?aged|adult)\b/i,
+        /\b(old|elderly|aged|older|senior)\b/i,
+        /\b(child|boy|girl)\b/i,
+      ],
+    },
+    {
+      category: 'gender',
+      confidence: 'high',
+      patterns: [
+        /\b(man|male|boy)\b/i,
+        /\b(woman|female|girl)\b/i,
+        /\b(masculine|feminine|androgynous)\b/i,
+      ],
+    },
+    {
+      category: 'hair',
+      confidence: 'high',
+      patterns: [
+        /\b(long hair|short hair|cropped|shaved|bald|braided|plaited|tied back)\b/i,
+        /\b(curly hair|straight hair|wavy hair)\b/i,
+        /\b(blonde|blond|brown hair|dark hair|black hair|red hair|grey hair|white hair|auburn)\b/i,
+      ],
+    },
+  ];
+  
+  for (const rule of DESCRIPTOR_RULES) {
+    for (const pattern of rule.patterns) {
+      const match = descriptorCorpus.match(pattern);
+      if (match && !descriptorContext.has(rule.category)) {
+        descriptorContext.set(rule.category, {
+          text: match[0],
+          confidence: rule.confidence,
+          sources: [match[0]],
+        });
+      }
+    }
+  }
+
   const coveredCategories = new Set(allTraits.map(t => t.category));
   const markerCategories = new Set(mergedMarkers.filter(m => m.status !== 'rejected').map(() => 'marker' as TraitCategory));
   
