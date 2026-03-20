@@ -183,6 +183,23 @@ describe('triggerNextTaskForRound', () => {
     const selInserts = insertCallLog.filter(c => c.table === 'candidate_selections');
     expect(selInserts.length).toBe(1);
     expect(selInserts[0].data.selected_candidate_version_id).toBe(CANDIDATE_ID);
+    expect(selInserts[0].data.selection_mode).toBe('auto_promoted');
+  });
+
+  it('creates exactly one auto_promoted selection per advancement', async () => {
+    setData(`competition_rounds:{"id":"${ROUND_ID}"}`, { id: ROUND_ID, group_id: GROUP_ID, status: 'active' });
+    setData(`round_promotions:{"round_id":"${ROUND_ID}"}`, {
+      id: PROMOTION_ID, round_id: ROUND_ID, promotion_status: 'promoted',
+      promoted_candidate_version_id: CANDIDATE_ID, rationale: 'all gates passed',
+      gating_snapshot_json: { policy: 'default_v1' },
+    });
+    setData(`candidate_groups:{"id":"${GROUP_ID}"}`, { id: GROUP_ID, status: 'ranked' });
+
+    await triggerNextTaskForRound({ groupId: GROUP_ID, roundId: ROUND_ID });
+    const selInserts = insertCallLog.filter(c => c.table === 'candidate_selections');
+    expect(selInserts.length).toBe(1);
+    expect(selInserts[0].data.selection_mode).toBe('auto_promoted');
+    expect(selInserts[0].data.round_id).toBe(ROUND_ID);
   });
 
   it('returns already_advanced on repeat trigger without duplicate inserts', async () => {
@@ -196,16 +213,30 @@ describe('triggerNextTaskForRound', () => {
     expect(insertCallLog.filter(c => c.table === 'round_progressions').length).toBe(0);
   });
 
-  it('returns existing blocked if already blocked', async () => {
+  it('returns existing blocked if already blocked (normalized to blocked)', async () => {
     setData(`round_progressions:{"round_id":"${ROUND_ID}"}`, {
       id: 'prog-blocked', round_id: ROUND_ID, group_id: GROUP_ID,
       progression_status: 'blocked', promoted_candidate_version_id: null,
       next_task_type: 'none', rationale: 'no promotion',
     });
     const result = await triggerNextTaskForRound({ groupId: GROUP_ID, roundId: ROUND_ID });
+    // Contract: already-blocked normalizes to 'blocked', not 'already_blocked'
     expect(result.progression_status).toBe('blocked');
     expect(result.id).toBe('prog-blocked');
     expect(insertCallLog.length).toBe(0);
+    // Verify no 'already_blocked' status leaks
+    expect(result.progression_status).not.toBe('already_blocked');
+  });
+
+  it('does not create duplicate selections on repeat trigger', async () => {
+    setData(`round_progressions:{"round_id":"${ROUND_ID}"}`, {
+      id: 'prog-existing', round_id: ROUND_ID, group_id: GROUP_ID,
+      progression_status: 'advanced', promoted_candidate_version_id: CANDIDATE_ID,
+      next_task_type: 'auto_promoted_selection', next_task_ref_id: 'sel-123',
+    });
+    await triggerNextTaskForRound({ groupId: GROUP_ID, roundId: ROUND_ID });
+    const selInserts = insertCallLog.filter(c => c.table === 'candidate_selections');
+    expect(selInserts.length).toBe(0);
   });
 
   it('blocked outcome preserves rationale in snapshot', async () => {
