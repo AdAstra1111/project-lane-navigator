@@ -751,6 +751,7 @@ export function selectSlotWinner(
       noWinnerReason: 'No candidates',
       complianceGate: null,
       incumbentPreserved: false, incumbentReplaced: false, incumbentId: null,
+      matchQuality: 'weak',
     };
   }
 
@@ -762,16 +763,23 @@ export function selectSlotWinner(
     : candidates;
 
   const scored = allCandidates
-    .map(img => scoreCandidateForSlot(img, slot, allCandidates, isVerticalDrama, projectFormat, projectLane, scoringOptions))
-    .filter(s => s.eligible);
+    .map(img => scoreCandidateForSlot(img, slot, allCandidates, isVerticalDrama, projectFormat, projectLane, scoringOptions));
 
-  if (scored.length === 0) {
+  // Separate exact-eligible from fallback candidates
+  const eligible = scored.filter(s => s.eligible);
+
+  // ── FALLBACK: if no exact-eligible, allow all scored candidates as fallback ──
+  const useFallback = eligible.length === 0 && scored.length > 0;
+  const pool = useFallback ? scored : eligible;
+
+  if (pool.length === 0) {
     return {
       slotKey: slot.key, winner: null, allScored: [],
       noWinnerReason: 'No eligible candidates for this slot type',
       complianceGate: null,
       incumbentPreserved: false, incumbentReplaced: false,
       incumbentId: incumbent?.id || null,
+      matchQuality: 'weak',
     };
   }
 
