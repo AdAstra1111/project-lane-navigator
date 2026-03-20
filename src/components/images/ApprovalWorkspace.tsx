@@ -395,6 +395,17 @@ function SlotApprovalRow({
         <Badge variant="secondary" className="text-[8px] px-1 py-0">
           {slot.candidates.length} candidate{slot.candidates.length !== 1 ? 's' : ''}
         </Badge>
+        {competitionGroup && (
+          <Badge variant="outline" className={cn(
+            'text-[7px] px-1 py-0',
+            competitionGroup.status === 'winner_selected' ? 'border-emerald-500/50 text-emerald-600' :
+            competitionGroup.status === 'ranked' ? 'border-primary/40 text-primary/70' :
+            'border-border/40 text-muted-foreground',
+          )}>
+            {competitionGroup.status === 'winner_selected' ? '✓ Winner' :
+             competitionGroup.status === 'ranked' ? 'Ranked' : 'Competing'}
+          </Badge>
+        )}
         {slot.candidates.length > 3 && (
           <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => setExpanded(!expanded)}>
             <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
