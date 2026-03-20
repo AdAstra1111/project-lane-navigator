@@ -110,7 +110,7 @@ function scoreSlotMatch(imageShotType: string | null, targetSlot: IdentitySlot):
   const st = (imageShotType || '').toLowerCase();
 
   if (st === targetSlot) {
-    return { score: 100, eligible: true, reason: `Exact slot match: ${targetSlot}` };
+    return { score: 100, eligible: true, exactMatch: true, reason: `Exact slot match: ${targetSlot}` };
   }
 
   // Cross-slot partial credit rules
