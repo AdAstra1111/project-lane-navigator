@@ -95,6 +95,8 @@ export interface SlotWinnerResult {
   incumbentReplaced: boolean;
   /** ID of the incumbent primary if one existed */
   incumbentId: string | null;
+  /** Match quality classification */
+  matchQuality: SlotMatchQuality;
 }
 
 /** Structured rebuild result — mandatory output from any rebuild */
