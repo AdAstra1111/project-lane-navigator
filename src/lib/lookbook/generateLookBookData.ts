@@ -274,8 +274,19 @@ export async function generateLookBookData(
   branding: { companyName: string | null; companyLogoUrl: string | null },
 ): Promise<LookBookData> {
   /** Helper: is this a vertical-drama project? Checks both format and lane. */
-  const isVerticalDrama = (format: string, lane: string) =>
-    format.includes('vertical') || lane === 'vertical_drama';
+  const isVerticalDrama = (fmt: string, lane: string) =>
+    checkVD(fmt) || fmt.includes('vertical') || lane === 'vertical_drama';
+
+  // Helper: convert ResolvedImageProvenance[] → SlideImageProvenance[]
+  const toSlideProvenance = (result: SectionImageResult): SlideImageProvenance[] =>
+    result.provenance.map(p => ({
+      imageId: p.imageId,
+      source: p.source,
+      complianceClass: p.complianceClass,
+      actualWidth: p.actualWidth,
+      actualHeight: p.actualHeight,
+    }));
+
   // 1. Load project metadata
   const { data: project, error: projectErr } = await supabase
     .from('projects')
@@ -302,12 +313,6 @@ export async function generateLookBookData(
   const canon = canonicalState.state;
   const normalizedCanon = normalizeLookBookCanon(canon);
   console.log('[LookBook] ✓ canon loaded, source:', canonicalState.source);
-  console.log('[LookBook] canon boundary normalized', {
-    world_rules_type: Array.isArray(canon.world_rules) ? 'array' : typeof canon.world_rules,
-    locations_type: Array.isArray(canon.locations) ? 'array' : typeof canon.locations,
-    timeline_type: Array.isArray(canon.timeline) ? 'array' : typeof canon.timeline,
-    tone_style_type: Array.isArray(canon.tone_style) ? 'array' : typeof canon.tone_style,
-  });
 
   // 3. Load document versions for synopsis/statement
   const { data: docs } = await supabase
@@ -353,10 +358,18 @@ export async function generateLookBookData(
     }
   }
 
-  // 4. Resolve canonical images per section — SAME logic as workspace, now lane-aware
-  // Pass effective lane: if format is vertical-drama, treat as vertical_drama for ranking
-  const effectiveLane = isVerticalDrama(format, assignedLane) ? 'vertical_drama' : (assignedLane || null);
-  const canonImages = await resolveAllCanonImages(projectId, effectiveLane);
+  // 4. Resolve canonical images per section
+  // For vertical-drama: STRICT DECK MODE — winners only, no candidate fallback
+  const isVD = isVerticalDrama(format, assignedLane);
+  const effectiveLane = isVD ? 'vertical_drama' : (assignedLane || null);
+  const canonImages = await resolveAllCanonImages(
+    projectId,
+    effectiveLane,
+    isVD, // strictDeckMode = true for VD
+    format,
+    assignedLane,
+  );
+  console.log(`[LookBook] ✓ images resolved (strictDeckMode=${isVD})`);
 
   const coverImageUrl =
     canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
