@@ -170,11 +170,12 @@ function buildSlot(
   isIdentity: boolean,
   existingImages: ProjectImage[],
   matchFn: (img: ProjectImage) => boolean,
+  isPortrait = false,
 ): RequiredSlot {
   const matching = existingImages.filter(matchFn);
   const primary = matching.find(i => i.is_primary && i.curation_state === 'active') || null;
   const candidates = matching.filter(i => i.curation_state === 'active' || i.curation_state === 'candidate');
-  const dims = getDimensionsForShot(shotType);
+  const dims = getDimensionsForShot(shotType, isPortrait);
 
   return {
     key,
