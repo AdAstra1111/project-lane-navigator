@@ -294,12 +294,13 @@ export function ApprovalWorkspace({
             <SlotApprovalRow
               key={slot.key}
               slot={slot}
-              onApprove={onApprove}
+              onApprove={(img) => handleApproveWithCompetition(img, slot)}
               onReject={onReject}
               onExpand={setLightboxImage}
               onToggleCompare={toggleCompareSelect}
               selectedForCompare={selectedForCompare}
               identityAnchorMap={identityAnchorMap}
+              competitionGroup={competitionGroups[slot.key]}
             />
           ))}
         </div>
