@@ -159,12 +159,15 @@ export default function LookBookPage() {
     }
   }, [projectId, branding, invalidateImageCaches, lookBookData]);
 
-  // Auto-rebuild when switching to viewer if no data exists yet
+  // Auto-rebuild when switching to viewer — always fetch fresh data
+  // This ensures approved/synced images are reflected immediately
   useEffect(() => {
-    if (viewMode === 'viewer' && !lookBookData && !generating && projectId) {
+    if (viewMode === 'viewer' && !generating && projectId) {
       handleGenerate();
     }
-  }, [viewMode, lookBookData, generating, projectId, handleGenerate]);
+    // Only trigger on viewMode change, not on handleGenerate identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, projectId]);
 
   // Persist layout-family override into canonical lookbook data via slide_id
   const handleSlideLayoutOverride = useCallback((slideId: string, familyKey: LayoutFamilyKey | null) => {
