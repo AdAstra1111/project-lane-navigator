@@ -1323,13 +1323,13 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
             {imgs.slice(0, 6).map((url, i) => (
               <div key={i} style={{
                 borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}`,
-                background: isPortrait ? colors.bgSecondary : undefined,
-                display: isPortrait ? 'flex' : undefined,
-                alignItems: isPortrait ? 'center' : undefined,
-                justifyContent: isPortrait ? 'center' : undefined,
+                background: (isPortrait || isPortraitFamily) ? colors.bgSecondary : undefined,
+                display: (isPortrait || isPortraitFamily) ? 'flex' : undefined,
+                alignItems: (isPortrait || isPortraitFamily) ? 'center' : undefined,
+                justifyContent: (isPortrait || isPortraitFamily) ? 'center' : undefined,
                 ...getSpanStyle(i),
               }}>
-                {isPortrait ? (
+                {(isPortrait || isPortraitFamily) ? (
                   <PortraitImage src={url} style={{ filter: 'saturate(0.85) contrast(1.08)', borderRadius: 4 }} />
                 ) : (
                   <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
