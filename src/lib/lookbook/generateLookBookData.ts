@@ -593,20 +593,20 @@ export async function generateLookBookData(
     });
   }
 
-  // ── VISUAL LANGUAGE ──
-  const visualImages = [...atmosphereImages, ...textureImages];
+  // ── VISUAL LANGUAGE ── (texture + motif imagery — separate from themes)
+  const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
     title: 'Visual Language',
     body: vlCopy.body,
-    imageUrl: visualImages[0]?.signedUrl || undefined,
-    imageUrls: visualImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+    imageUrl: vlImages[0]?.signedUrl || undefined,
+    imageUrls: vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
     bullets: vlCopy.bullets,
-    _debug_image_ids: [...canonImages.atmosphere_lighting.imageIds, ...canonImages.texture_detail.imageIds],
-    _debug_provenance: [...toSlideProvenance(canonImages.atmosphere_lighting), ...toSlideProvenance(canonImages.texture_detail)],
-    _has_unresolved: (canonImages.atmosphere_lighting.unresolvedCount + canonImages.texture_detail.unresolvedCount) > 0,
+    _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
+    _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
+    _has_unresolved: (canonImages.texture_detail.unresolvedCount + canonImages.symbolic_motifs.unresolvedCount) > 0,
   });
 
   // ── STORY ENGINE ──
