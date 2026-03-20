@@ -298,7 +298,29 @@ function deriveReasonKey(ranking: any): string {
 
 /**
  * Create a repair-designated competition round for this repair run.
- * Uses createRerunRound with roundType 'repair'.
+ *
+ * REPAIR-ROUND LIFECYCLE CONTRACT:
+ * A repair round is a specialized rerun round, distinguished by round_type='repair'.
+ * It reuses createRerunRound() because the lifecycle mechanics are identical:
+ *   - supersede the current active round
+ *   - create a new round with incremented round_index
+ *   - reset group status to 'open'
+ *   - set source_round_id for lineage
+ *
+ * What makes repair distinct from a plain rerun:
+ *   1. round_type is 'repair' (not 'rerun'), enabling audit queries
+ *   2. A repair_run record links the round to repair targets + diagnostics
+ *   3. Candidates created for this round carry creation_mode='repair' + source lineage
+ *   4. The repair_run tracks attempt_index for retry cap enforcement
+ *
+ * Invariants shared with rerun rounds:
+ *   - exactly one active round per group (enforced by DB partial unique index)
+ *   - prior round becomes 'superseded' and is immutable
+ *   - group status resets to 'open' for the new round
+ *
+ * This reuse is intentional and justified — repair does not need a separate
+ * round creation path because the round-level state machine is identical.
+ * Repair-specific semantics live in repair_runs/repair_targets, not in the round itself.
  */
 export async function createRepairRound(params: {
   repairRunId: string;
@@ -308,7 +330,7 @@ export async function createRepairRound(params: {
   // IEL: repair run must be pending or running
   const { data: run, error: runErr } = await (supabase as any)
     .from('repair_runs')
-    .select('id, status, group_id')
+    .select('id, status, group_id, repair_round_id')
     .eq('id', params.repairRunId)
     .single();
 
@@ -319,8 +341,14 @@ export async function createRepairRound(params: {
   if (run.group_id !== params.groupId) {
     throw new CompetitionInvariantError(`Repair run does not belong to group ${params.groupId}`);
   }
+  // IEL: prevent double round creation
+  if (run.repair_round_id) {
+    throw new CompetitionInvariantError(
+      `Repair run ${params.repairRunId} already has a repair round (${run.repair_round_id})`
+    );
+  }
 
-  // Create repair round using existing round infrastructure
+  // Create repair round using existing round infrastructure (justified reuse — see contract above)
   const round = await createRerunRound({
     groupId: params.groupId,
     roundType: 'repair' as any,
