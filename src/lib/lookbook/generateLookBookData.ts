@@ -574,6 +574,7 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     slides.push({
       type: 'story_engine',
+      slide_id: makeSlideId('story_engine'),
       title: 'Story Engine',
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
