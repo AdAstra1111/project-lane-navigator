@@ -718,7 +718,11 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     } else {
       updateStage(PipelineStage.QA, s => completeStage(s, 'all clear'));
     }
-    reportProgress(PipelineStage.QA, qa.publishable ? 'Deck ready' : 'Deck has issues', 100);
+    // Mark requirements complete
+    for (const req of requirements) {
+      if (req.status !== 'blocked') req.status = 'complete';
+    }
+    reportProgress(PipelineStage.QA, qa.publishable ? 'Deck ready' : 'Deck has issues', 100, requirements);
 
     return {
       data: lookBookData,
@@ -728,6 +732,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       stages,
       logs,
       durationMs: Date.now() - startTime,
+      requirements,
     };
   } catch (error: any) {
     log(`PIPELINE ERROR: ${error.message}`);
