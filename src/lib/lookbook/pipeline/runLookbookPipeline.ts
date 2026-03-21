@@ -9,6 +9,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import { normalizeCanonText } from '../normalizeCanonText';
+import type { LocationEvidence, SceneEvidence } from './narrativeEvidence';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
 import {
