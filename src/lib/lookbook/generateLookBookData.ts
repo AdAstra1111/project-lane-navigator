@@ -1298,7 +1298,16 @@ export async function generateLookBookData(
     console.log('[LookBook] ✓ no cross-slide image reuse');
   }
 
-  // ── Selection diagnostics — log WHY each slide got its images ──
+  // ── Fingerprint diversity diagnostics ──
+  const fpStats = Array.from(usedFingerprints.entries())
+    .filter(([, count]) => count > 1)
+    .map(([fp, count]) => `${fp} (×${count})`);
+  if (fpStats.length > 0) {
+    console.warn(`[LookBook] ⚠ fingerprint reuse: ${fpStats.join(' | ')}`);
+  } else {
+    console.log('[LookBook] ✓ no fingerprint repetition — good semantic diversity');
+  }
+
   const selectionDiagnostics: string[] = [];
   for (const slide of slides) {
     const parts = [`${slide.type}:`];
