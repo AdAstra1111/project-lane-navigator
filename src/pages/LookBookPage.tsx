@@ -187,6 +187,7 @@ export default function LookBookPage() {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {
       setGenerating(false);
+      setPipelineProgress(null);
     }
   }, [projectId, branding, invalidateImageCaches]);
 
