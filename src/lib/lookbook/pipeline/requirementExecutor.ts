@@ -462,11 +462,44 @@ export async function executeRequirements(
       if (req.promptContext.characterName) {
         const reqCharLower = req.promptContext.characterName.toLowerCase();
 
+        // ── ACTOR-BOUND ATTRIBUTION MATCHING ──
+        // Check auto_complete_context for actor attribution (persisted on generated rows)
+        const actorCtxNames = autoCtx?.resolved_character_names;
+        const actorCtxIds = autoCtx?.ai_actor_ids as Record<string, string> | null;
+        const actorCtxSources = autoCtx?.identity_sources as Record<string, string> | null;
+
+        // Check if this candidate was generated with actor-bound identity for the required character
+        const reqAnchor = characterAnchors.get(reqCharLower);
+        const reqActorId = reqAnchor?.aiActorId;
+
+        if (reqActorId && actorCtxIds) {
+          // Both the requirement and candidate have actor attribution
+          const candidateActorForChar = Object.entries(actorCtxIds).find(
+            ([name]) => name.toLowerCase().includes(reqCharLower)
+          );
+          if (candidateActorForChar && candidateActorForChar[1] === reqActorId) {
+            score += 20; // Same actor bound — strong identity consistency
+          } else if (candidateActorForChar && candidateActorForChar[1] !== reqActorId) {
+            score -= 30; // Different actor — identity conflict
+            log(`[Match:actor-conflict] req=${req.id} required actor=${reqActorId} but candidate has actor=${candidateActorForChar[1]}`);
+          }
+        }
+
+        // Actor-bound source bonus
+        if (actorCtxSources) {
+          const charSource = Object.entries(actorCtxSources).find(
+            ([name]) => name.toLowerCase().includes(reqCharLower)
+          );
+          if (charSource?.[1] === 'actor_bound') score += 8;
+        }
+
         // Strong bonus: generated with identity lock for correct character
         if (gc?.identity_locked || gc?.identity_mode) {
           const resolvedNames = gc?.resolved_character_names;
           if (Array.isArray(resolvedNames) && resolvedNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
             score += 15; // Identity-locked + correct character
+          } else if (Array.isArray(actorCtxNames) && actorCtxNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
+            score += 15; // Actor-attributed character match
           } else if (img.subject && (img.subject as string).toLowerCase().includes(reqCharLower)) {
             score += 12; // Subject name match with identity lock
           }
