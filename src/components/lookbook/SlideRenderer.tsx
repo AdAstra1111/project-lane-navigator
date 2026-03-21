@@ -323,6 +323,111 @@ function EdgeAccent({ color }: { color: string }) {
 }
 
 /**
+ * Cinematic Credit Block — film poster-style credit lockup.
+ *
+ * Variants:
+ * - full: complete credits (cover, closing)
+ * - reduced: company + writer/director (character slides)
+ * - minimal: company name only (key moments, etc.)
+ */
+function CinematicCreditBlock({
+  title,
+  companyName,
+  credit,
+  companyLogoUrl,
+  colors,
+  variant = 'full',
+  centered = false,
+  scale = 1,
+}: {
+  title?: string;
+  companyName?: string;
+  credit?: string;
+  companyLogoUrl?: string;
+  colors: { text: string; textMuted: string; accent: string; accentMuted: string; bg: string };
+  variant?: 'full' | 'reduced' | 'minimal';
+  centered?: boolean;
+  scale?: number;
+}) {
+  const company = companyName || 'Paradox House';
+  const baseFontSize = 11 * scale;
+  const smallFontSize = 9.5 * scale;
+  const titleFontSize = 12 * scale;
+
+  const lineStyle: React.CSSProperties = {
+    fontSize: smallFontSize,
+    letterSpacing: '0.28em',
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+    opacity: 0.8,
+    lineHeight: 2.2,
+    fontFamily: '"DM Sans", sans-serif',
+    textAlign: centered ? 'center' : undefined,
+  };
+
+  const titleLineStyle: React.CSSProperties = {
+    fontSize: titleFontSize,
+    letterSpacing: '0.35em',
+    textTransform: 'uppercase',
+    color: colors.text,
+    opacity: 0.85,
+    lineHeight: 2.4,
+    fontWeight: 600,
+    fontFamily: '"DM Sans", sans-serif',
+    textAlign: centered ? 'center' : undefined,
+  };
+
+  const accentLineStyle: React.CSSProperties = {
+    ...lineStyle,
+    color: colors.accent,
+    opacity: 0.75,
+  };
+
+  const wrapperStyle: React.CSSProperties = {
+    maxWidth: 520 * scale,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: centered ? 'center' : 'flex-start',
+    gap: 0,
+  };
+
+  if (variant === 'minimal') {
+    return (
+      <div style={wrapperStyle}>
+        <span style={{ ...lineStyle, opacity: 0.5 }}>{company}</span>
+      </div>
+    );
+  }
+
+  if (variant === 'reduced') {
+    return (
+      <div style={wrapperStyle}>
+        <span style={lineStyle}>{company} presents</span>
+        {credit && <span style={accentLineStyle}>{credit}</span>}
+      </div>
+    );
+  }
+
+  // ── Full variant — film poster credit block ──
+  return (
+    <div style={wrapperStyle}>
+      <span style={lineStyle}>{company} presents</span>
+      <span style={lineStyle}>A film by Sebastian Street</span>
+      {title && <span style={titleLineStyle}>{title}</span>}
+      <span style={lineStyle}>Written and Directed by Sebastian Street</span>
+      <span style={lineStyle}>Produced by Merlin Merton, Alex Chang and Greer Ellison</span>
+      {companyLogoUrl && (
+        <img src={companyLogoUrl} alt="" style={{
+          height: 18 * scale, objectFit: 'contain',
+          opacity: 0.35, filter: 'brightness(2)',
+          marginTop: 8 * scale,
+        }} />
+      )}
+    </div>
+  );
+}
+
+/**
  * Cinematic background image layer — full-bleed with controllable overlay.
  */
 function CinematicBackground({ 
