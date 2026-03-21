@@ -3,6 +3,9 @@
  * Reusable across identity generation, cinematic reference generation, state variants, etc.
  *
  * Identity is LOCKED when both primary identity_headshot and primary identity_full_body exist.
+ * 
+ * Supports optional AI Actor binding: if an ai_actor_id is associated with the character,
+ * the resolver includes actor reference assets for downstream generation consistency.
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from './types';

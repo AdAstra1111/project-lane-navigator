@@ -409,6 +409,12 @@ export default function LookBookPage() {
             {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
             Build Look Book
           </Button>
+          {lookBookData && (
+            <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleAutoComplete} disabled={autoCompleting || generating}>
+              {autoCompleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              Auto Complete
+            </Button>
+          )}
         </div>
       </div>
 
