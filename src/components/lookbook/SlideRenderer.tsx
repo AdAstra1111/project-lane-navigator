@@ -1097,21 +1097,18 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
     );
   }
 
-  // ── Landscape themes ──
+  // ── Landscape themes — cinematic background ──
+  const themesBg = slide.backgroundImageUrl || heroImg;
   return (
     <div style={baseStyle} className="slide-content">
-      {heroImg && (
-        <div className="absolute inset-0">
-          <img src={heroImg} alt="" className="w-full h-full object-cover" style={{ opacity: 0.12, filter: 'saturate(0.3) blur(4px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f2 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-        </div>
-      )}
+      {themesBg && <CinematicBackground src={themesBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
+      {!themesBg && <EdgeAccent color={colors.accent} />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
-        <div style={{ flex: 1, padding: '72px 48px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: !hasImages ? 'center' : 'flex-start', textAlign: !hasImages ? 'center' : 'left' }}>
+        <div style={{ flex: 1, padding: '72px 48px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: hasImages ? 720 : 900 }}>
           <SectionTag label="Themes & Tone" color={colors.accent} />
           <AccentRule color={colors.accent} width={40} />
           <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
-          <div style={{ maxWidth: 720 }}>
+          <div style={{ maxWidth: 680 }}>
             {slide.body && <p style={{ fontSize: 22, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20 }}>{slide.body}</p>}
             {slide.bodySecondary && <p style={{ fontSize: 16, lineHeight: 1.65, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
           </div>
