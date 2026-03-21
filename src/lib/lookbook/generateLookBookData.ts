@@ -1002,11 +1002,11 @@ export async function generateLookBookData(
   );
 
   // Re-derive convenience aliases after expansion
-  const worldImages = sectionPools.world;
-  const atmosphereImages = sectionPools.atmosphere;
-  const textureImages = sectionPools.texture;
-  const motifImages = sectionPools.motifs;
-  const keyMomentImages = sectionPools.keyMoments;
+  worldImages = sectionPools.world;
+  atmosphereImages = sectionPools.atmosphere;
+  textureImages = sectionPools.texture;
+  motifImages = sectionPools.motifs;
+  keyMomentImages = sectionPools.keyMoments;
 
   // Log post-expansion pool sizes
   console.log('[LookBook:pools] post-expansion:',
