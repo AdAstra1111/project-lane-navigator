@@ -11,11 +11,26 @@ import { classifyOrientation } from '@/lib/images/orientationUtils';
 
 // ── Scoring Context ──────────────────────────────────────────────────────────
 
+export interface SlotIntentContext {
+  /** Whether environment dominance is required for this slot */
+  requiresEnvironmentDominance?: boolean;
+  /** Whether principal identity is required for this slot */
+  requiresPrincipalIdentity?: boolean;
+  /** Whether scene provenance is required */
+  requiresSceneProvenance?: boolean;
+  /** Set of entity IDs that are identity-bound principals */
+  boundPrincipalIds?: Set<string>;
+  /** Whether scene evidence exists for this project */
+  hasSceneEvidence?: boolean;
+}
+
 export interface ScoringContext {
   /** Deck-level URL usage for reuse penalty */
   deckImageUsage: Map<string, { count: number; usedOnSlides: string[] }>;
   /** Semantic fingerprint usage for diversity penalty */
   usedFingerprints: Map<string, number>;
+  /** Slot intent context for intelligence hooks */
+  slotIntent?: SlotIntentContext;
 }
 
 // ── Fingerprint ──────────────────────────────────────────────────────────────
@@ -199,6 +214,32 @@ export function scoreImageForSlide(
   // Anti-pattern: character-centered composition in world/environment slot
   if ((slideType === 'world' || slideType === 'creative_statement' || slideType === 'themes') && isCharacterCenteredInEnvironment(img)) {
     score -= 15;
+  }
+
+  // ── Slot Intent Intelligence Hooks ──────────────────────────────────────
+  const slotIntent = context?.slotIntent;
+  if (slotIntent) {
+    // World/environment slides: penalize character-centric images when environment dominance required
+    if (slotIntent.requiresEnvironmentDominance) {
+      // Bonus for images with location bindings
+      if (img.location_ref) score += 8;
+      // Penalty for character-centric shots in environment slots
+      if (img.entity_id && !img.location_ref && (img.shot_type === 'close_up' || img.shot_type === 'medium')) {
+        score -= 12;
+      }
+    }
+
+    // Character slides: bonus when image matches a bound principal
+    if (slotIntent.requiresPrincipalIdentity && slotIntent.boundPrincipalIds) {
+      if (img.entity_id && slotIntent.boundPrincipalIds.has(img.entity_id)) {
+        score += 10; // identity-bound principal match
+      }
+    }
+
+    // Scene slides: bonus when scene evidence exists and image has moment anchor
+    if (slotIntent.requiresSceneProvenance && slotIntent.hasSceneEvidence) {
+      if (img.moment_ref) score += 8; // narrative-anchored scene image
+    }
   }
 
   return score;

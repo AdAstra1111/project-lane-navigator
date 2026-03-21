@@ -64,6 +64,8 @@ export interface SceneEvidence {
   characters?: string[];
   dramaticPurpose?: string;
   location?: string;
+  /** Confidence 0–1 */
+  confidence: number;
 }
 
 // ── Composite Narrative Evidence ─────────────────────────────────────────────
@@ -121,6 +123,62 @@ export interface NarrativeEvidence {
   };
 }
 
+// ── Character Importance Heuristic ───────────────────────────────────────────
+
+/**
+ * PRINCIPAL_SIGNALS — role/archetype keywords indicating a principal character.
+ * Matched case-insensitively against role and archetype fields.
+ */
+const PRINCIPAL_SIGNALS = [
+  'protagonist', 'lead', 'main', 'hero', 'heroine',
+  'antagonist', 'villain', 'anti-hero', 'antihero',
+  'central', 'primary',
+];
+
+const RECURRING_SIGNALS = [
+  'supporting', 'secondary', 'friend', 'ally', 'mentor',
+  'recurring', 'rival', 'love interest', 'partner',
+  'confidant', 'sidekick', 'lieutenant',
+];
+
+const INCIDENTAL_SIGNALS = [
+  'guard', 'servant', 'extra', 'crowd', 'incidental',
+  'background', 'bystander', 'minor', 'unnamed', 'passerby',
+  'townsperson', 'villager',
+];
+
+/**
+ * Derive character importance from canon role/archetype fields.
+ * Falls back to array position only when no semantic signal exists.
+ */
+function deriveCharacterImportance(
+  role?: string,
+  archetype?: string,
+  arrayIndex?: number,
+): CharacterEvidence['importance'] {
+  const combined = [role || '', archetype || ''].join(' ').toLowerCase();
+
+  // Check semantic signals in priority order
+  for (const signal of PRINCIPAL_SIGNALS) {
+    if (combined.includes(signal)) return 'principal';
+  }
+  for (const signal of INCIDENTAL_SIGNALS) {
+    if (combined.includes(signal)) return 'incidental';
+  }
+  for (const signal of RECURRING_SIGNALS) {
+    if (combined.includes(signal)) return 'recurring';
+  }
+
+  // Positional fallback only when no semantic signal found
+  if (arrayIndex !== undefined) {
+    if (arrayIndex < 3) return 'principal';
+    if (arrayIndex < 6) return 'recurring';
+    return 'incidental';
+  }
+
+  return 'recurring'; // safe default
+}
+
 // ── Builder ──────────────────────────────────────────────────────────────────
 
 /**
@@ -157,19 +215,29 @@ export function buildNarrativeEvidence(
     sceneEvidence?: SceneEvidence[];
   },
 ): NarrativeEvidence {
-  // Parse characters
+  // Parse characters with semantic importance derivation
   const rawChars = Array.isArray(raw.characters) ? raw.characters : [];
   const characters: CharacterEvidence[] = rawChars.slice(0, 12).map((c: any, i: number) => {
     const name = (c?.name || `Character ${i + 1}`).toString();
     const id = c?.id?.toString();
-    const hasAnchors = derived.characterIdentityMap?.get(id || name.toLowerCase()) || false;
-    // Heuristic importance: first 3 = principal, next 3 = recurring, rest = incidental
-    const importance: CharacterEvidence['importance'] = i < 3 ? 'principal' : i < 6 ? 'recurring' : 'incidental';
+    const role = c?.role?.toString();
+    const archetype = c?.archetype?.toString();
+
+    // Check identity anchors from map (by ID first, then by name)
+    const hasAnchors = (
+      (id && derived.characterIdentityMap?.get(id)) ||
+      derived.characterIdentityMap?.get(name.toLowerCase()) ||
+      false
+    );
+
+    // Semantic importance derivation (not positional)
+    const importance = deriveCharacterImportance(role, archetype, i);
+
     return {
       name,
       id,
-      role: c?.role?.toString(),
-      archetype: c?.archetype?.toString(),
+      role,
+      archetype,
       traits: c?.traits?.toString(),
       goals: c?.goals?.toString(),
       description: c?.description?.toString(),
@@ -177,6 +245,10 @@ export function buildNarrativeEvidence(
       importance,
     };
   });
+
+  // Log importance derivation for diagnostics
+  const importanceSummary = characters.map(c => `${c.name}:${c.importance}`).join(', ');
+  console.log(`[Pipeline:narrative] Character importance: ${importanceSummary}`);
 
   // Build evidence items for downstream consumption
   const evidenceItems: NarrativeEvidenceItem[] = [];
@@ -190,9 +262,31 @@ export function buildNarrativeEvidence(
   }
   if (raw.comparables) evidenceItems.push({ class: 'poster', label: 'Comparables', source: 'canon', confidence: 0.8 });
 
+  // Scene evidence items
+  const sceneEvidence = derived.sceneEvidence || [];
+  for (const scene of sceneEvidence) {
+    evidenceItems.push({
+      class: 'scene',
+      label: scene.slugline || 'Scene',
+      source: 'canon',
+      confidence: scene.confidence,
+    });
+  }
+
+  // Location evidence items
+  const locationEvidence = derived.locationEvidence || [];
+  for (const loc of locationEvidence) {
+    evidenceItems.push({
+      class: 'environment',
+      label: loc.name,
+      source: 'canon_locations',
+      confidence: loc.hasVisualRefs ? 1 : 0.7,
+    });
+  }
+
   // Coverage
   const fields = [raw.logline, raw.premise, raw.worldRules, raw.locations, raw.toneStyle, raw.comparables, raw.synopsis, raw.creativeStatement];
-  const filledCount = fields.filter(Boolean).length + (characters.length > 0 ? 1 : 0) + (derived.sceneEvidence?.length ? 1 : 0);
+  const filledCount = fields.filter(Boolean).length + (characters.length > 0 ? 1 : 0) + (sceneEvidence.length > 0 ? 1 : 0);
   const totalFields = fields.length + 2; // +characters +scenes
 
   return {
@@ -215,8 +309,8 @@ export function buildNarrativeEvidence(
     comparables: raw.comparables,
     formatConstraints: raw.formatConstraints,
     characters,
-    locationEvidence: derived.locationEvidence || [],
-    sceneEvidence: derived.sceneEvidence || [],
+    locationEvidence,
+    sceneEvidence,
     evidenceItems,
     isVerticalDrama: derived.isVerticalDrama,
     effectiveLane: derived.effectiveLane,
@@ -229,7 +323,7 @@ export function buildNarrativeEvidence(
       hasComparables: !!raw.comparables,
       hasSynopsis: !!raw.synopsis,
       hasCreativeStatement: !!raw.creativeStatement,
-      hasSceneEvidence: (derived.sceneEvidence?.length || 0) > 0,
+      hasSceneEvidence: sceneEvidence.length > 0,
       score: filledCount / totalFields,
     },
   };

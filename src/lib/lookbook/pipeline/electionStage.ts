@@ -4,14 +4,17 @@
  * Uses the CANONICAL scorer only (lookbookScorer.scoreImageForSlide).
  * No alternative scoring logic.
  *
- * INPUT: section pools, slide definitions
+ * INPUT: section pools, slide definitions, optional narrative intelligence
  * OUTPUT: ElectionResult (per-slide winners + poster hero)
  * SIDE EFFECTS: none (pure functions)
  */
 import type { ProjectImage } from '@/lib/images/types';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
-import { scoreImageForSlide, getImageFingerprint, type ScoringContext } from './lookbookScorer';
+import { scoreImageForSlide, getImageFingerprint, type ScoringContext, type SlotIntentContext } from './lookbookScorer';
 import { SLIDE_SECTION_AFFINITY, SLIDE_TO_POOL, type PoolKey } from './lookbookSlotRegistry';
+import { getSlotIntent } from './lookbookSlotIntent';
+import type { NarrativeEvidence } from './narrativeEvidence';
+import type { IdentityBindings } from './identityBindingStage';
 import type { ElectionContext, ElectionResult, SlideElection } from './types';
 
 /**
@@ -53,12 +56,21 @@ export function trackSelection(ctx: ElectionContext, url: string, slideType: str
   }
 }
 
-function getScoringContext(ctx: ElectionContext): ScoringContext {
+function getScoringContext(ctx: ElectionContext, slideType: string, boundPrincipalIds?: Set<string>, hasSceneEvidence?: boolean): ScoringContext {
+  const intent = getSlotIntent(slideType);
   return {
     deckImageUsage: ctx.deckImageUsage,
     usedFingerprints: ctx.usedFingerprints,
+    slotIntent: {
+      requiresEnvironmentDominance: intent.requiresEnvironmentDominance,
+      requiresPrincipalIdentity: intent.requiresPrincipalIdentity,
+      requiresSceneProvenance: intent.requiresSceneProvenance,
+      boundPrincipalIds,
+      hasSceneEvidence: hasSceneEvidence || false,
+    },
   };
 }
+
 
 // ── Foreground election ──────────────────────────────────────────────────────
 
@@ -70,7 +82,7 @@ export function pickForegroundImages(
   excludeUrls: string[] = [],
 ): string[] {
   const seen = new Set(excludeUrls);
-  const scoringCtx = getScoringContext(ctx);
+  const scoringCtx = getScoringContext(ctx, slideType);
   const scored = pool
     .filter(img => img.signedUrl && !seen.has(img.signedUrl!))
     .map(img => ({ img, score: scoreImageForSlide(img, slideType, true, scoringCtx) }))
@@ -112,7 +124,7 @@ export function pickBackgroundImage(
 ): string | undefined {
   const excludeUrls = ctx.usedBackgroundUrls;
   const isExcluded = (img: ProjectImage) => !img.signedUrl || excludeUrls.includes(img.signedUrl!);
-  const scoringCtx = getScoringContext(ctx);
+  const scoringCtx = getScoringContext(ctx, slideType);
 
   const affinityKeys = SLIDE_SECTION_AFFINITY[slideType] || [];
   const affinityPool: ProjectImage[] = [];
@@ -278,8 +290,21 @@ const SLIDE_ELECTION_SPECS: SlideElectionSpec[] = [
 export function runElectionStage(
   sectionPools: Record<PoolKey, ProjectImage[]>,
   allUniqueImages: ProjectImage[],
+  narrativeEvidence?: NarrativeEvidence,
+  identityBindings?: IdentityBindings,
 ): ElectionResult {
   const ctx = createElectionContext(sectionPools);
+
+  // Build bound principal IDs set from identity bindings
+  const boundPrincipalIds = new Set<string>();
+  if (identityBindings) {
+    for (const p of identityBindings.principals) {
+      if ((p.strength === 'locked' || p.strength === 'anchored') && p.characterId) {
+        boundPrincipalIds.add(p.characterId);
+      }
+    }
+  }
+  const hasSceneEvidence = (narrativeEvidence?.sceneEvidence?.length || 0) > 0;
 
   // 1. Poster hero — global election
   const posterHero = selectPosterHero(allUniqueImages);
