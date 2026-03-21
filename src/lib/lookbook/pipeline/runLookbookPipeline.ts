@@ -702,7 +702,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.QA, startStage);
     reportProgress(PipelineStage.QA, 'Running quality checks...', 95);
 
-    const qa = runQAStage(lookBookData);
+    const qa = runQAStage(lookBookData, reqResults);
 
     // Run provenance validation and attach to QA
     const provenanceReport = validateProvenance(finalSlides, narrativeEvidence, identityBindings);
