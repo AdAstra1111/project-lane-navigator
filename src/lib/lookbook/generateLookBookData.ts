@@ -515,60 +515,143 @@ export async function generateLookBookData(
     }
   }
 
-  // ── Background image pool — collect ALL landscape images for cinematic backgrounds ──
+  // ── Section-scoped image pools — prevent cross-contamination ──
+  // Each slide type gets its own curated pool. Global fallback is LAST RESORT only.
+  const sectionPools = {
+    world: canonImages.world_locations.images,
+    atmosphere: canonImages.atmosphere_lighting.images,
+    texture: canonImages.texture_detail.images,
+    motifs: canonImages.symbolic_motifs.images,
+    keyMoments: canonImages.key_moments.images,
+    poster: canonImages.poster_directions.images,
+  };
+
+  // Broad fallback pool — used ONLY when section pool is empty
   const allSectionImages = [
-    ...canonImages.world_locations.images,
-    ...canonImages.atmosphere_lighting.images,
-    ...canonImages.key_moments.images,
-    ...canonImages.texture_detail.images,
-    ...canonImages.symbolic_motifs.images,
+    ...sectionPools.world,
+    ...sectionPools.atmosphere,
+    ...sectionPools.keyMoments,
+    ...sectionPools.texture,
+    ...sectionPools.motifs,
   ];
-  
-  /** Pick the best landscape background image from a pool.
-   *  Narrative truth priority: images bound to actual canon entities (entity_id,
-   *  location_ref, moment_ref) are preferred over generic atmospheric imagery
-   *  that may not reflect actual script reality.
+
+  /** Section affinity — which section pools are appropriate for each slide type */
+  const SLIDE_SECTION_AFFINITY: Record<string, Array<keyof typeof sectionPools>> = {
+    cover: ['poster', 'world', 'keyMoments'],
+    creative_statement: ['atmosphere', 'world'],
+    world: ['world'],
+    key_moments: ['keyMoments'],
+    characters: [],
+    visual_language: ['texture', 'motifs', 'atmosphere'],
+    themes: ['atmosphere', 'world'],
+    story_engine: ['keyMoments', 'motifs'],
+    comparables: ['atmosphere', 'world'],
+    closing: ['poster', 'world', 'atmosphere'],
+  };
+
+  /** Score an image for section relevance + visual suitability */
+  function scoreImageForSlide(img: ProjectImage, slideType: string): number {
+    let score = 0;
+    const hasNarrative = !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
+    const isLandscape = classifyOrientation(img.width, img.height) === 'landscape';
+
+    // Narrative truth bonus (highest priority)
+    if (hasNarrative) score += 20;
+
+    // Primary bonus
+    if (img.is_primary) score += 10;
+
+    // Landscape bonus for background slots
+    if (isLandscape) score += 8;
+
+    // Section-specific scoring
+    const shotType = img.shot_type || '';
+    switch (slideType) {
+      case 'world':
+        if (['wide', 'atmospheric', 'establishing'].includes(shotType)) score += 15;
+        if (img.asset_group === 'world') score += 12;
+        if (img.location_ref) score += 10;
+        break;
+      case 'themes':
+        if (['atmospheric', 'time_variant', 'lighting_ref'].includes(shotType)) score += 15;
+        if (img.asset_group === 'visual_language') score += 8;
+        break;
+      case 'visual_language':
+        if (['texture_ref', 'detail', 'composition_ref', 'color_ref', 'lighting_ref'].includes(shotType)) score += 15;
+        break;
+      case 'key_moments':
+        if (['tableau', 'medium', 'close_up', 'wide'].includes(shotType)) score += 15;
+        if (img.asset_group === 'key_moment') score += 12;
+        if (img.moment_ref) score += 10;
+        break;
+      case 'story_engine':
+        if (img.moment_ref) score += 12;
+        if (img.asset_group === 'key_moment') score += 8;
+        break;
+      case 'cover':
+      case 'closing':
+        if (img.role === 'poster_primary') score += 20;
+        if (img.role === 'poster_variant') score += 10;
+        break;
+    }
+
+    // Recency tiebreaker (small bonus for newer images)
+    const age = Date.now() - new Date(img.created_at || 0).getTime();
+    score += Math.max(0, 3 - Math.floor(age / (1000 * 60 * 60 * 24))); // +3 for today, +2 for yesterday, etc.
+
+    return score;
+  }
+
+  /** Pick the best background image from section-appropriate pools.
+   *  Uses section affinity to prevent cross-contamination.
+   *  Falls back to global pool ONLY when all affinity pools are empty.
    */
   function pickBackgroundImage(
     primaryPool: ProjectImage[],
-    fallbackPool: ProjectImage[] = allSectionImages,
+    fallbackPool: ProjectImage[] = [],
     excludeUrls: string[] = [],
+    slideType: string = '',
   ): string | undefined {
-    const isLandscapeImg = (img: ProjectImage) => {
-      const o = classifyOrientation(img.width, img.height);
-      return o === 'landscape';
-    };
-    const hasNarrativeTruth = (img: ProjectImage) =>
-      !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
+    const isExcluded = (img: ProjectImage) => !img.signedUrl || excludeUrls.includes(img.signedUrl!);
 
-    // Sort pool: narrative-bound first, then primary
-    const sortByTruth = (pool: ProjectImage[]) =>
-      [...pool].sort((a, b) => {
-        const ta = hasNarrativeTruth(a) ? 0 : 1;
-        const tb = hasNarrativeTruth(b) ? 0 : 1;
-        if (ta !== tb) return ta - tb;
-        return (a.is_primary ? 0 : 1) - (b.is_primary ? 0 : 1);
-      });
+    // Build affinity-ordered pool from section pools
+    const affinityKeys = SLIDE_SECTION_AFFINITY[slideType] || [];
+    const affinityPool: ProjectImage[] = [];
+    for (const key of affinityKeys) {
+      for (const img of sectionPools[key]) {
+        if (!isExcluded(img) && !affinityPool.includes(img)) {
+          affinityPool.push(img);
+        }
+      }
+    }
 
-    const sorted1 = sortByTruth(primaryPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!)));
-    const sorted2 = sortByTruth(fallbackPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!)));
+    // Merge primary + affinity, removing duplicates
+    const combinedPrimary = [...primaryPool.filter(i => !isExcluded(i))];
+    for (const img of affinityPool) {
+      if (!combinedPrimary.includes(img)) combinedPrimary.push(img);
+    }
 
-    // 1: narrative-true landscape from primary
-    const p1 = sorted1.find(i => isLandscapeImg(i) && hasNarrativeTruth(i));
-    if (p1) return p1.signedUrl!;
-    // 2: any landscape from primary
-    const p2 = sorted1.find(i => isLandscapeImg(i));
-    if (p2) return p2.signedUrl!;
-    // 3: any from primary (narrative-truth sorted)
-    if (sorted1.length > 0) return sorted1[0].signedUrl!;
-    // 4: narrative-true landscape from fallback
-    const f1 = sorted2.find(i => isLandscapeImg(i) && hasNarrativeTruth(i));
-    if (f1) return f1.signedUrl!;
-    // 5: any landscape from fallback
-    const f2 = sorted2.find(i => isLandscapeImg(i));
-    if (f2) return f2.signedUrl!;
-    // 6: any from fallback
-    if (sorted2.length > 0) return sorted2[0].signedUrl!;
+    // Score and sort all candidates
+    const scored = combinedPrimary.map(img => ({
+      img,
+      score: scoreImageForSlide(img, slideType),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+
+    // Pick best landscape first, then any
+    const bestLandscape = scored.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
+    if (bestLandscape) return bestLandscape.img.signedUrl!;
+    if (scored.length > 0) return scored[0].img.signedUrl!;
+
+    // Global fallback — LAST RESORT only
+    const globalFallback = (fallbackPool.length > 0 ? fallbackPool : allSectionImages)
+      .filter(i => !isExcluded(i))
+      .map(img => ({ img, score: scoreImageForSlide(img, slideType) }));
+    globalFallback.sort((a, b) => b.score - a.score);
+    const globalLandscape = globalFallback.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
+    if (globalLandscape) return globalLandscape.img.signedUrl!;
+    if (globalFallback.length > 0) return globalFallback[0].img.signedUrl!;
+
     return undefined;
   }
 
