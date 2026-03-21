@@ -163,6 +163,8 @@ export interface PipelineProgress {
   message: string;
   percent?: number;
   logs: string[];
+  /** Per-requirement progress (populated during generation) */
+  requirements?: RequirementProgress[];
 }
 
 export type PipelineProgressCallback = (progress: PipelineProgress) => void;
