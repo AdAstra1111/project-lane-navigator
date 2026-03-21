@@ -1455,10 +1455,25 @@ export async function generateLookBookData(
 
   console.log(`[LookBook] ✓ deck format: ${deckFormat} (strictMode=${isVD}, lane=${assignedLane || 'none'}, format=${format})`);
 
-  const totalImageRefs = slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
+  // Count ACTUAL images used in slides (bg + hero + gallery), not just upstream _debug_image_ids
+  // This ensures working-set provisioned images are counted in the build result
+  const actualImageUrls = new Set<string>();
+  for (const slide of slides) {
+    if (slide.backgroundImageUrl) actualImageUrls.add(slide.backgroundImageUrl);
+    if (slide.imageUrl) actualImageUrls.add(slide.imageUrl);
+    if (slide.imageUrls) slide.imageUrls.forEach(u => actualImageUrls.add(u));
+    if (slide.characters) {
+      for (const c of slide.characters) {
+        if (c.imageUrl) actualImageUrls.add(c.imageUrl);
+      }
+    }
+  }
+  const totalImageRefs = actualImageUrls.size;
 
-  // Collect all resolved image IDs sorted for deterministic change detection  
-  const resolvedImageIds = (canonImages._diagnostics?.resolvedImageIds || []).slice().sort();
+  // Collect all resolved image IDs — include both upstream canon IDs and working-set IDs
+  const upstreamIds = canonImages._diagnostics?.resolvedImageIds || [];
+  const workingSetIds = workingSet?.entries?.map(e => e.image.id) || [];
+  const resolvedImageIds = [...new Set([...upstreamIds, ...workingSetIds])].sort();
 
   // Unique build fingerprint — crypto.randomUUID or fallback
   const buildId = typeof crypto !== 'undefined' && crypto.randomUUID
