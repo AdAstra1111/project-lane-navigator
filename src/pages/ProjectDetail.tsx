@@ -708,7 +708,7 @@ export default function ProjectDetail() {
               </Link>
 
               {/* Look Book */}
-              <Link to={`/projects/${id}/pitch-deck`} className="sm:col-span-2">
+              <Link to={`/projects/${id}/lookbook`} className="sm:col-span-2">
                 <div className="rounded-lg border border-border/30 bg-card/20 p-3 hover:bg-card/40 transition-colors cursor-pointer">
                   <div className="flex items-center gap-2 mb-0.5">
                     <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
