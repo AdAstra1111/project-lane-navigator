@@ -593,7 +593,18 @@ export async function executeRequirements(
       blockingReason = `${satisfiedCount}/${req.minRequired} minimum met`;
     } else {
       status = 'blocked';
-      blockingReason = 'No matching images generated';
+      // Provide specific blocking reason for character requirements
+      if (req.subjectType === 'character' && req.promptContext.characterName) {
+        const key = req.promptContext.characterName.toLowerCase().trim();
+        const anchors = characterAnchors.get(key);
+        if (anchors?.hasAnchors) {
+          blockingReason = `Identity anchors present for "${req.promptContext.characterName}" but no compliant generations matched`;
+        } else {
+          blockingReason = `No identity anchors and no matching images for "${req.promptContext.characterName}"`;
+        }
+      } else {
+        blockingReason = 'No matching images generated';
+      }
     }
 
     results.push({
