@@ -233,9 +233,11 @@ export async function runInventoryStage(input: InventoryInput): Promise<Inventor
     sectionPools,
     allUniqueImages: allAvailable,
     diagnostics: canonImages._diagnostics || {
-      resolvedImageIds: allAvailable.map(i => i.id),
-      sectionCounts: {},
+      totalActivePool: allAvailable.length,
+      totalCandidatePool: 0,
       totalResolved: allAvailable.length,
+      sectionsWithZeroActive: [],
+      resolvedImageIds: allAvailable.map(i => i.id),
     },
     characterImageMap,
     characterNameImageMap,
