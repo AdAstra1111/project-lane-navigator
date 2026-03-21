@@ -752,7 +752,9 @@ export async function generateLookBookData(
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'world');
     if (worldBg) usedBackgroundUrls.push(worldBg);
-    const worldForeground = worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+    const worldForeground = [...worldImages]
+      .sort((a, b) => scoreImageForSlide(b, 'world') - scoreImageForSlide(a, 'world'))
+      .slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
