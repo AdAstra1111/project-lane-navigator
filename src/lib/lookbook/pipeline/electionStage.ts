@@ -328,7 +328,7 @@ export function runElectionStage(
 
     // Special handling for cover/closing — use poster hero
     if (spec.slideType === 'cover' || spec.slideType === 'closing') {
-      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool);
+      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence);
       if (bgUrl) {
         ctx.usedBackgroundUrls.push(bgUrl);
         trackSelection(ctx, bgUrl, spec.slideType);
@@ -346,7 +346,7 @@ export function runElectionStage(
     // Background
     let bgUrl: string | undefined;
     if (spec.needsBackground) {
-      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool);
+      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence);
       if (bgUrl) {
         ctx.usedBackgroundUrls.push(bgUrl);
         trackSelection(ctx, bgUrl, spec.slideType);
@@ -364,12 +364,12 @@ export function runElectionStage(
       if (spec.slideType === 'story_engine') {
         const kmPool = sectionPools.keyMoments || [];
         const sePool = kmPool.length > 2 ? kmPool.slice(2, 6) : (sectionPools.motifs || []);
-        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : []);
+        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
       } else if (spec.slideType === 'visual_language') {
         const vlPool = [...(sectionPools.texture || []), ...(sectionPools.motifs || [])];
-        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : []);
+        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
       } else {
-        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : []);
+        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
       }
       fgUrls.forEach(u => trackSelection(ctx, u, spec.slideType));
     }
