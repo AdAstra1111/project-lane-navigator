@@ -478,6 +478,7 @@ export async function augmentWorkingSetWithRecentGenerations(
     if (best && best.img.signedUrl) {
       const entry: WorkingSetEntry = {
         slideId: gap.gap.slideId,
+        slideType: gap.gap.slideType,
         slotId: gap.gap.slotId,
         image: best.img,
         source: 'generated',
