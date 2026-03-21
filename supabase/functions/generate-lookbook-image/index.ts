@@ -1489,6 +1489,17 @@ FRAMING RULES:
               aspect_compliant: aspectCompliant,
               aspect_drift: aspectDrift,
               vertical_drama_project: isVerticalDramaProject,
+              // ── AUTO-COMPLETE CONTEXT: requirement-origin metadata ──
+              ...(autoCompleteContext ? {
+                auto_complete_context: {
+                  target_requirement_id: autoCompleteContext.target_requirement_id || null,
+                  slide_type: autoCompleteContext.slide_type || null,
+                  pass: autoCompleteContext.pass || null,
+                  requested_shot_type: autoCompleteContext.requested_shot_type || null,
+                  batch_index: autoCompleteContext.batch_index ?? null,
+                  requirement_ids: autoCompleteContext.requirement_ids || [],
+                },
+              } : {}),
             },
             asset_group: assetGroup,
             subject: character_name || location_name || null,

@@ -291,8 +291,9 @@ export async function executeRequirements(
       if (req.orientation === 'any' || orient === req.orientation) score += 10;
       else if (orient === 'square') score += 3;
 
-      // ── Shot type match ──
+      // ── Shot type match (with compatibility normalization) ──
       if (img.shot_type === req.shotType) score += 8;
+      else if (areShotTypesCompatible(img.shot_type, req.shotType)) score += 6;
       else if (autoCtx?.requested_shot_type === req.shotType) score += 5;
 
       // ── Entity/provenance match ──
