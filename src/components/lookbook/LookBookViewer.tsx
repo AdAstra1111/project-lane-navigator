@@ -248,11 +248,26 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
   const [showLayout, setShowLayout] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
+  // Track build identity to reset slide position on rebuild
+  const prevBuildIdRef = useRef<string | undefined>(undefined);
 
   const totalSlides = data.slides.length;
   const deckFormat = data.deckFormat || 'landscape';
   const { width: slideW, height: slideH } = getSlideDimensions(deckFormat);
   const isPortrait = deckFormat === 'portrait';
+
+  // Reset to slide 0 when the build data actually changes
+  useEffect(() => {
+    const currentBuildId = data.buildId || data.generatedAt;
+    if (prevBuildIdRef.current !== undefined && prevBuildIdRef.current !== currentBuildId) {
+      setCurrentSlide(0);
+      console.log('[LookBookViewer] ✓ data changed — reset to slide 0', {
+        prevBuild: prevBuildIdRef.current?.slice(0, 8),
+        newBuild: currentBuildId?.slice(0, 8),
+      });
+    }
+    prevBuildIdRef.current = currentBuildId;
+  }, [data.buildId, data.generatedAt]);
 
   // Thumbnail dimensions — adapt to deck format
   const thumbW = isPortrait ? 54 : 96;

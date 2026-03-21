@@ -900,6 +900,12 @@ export async function generateLookBookData(
 
   console.log(`[LookBook] ✓ deck format: ${deckFormat} (strictMode=${isVD}, lane=${assignedLane || 'none'}, format=${format})`);
 
+  const totalImageRefs = slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
+  // Unique build fingerprint — crypto.randomUUID or fallback
+  const buildId = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
   return {
     projectId,
     projectTitle: title,
@@ -910,5 +916,7 @@ export async function generateLookBookData(
     writerCredit,
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
+    buildId,
+    totalImageRefs,
   };
 }

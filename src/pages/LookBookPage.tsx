@@ -4,7 +4,7 @@
  * Canonical lookbook_sections are the authoritative runtime model.
  * Workspace is always accessible and is the default authoring mode.
  */
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import {
   Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle,
@@ -113,6 +113,14 @@ export default function LookBookPage() {
     console.log('[LookBookPage] ✓ invalidated all image caches for fresh build');
   }, [projectId, queryClient]);
 
+  // Use a ref for the previous slides so handleGenerate doesn't depend on lookBookData
+  const prevSlidesRef = useRef<LookBookData['slides'] | null>(null);
+
+  // Keep ref in sync
+  useEffect(() => {
+    prevSlidesRef.current = lookBookData?.slides ?? null;
+  }, [lookBookData]);
+
   const handleGenerate = useCallback(async () => {
     if (!projectId) return;
     setGenerating(true);
@@ -127,11 +135,12 @@ export default function LookBookPage() {
         companyLogoUrl: branding?.companyLogoUrl || null,
       });
 
-      // Preserve valid user decisions by slide_id (not slide.type)
-      if (lookBookData?.slides) {
+      // Preserve valid user decisions from previous build (read from ref, not state)
+      const previousSlides = prevSlidesRef.current;
+      if (previousSlides && previousSlides.length > 0) {
         const { merged, preservedCount, droppedCount, dropReasons, migratedCount } = mergeUserDecisions(
           freshData.slides,
-          lookBookData.slides,
+          previousSlides,
         );
         freshData.slides = merged;
         if (preservedCount > 0 || droppedCount > 0 || migratedCount > 0) {
@@ -145,23 +154,22 @@ export default function LookBookPage() {
       }
 
       // Log provenance for debugging stale-data issues
-      const imageCount = freshData.slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
       console.log('[LookBookPage] ✓ Build complete', {
+        buildId: freshData.buildId,
         slideCount: freshData.slides.length,
-        totalImageRefs: imageCount,
+        totalImageRefs: freshData.totalImageRefs,
         generatedAt: freshData.generatedAt,
-        slideIds: freshData.slides.map(s => s.slide_id),
       });
 
       setLookBookData(freshData);
       setLookbookBuildEpoch(Date.now());
-      toast.success('Look Book generated — open Viewer to preview slides');
+      toast.success(`Look Book built (${freshData.totalImageRefs || 0} images resolved)`);
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding, invalidateImageCaches, lookBookData]);
+  }, [projectId, branding, invalidateImageCaches]);
 
   // Auto-rebuild when switching to viewer — always fetch fresh data
   // This ensures approved/synced images are reflected immediately
