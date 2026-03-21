@@ -4,6 +4,9 @@
  * This is the ONLY entry point. It calls extracted stage modules directly:
  * MODE → NARRATIVE → INVENTORY → GAP_ANALYSIS → RESOLUTION/GENERATION → ELECTION → ASSEMBLY → QA
  * 
+ * fresh_from_scratch mode uses requirement-fulfillment (not gap-driven).
+ * reuse_recovery mode uses gap-driven resolution.
+ * 
  * No legacy generateLookBookData dependency.
  */
 import { supabase } from '@/integrations/supabase/client';
@@ -28,6 +31,8 @@ import { runQAStage } from './qaStage';
 import { buildNarrativeEvidence, type NarrativeEvidence } from './narrativeEvidence';
 import { runIdentityBindingStage, type IdentityBindings } from './identityBindingStage';
 import { validateProvenance } from './provenanceValidator';
+import { buildRequirementSet } from './requirementBuilder';
+import { executeRequirements } from './requirementExecutor';
 import type {
   PipelineOptions,
   PipelineResult,
