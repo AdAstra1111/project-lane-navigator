@@ -802,7 +802,7 @@ export async function generateLookBookData(
   }
 
   /** Pick the best N foreground images from a pool, with deck-level dedup.
-   *  Returns unique URLs only, scored and sorted. */
+   *  Returns unique URLs only, scored and sorted. Logs election diagnostics. */
   function pickForegroundImages(
     pool: ProjectImage[],
     slideType: string,
@@ -816,12 +816,29 @@ export async function generateLookBookData(
       .sort((a, b) => b.score - a.score);
 
     const result: string[] = [];
-    for (const { img } of scored) {
-      if (result.length >= maxCount) break;
-      if (seen.has(img.signedUrl!)) continue;
+    const winners: Array<{ id: string; score: number; primary: boolean; age: string }> = [];
+    const losers: Array<{ id: string; score: number; primary: boolean; reason: string }> = [];
+
+    for (const { img, score } of scored) {
+      if (result.length >= maxCount) {
+        losers.push({ id: img.id.slice(0, 8), score, primary: !!img.is_primary, reason: 'capacity' });
+        continue;
+      }
+      if (seen.has(img.signedUrl!)) {
+        losers.push({ id: img.id.slice(0, 8), score, primary: !!img.is_primary, reason: 'duplicate' });
+        continue;
+      }
       seen.add(img.signedUrl!);
       result.push(img.signedUrl!);
+      const ageDays = Math.floor((Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24));
+      winners.push({ id: img.id.slice(0, 8), score, primary: !!img.is_primary, age: `${ageDays}d` });
     }
+
+    // Election diagnostics — shows why each image won or lost
+    if (winners.length > 0 || losers.length > 0) {
+      console.log(`[LookBook:election] ${slideType} fg: winners=${JSON.stringify(winners)} | top-losers=${JSON.stringify(losers.slice(0, 3))}`);
+    }
+
     return result;
   }
 
