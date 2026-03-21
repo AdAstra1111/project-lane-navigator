@@ -1024,6 +1024,8 @@ serve(async (req) => {
       identity_traits_block = null,
       identity_signature_block = null,
       forced_shot_type = null,
+      // ── AUTO-COMPLETE CONTEXT: requirement-origin metadata from pipeline ──
+      auto_complete_context: autoCompleteContext = null,
       // ── VERTICAL COMPLIANCE: explicit aspect ratio from client ──
       width: requestedWidth = null,
       height: requestedHeight = null,
