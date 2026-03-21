@@ -720,7 +720,7 @@ export async function generateLookBookData(
     const cvSecondary = creativeStatement && normalizedCanon.premise && normalizedCanon.premise !== creativeStatement
       ? normalizedCanon.premise.slice(0, 300)
       : undefined;
-    const cvBg = pickBackgroundImage(atmosphereImages, allSectionImages, usedBackgroundUrls);
+    const cvBg = pickBackgroundImage(atmosphereImages, [], usedBackgroundUrls, 'creative_statement');
     if (cvBg) usedBackgroundUrls.push(cvBg);
     slides.push({
       type: 'creative_statement',
