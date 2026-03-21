@@ -1507,6 +1507,8 @@ FRAMING RULES:
                   requested_shot_type: autoCompleteContext.requested_shot_type || null,
                   batch_index: autoCompleteContext.batch_index ?? null,
                   requirement_ids: autoCompleteContext.requirement_ids || [],
+                  prompt_override_used: promptOverrideUsed,
+                  prompt_override_length: promptOverrideUsed ? (autoCompleteContext.prompt_override?.length ?? 0) : 0,
                 },
               } : {}),
             },
