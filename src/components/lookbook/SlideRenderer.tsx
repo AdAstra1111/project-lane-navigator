@@ -323,6 +323,111 @@ function EdgeAccent({ color }: { color: string }) {
 }
 
 /**
+ * Cinematic Credit Block — film poster-style credit lockup.
+ *
+ * Variants:
+ * - full: complete credits (cover, closing)
+ * - reduced: company + writer/director (character slides)
+ * - minimal: company name only (key moments, etc.)
+ */
+function CinematicCreditBlock({
+  title,
+  companyName,
+  credit,
+  companyLogoUrl,
+  colors,
+  variant = 'full',
+  centered = false,
+  scale = 1,
+}: {
+  title?: string;
+  companyName?: string;
+  credit?: string;
+  companyLogoUrl?: string;
+  colors: { text: string; textMuted: string; accent: string; accentMuted: string; bg: string };
+  variant?: 'full' | 'reduced' | 'minimal';
+  centered?: boolean;
+  scale?: number;
+}) {
+  const company = companyName || 'Paradox House';
+  const baseFontSize = 11 * scale;
+  const smallFontSize = 9.5 * scale;
+  const titleFontSize = 12 * scale;
+
+  const lineStyle: React.CSSProperties = {
+    fontSize: smallFontSize,
+    letterSpacing: '0.28em',
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+    opacity: 0.8,
+    lineHeight: 2.2,
+    fontFamily: '"DM Sans", sans-serif',
+    textAlign: centered ? 'center' : undefined,
+  };
+
+  const titleLineStyle: React.CSSProperties = {
+    fontSize: titleFontSize,
+    letterSpacing: '0.35em',
+    textTransform: 'uppercase',
+    color: colors.text,
+    opacity: 0.85,
+    lineHeight: 2.4,
+    fontWeight: 600,
+    fontFamily: '"DM Sans", sans-serif',
+    textAlign: centered ? 'center' : undefined,
+  };
+
+  const accentLineStyle: React.CSSProperties = {
+    ...lineStyle,
+    color: colors.accent,
+    opacity: 0.75,
+  };
+
+  const wrapperStyle: React.CSSProperties = {
+    maxWidth: 520 * scale,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: centered ? 'center' : 'flex-start',
+    gap: 0,
+  };
+
+  if (variant === 'minimal') {
+    return (
+      <div style={wrapperStyle}>
+        <span style={{ ...lineStyle, opacity: 0.5 }}>{company}</span>
+      </div>
+    );
+  }
+
+  if (variant === 'reduced') {
+    return (
+      <div style={wrapperStyle}>
+        <span style={lineStyle}>{company} presents</span>
+        {credit && <span style={accentLineStyle}>{credit}</span>}
+      </div>
+    );
+  }
+
+  // ── Full variant — film poster credit block ──
+  return (
+    <div style={wrapperStyle}>
+      <span style={lineStyle}>{company} presents</span>
+      <span style={lineStyle}>A film by Sebastian Street</span>
+      {title && <span style={titleLineStyle}>{title}</span>}
+      <span style={lineStyle}>Written and Directed by Sebastian Street</span>
+      <span style={lineStyle}>Produced by Merlin Merton, Alex Chang and Greer Ellison</span>
+      {companyLogoUrl && (
+        <img src={companyLogoUrl} alt="" style={{
+          height: 18 * scale, objectFit: 'contain',
+          opacity: 0.35, filter: 'brightness(2)',
+          marginTop: 8 * scale,
+        }} />
+      )}
+    </div>
+  );
+}
+
+/**
  * Cinematic background image layer — full-bleed with controllable overlay.
  */
 function CinematicBackground({ 
@@ -548,10 +653,15 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
                 {capText(slide.subtitle, 160, true)}
               </p>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-              {slide.credit && <span style={{ fontSize: 13, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>{slide.credit}</span>}
-              {slide.companyName && <span style={{ fontSize: 12, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-            </div>
+            <CinematicCreditBlock
+              title={slide.title}
+              companyName={slide.companyName}
+              credit={slide.credit}
+              companyLogoUrl={slide.companyLogoUrl}
+              colors={colors}
+              variant="full"
+              scale={0.9}
+            />
           </div>
         </div>
         {slide.companyLogoUrl && (
@@ -621,18 +731,20 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
         </div>
         <div style={{
           marginTop: 'auto',
-          padding: '18px 96px',
+          padding: '24px 96px 20px',
           background: `linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}cc 60%, transparent 100%)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
           borderTop: `1px solid ${colors.accentMuted}`,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            {slide.credit && <span style={{ fontSize: 12, letterSpacing: '0.15em', color: colors.accent, opacity: 0.85, textTransform: 'uppercase' }}>{slide.credit}</span>}
-            {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.5, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-          </div>
-          {slide.companyLogoUrl && (
-            <img src={slide.companyLogoUrl} alt="" style={{ height: 20, objectFit: 'contain', opacity: 0.4, filter: 'brightness(2)' }} />
-          )}
+          <CinematicCreditBlock
+            title={slide.title}
+            companyName={slide.companyName}
+            credit={slide.credit}
+            companyLogoUrl={slide.companyLogoUrl}
+            colors={colors}
+            variant="full"
+            scale={0.85}
+          />
         </div>
       </div>
     </div>
@@ -1435,7 +1547,7 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
           {slide.body && <p style={{ fontSize: 20, lineHeight: 1.65, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 900 }}>{capText(slide.body, 400, true)}</p>}
           {slide.credit && (
             <div style={{ marginTop: 48, paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
-              <span style={{ fontSize: 12, letterSpacing: '0.2em', color: colors.accent, textTransform: 'uppercase', opacity: 0.7 }}>{slide.credit}</span>
+              <CinematicCreditBlock companyName={slide.companyName} credit={slide.credit} colors={colors} variant="reduced" scale={0.9} />
             </div>
           )}
         </div>
@@ -1458,7 +1570,7 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
         </GlassPanel>
         {slide.credit && (
           <div style={{ marginTop: 48, paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
-            <span style={{ fontSize: 12, letterSpacing: '0.2em', color: colors.accent, textTransform: 'uppercase', opacity: 0.7 }}>{slide.credit}</span>
+            <CinematicCreditBlock companyName={slide.companyName} credit={slide.credit} colors={colors} variant="reduced" centered />
           </div>
         )}
       </div>
@@ -1485,16 +1597,16 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
           <AccentRule color={colors.accent} width={64} centered />
           <h2 style={{ ...titleStyle, fontSize: 64, fontWeight: 700, color: colors.text, textAlign: 'center', marginBottom: 24, lineHeight: 0.95 }}>{slide.title}</h2>
           {slide.subtitle && <p style={{ fontSize: 20, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, textAlign: 'center', maxWidth: 640, marginBottom: 48 }}>{capText(slide.subtitle, 140, true)}</p>}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-            {slide.credit && <span style={{ fontSize: 12, letterSpacing: '0.15em', color: colors.accent, opacity: 0.7 }}>{slide.credit}</span>}
-            {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.3em', color: colors.textMuted, opacity: 0.4, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-          </div>
+          <CinematicCreditBlock
+            title={slide.title}
+            companyName={slide.companyName}
+            credit={slide.credit}
+            companyLogoUrl={slide.companyLogoUrl}
+            colors={colors}
+            variant="full"
+            centered
+          />
         </div>
-        {slide.companyLogoUrl && (
-          <div className="absolute bottom-14" style={{ left: '50%', transform: 'translateX(-50%)' }}>
-            <img src={slide.companyLogoUrl} alt="" style={{ height: 24, objectFit: 'contain', opacity: 0.3, filter: 'brightness(2)' }} />
-          </div>
-        )}
       </div>
     );
   }
@@ -1513,16 +1625,16 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
         <AccentRule color={colors.accent} width={64} centered />
         <h2 style={{ ...titleStyle, fontSize: 72, fontWeight: 700, color: colors.text, textAlign: 'center', marginBottom: 20, lineHeight: 0.95 }}>{slide.title}</h2>
         {slide.subtitle && <p style={{ fontSize: 22, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, textAlign: 'center', maxWidth: 700, marginBottom: 48 }}>{slide.subtitle}</p>}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 40 }}>
-          {slide.credit && <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.accent, opacity: 0.7 }}>{slide.credit}</span>}
-          {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.3em', color: colors.textMuted, opacity: 0.4, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-        </div>
+        <CinematicCreditBlock
+          title={slide.title}
+          companyName={slide.companyName}
+          credit={slide.credit}
+          companyLogoUrl={slide.companyLogoUrl}
+          colors={colors}
+          variant="full"
+          centered
+        />
       </div>
-      {slide.companyLogoUrl && (
-        <div className="absolute bottom-10 right-14">
-          <img src={slide.companyLogoUrl} alt="" style={{ height: 20, objectFit: 'contain', opacity: 0.3, filter: 'brightness(2)' }} />
-        </div>
-      )}
     </div>
   );
 }
