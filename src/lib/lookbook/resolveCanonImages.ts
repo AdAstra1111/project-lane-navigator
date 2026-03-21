@@ -428,8 +428,9 @@ async function fetchSectionImages(
     }
   }
 
-  // Fallback 3: candidate images — ONLY in non-strict mode
-  if (images.length === 0) {
+  // Fallback 3: candidate images — augment when pool is thin (not just empty)
+  // This ensures newly generated candidates enter contention alongside active images
+  if (images.length < 6) {
     let cq = (supabase as any)
       .from('project_images')
       .select('*')
@@ -452,8 +453,13 @@ async function fetchSectionImages(
       .limit(limit);
     const { data: candidateRows } = await cq;
     if (candidateRows?.length) {
-      console.warn(`[LookBook:resolveCanonImages] ${sectionKey}: using candidate fallback (${candidateRows.length} images — promote to active for best results)`);
-      images = candidateRows as ProjectImage[];
+      const existingIds = new Set(images.map(i => i.id));
+      const newCandidates = (candidateRows as ProjectImage[]).filter(i => !existingIds.has(i.id));
+      if (newCandidates.length > 0) {
+        const mode = images.length === 0 ? 'primary source' : 'augmenting';
+        console.log(`[LookBook:resolveCanonImages] ${sectionKey}: ${mode} with ${newCandidates.length} candidates (active pool was ${images.length})`);
+        images = [...images, ...newCandidates];
+      }
     }
   }
 
