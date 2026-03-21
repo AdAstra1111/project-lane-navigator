@@ -978,6 +978,19 @@ export async function generateLookBookData(
       slides.filter(s => s.layoutFamily).map(s => `${s.type}→${s.layoutFamily}`).join(', '));
   }
 
+  // ── Selection diagnostics — log WHY each slide got its images ──
+  const selectionDiagnostics: string[] = [];
+  for (const slide of slides) {
+    const parts = [`${slide.type}:`];
+    if (slide.backgroundImageUrl) parts.push(`bg=✓`);
+    else parts.push(`bg=✗`);
+    if (slide.imageUrls?.length) parts.push(`fg=${slide.imageUrls.length}`);
+    if (slide._debug_image_ids?.length) parts.push(`ids=${slide._debug_image_ids.length}`);
+    if (slide._has_unresolved) parts.push('UNRESOLVED');
+    selectionDiagnostics.push(parts.join(' '));
+  }
+  console.log('[LookBook] ✓ slide image selection:', selectionDiagnostics.join(' | '));
+
   // Debug provenance — strict deck mode audit
   const unresolvedSlides = slides.filter(s => s._has_unresolved);
   const provenanceSummary = slides
