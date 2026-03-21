@@ -11,11 +11,26 @@ import { classifyOrientation } from '@/lib/images/orientationUtils';
 
 // ── Scoring Context ──────────────────────────────────────────────────────────
 
+export interface SlotIntentContext {
+  /** Whether environment dominance is required for this slot */
+  requiresEnvironmentDominance?: boolean;
+  /** Whether principal identity is required for this slot */
+  requiresPrincipalIdentity?: boolean;
+  /** Whether scene provenance is required */
+  requiresSceneProvenance?: boolean;
+  /** Set of entity IDs that are identity-bound principals */
+  boundPrincipalIds?: Set<string>;
+  /** Whether scene evidence exists for this project */
+  hasSceneEvidence?: boolean;
+}
+
 export interface ScoringContext {
   /** Deck-level URL usage for reuse penalty */
   deckImageUsage: Map<string, { count: number; usedOnSlides: string[] }>;
   /** Semantic fingerprint usage for diversity penalty */
   usedFingerprints: Map<string, number>;
+  /** Slot intent context for intelligence hooks */
+  slotIntent?: SlotIntentContext;
 }
 
 // ── Fingerprint ──────────────────────────────────────────────────────────────
