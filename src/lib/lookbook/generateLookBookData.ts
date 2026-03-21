@@ -524,7 +524,11 @@ export async function generateLookBookData(
     ...canonImages.symbolic_motifs.images,
   ];
   
-  /** Pick the best landscape background image from a pool, preferring wider/atmospheric shots */
+  /** Pick the best landscape background image from a pool.
+   *  Narrative truth priority: images bound to actual canon entities (entity_id,
+   *  location_ref, moment_ref) are preferred over generic atmospheric imagery
+   *  that may not reflect actual script reality.
+   */
   function pickBackgroundImage(
     primaryPool: ProjectImage[],
     fallbackPool: ProjectImage[] = allSectionImages,
@@ -534,14 +538,37 @@ export async function generateLookBookData(
       const o = classifyOrientation(img.width, img.height);
       return o === 'landscape';
     };
-    const primaryLandscape = primaryPool.filter(i => i.signedUrl && isLandscapeImg(i) && !excludeUrls.includes(i.signedUrl!));
-    if (primaryLandscape.length > 0) return primaryLandscape[0].signedUrl!;
-    const primaryAny = primaryPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!));
-    if (primaryAny.length > 0) return primaryAny[0].signedUrl!;
-    const fallbackLandscape = fallbackPool.filter(i => i.signedUrl && isLandscapeImg(i) && !excludeUrls.includes(i.signedUrl!));
-    if (fallbackLandscape.length > 0) return fallbackLandscape[0].signedUrl!;
-    const fallbackAny = fallbackPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!));
-    if (fallbackAny.length > 0) return fallbackAny[0].signedUrl!;
+    const hasNarrativeTruth = (img: ProjectImage) =>
+      !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
+
+    // Sort pool: narrative-bound first, then primary
+    const sortByTruth = (pool: ProjectImage[]) =>
+      [...pool].sort((a, b) => {
+        const ta = hasNarrativeTruth(a) ? 0 : 1;
+        const tb = hasNarrativeTruth(b) ? 0 : 1;
+        if (ta !== tb) return ta - tb;
+        return (a.is_primary ? 0 : 1) - (b.is_primary ? 0 : 1);
+      });
+
+    const sorted1 = sortByTruth(primaryPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!)));
+    const sorted2 = sortByTruth(fallbackPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!)));
+
+    // 1: narrative-true landscape from primary
+    const p1 = sorted1.find(i => isLandscapeImg(i) && hasNarrativeTruth(i));
+    if (p1) return p1.signedUrl!;
+    // 2: any landscape from primary
+    const p2 = sorted1.find(i => isLandscapeImg(i));
+    if (p2) return p2.signedUrl!;
+    // 3: any from primary (narrative-truth sorted)
+    if (sorted1.length > 0) return sorted1[0].signedUrl!;
+    // 4: narrative-true landscape from fallback
+    const f1 = sorted2.find(i => isLandscapeImg(i) && hasNarrativeTruth(i));
+    if (f1) return f1.signedUrl!;
+    // 5: any landscape from fallback
+    const f2 = sorted2.find(i => isLandscapeImg(i));
+    if (f2) return f2.signedUrl!;
+    // 6: any from fallback
+    if (sorted2.length > 0) return sorted2[0].signedUrl!;
     return undefined;
   }
 
