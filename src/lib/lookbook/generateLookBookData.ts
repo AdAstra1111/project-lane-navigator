@@ -555,6 +555,12 @@ export async function generateLookBookData(
   const workingSet = branding.workingSet;
   const workingSetDirectOverrides = new Map<string, { url: string; source: import('@/lib/images/lookbookImageOrchestrator').WorkingSetSource; imageId: string }>();
 
+  console.log('[LookBook] workingSet received:', {
+    hasWorkingSet: !!workingSet,
+    entryCount: workingSet?.entries?.length ?? 0,
+    slotKeys: workingSet ? Array.from(workingSet.bySlotKey.keys()) : [],
+  });
+
   if (workingSet && workingSet.bySlotKey.size > 0) {
     console.log(`[LookBook] Applying working set overlay (${workingSet.bySlotKey.size} entries)`);
     

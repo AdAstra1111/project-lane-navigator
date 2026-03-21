@@ -394,10 +394,9 @@ export default function LookBookPage() {
       }
 
       // 7. Store working set and rebuild with overlay
-      setActiveWorkingSet(workingSet);
+      setActiveWorkingSet(workingSet);  // store for manual rebuilds
       invalidateImageCaches();
-      await new Promise(r => setTimeout(r, 300));
-      await handleGenerate();
+      await handleGenerate(workingSet);  // pass directly — no stale closure
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
     } finally {
