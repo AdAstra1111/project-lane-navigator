@@ -117,6 +117,7 @@ export default function LookBookPage() {
 
   // Use a ref for the previous slides so handleGenerate doesn't depend on lookBookData
   const prevSlidesRef = useRef<LookBookData['slides'] | null>(null);
+  const prevResolvedIdsRef = useRef<string[] | null>(null);
 
   // Keep ref in sync
   useEffect(() => {
@@ -165,7 +166,21 @@ export default function LookBookPage() {
 
       setLookBookData(freshData);
       setLookbookBuildEpoch(Date.now());
-      toast.success(`Look Book built (${freshData.totalImageRefs || 0} images resolved)`);
+
+      // Change detection — compare resolved image IDs with previous build
+      const newIds = freshData.resolvedImageIds || [];
+      const prevIds = prevResolvedIdsRef.current || [];
+      const changed = newIds.length !== prevIds.length || newIds.some((id, i) => id !== prevIds[i]);
+      prevResolvedIdsRef.current = newIds;
+
+      if (changed || !prevIds.length) {
+        toast.success(`Look Book built (${freshData.totalImageRefs || 0} images resolved)`);
+      } else {
+        toast.info(
+          'Look Book rebuilt — same images as before. Approve new images or generate fresh ones to change the deck.',
+          { duration: 6000 },
+        );
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {

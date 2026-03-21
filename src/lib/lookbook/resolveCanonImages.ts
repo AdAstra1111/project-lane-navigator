@@ -90,6 +90,15 @@ export interface SectionImageResult {
   unresolvedCount: number;
 }
 
+/** Diagnostics for the full resolution run */
+export interface ResolutionDiagnostics {
+  totalActivePool: number;
+  totalCandidatePool: number;
+  totalResolved: number;
+  sectionsWithZeroActive: string[];
+  resolvedImageIds: string[];
+}
+
 // ── Canonical Binding Preference ─────────────────────────────────────────────
 
 type BindingStatus = 'bound' | 'partially_bound' | 'unbound' | undefined;
@@ -431,6 +440,7 @@ export interface ResolvedCanonImages {
   symbolic_motifs: SectionImageResult;
   key_moments: SectionImageResult;
   poster_directions: SectionImageResult;
+  _diagnostics?: ResolutionDiagnostics;
 }
 
 /**
@@ -473,5 +483,20 @@ export async function resolveAllCanonImages(
     strictDeckMode ? `| unresolved=${totalUnresolved}` : '',
   );
 
-  return map as unknown as ResolvedCanonImages;
+  // Build diagnostics
+  const allResolvedIds = results.flatMap(r => r.imageIds);
+  const totalResolved = allResolvedIds.length;
+
+  const result = map as unknown as ResolvedCanonImages;
+  result._diagnostics = {
+    totalActivePool: totalResolved, // all come from active query
+    totalCandidatePool: 0, // candidates only used as fallback
+    totalResolved,
+    sectionsWithZeroActive: results.filter(r => r.images.length === 0).map(r => r.sectionKey),
+    resolvedImageIds: allResolvedIds,
+  };
+
+  console.log(`[LookBook:resolveCanonImages] diagnostics:`, result._diagnostics);
+
+  return result;
 }

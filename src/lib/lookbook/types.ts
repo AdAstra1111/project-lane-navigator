@@ -196,6 +196,8 @@ export interface LookBookData {
   buildId?: string;
   /** Total resolved image references in this build */
   totalImageRefs?: number;
+  /** Sorted list of all resolved image IDs — for change detection */
+  resolvedImageIds?: string[];
 }
 
 /** Slide dimensions — landscape (default) */
