@@ -10,7 +10,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle, Sparkles,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle, Sparkles, Zap,
 } from 'lucide-react';
 import { useLookbookStaleness } from '@/hooks/useLookbookStaleness';
 import { Button } from '@/components/ui/button';
