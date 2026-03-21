@@ -639,8 +639,29 @@ export async function generateLookBookData(
     closing: ['poster', 'world', 'atmosphere'],
   };
 
+  // ── Deck-Level Image Budget ──
+  // Tracks every image URL used across the entire deck to penalize/block reuse
+  const deckImageUsage = new Map<string, { count: number; usedOnSlides: string[] }>();
+
+  function trackImageUsage(url: string, slideType: string) {
+    const entry = deckImageUsage.get(url);
+    if (entry) {
+      entry.count++;
+      entry.usedOnSlides.push(slideType);
+    } else {
+      deckImageUsage.set(url, { count: 1, usedOnSlides: [slideType] });
+    }
+  }
+
+  function getReusePenalty(url: string): number {
+    const usage = deckImageUsage.get(url);
+    if (!usage || usage.count === 0) return 0;
+    // First reuse: -30, second: -60, etc. — heavy enough to prefer ANY unique image
+    return usage.count * -30;
+  }
+
   /** Score an image for section relevance + visual suitability */
-  function scoreImageForSlide(img: ProjectImage, slideType: string): number {
+  function scoreImageForSlide(img: ProjectImage, slideType: string, applyReusePenalty = true): number {
     let score = 0;
     const hasNarrative = !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
     const isLandscape = classifyOrientation(img.width, img.height) === 'landscape';
@@ -661,10 +682,15 @@ export async function generateLookBookData(
         if (['wide', 'atmospheric', 'establishing'].includes(shotType)) score += 15;
         if (img.asset_group === 'world') score += 12;
         if (img.location_ref) score += 10;
+        // Penalize texture/craft detail on world slides
+        if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(shotType)) score -= 15;
+        if (img.asset_group === 'visual_language' && !img.location_ref) score -= 10;
         break;
       case 'themes':
         if (['atmospheric', 'time_variant', 'lighting_ref'].includes(shotType)) score += 15;
         if (img.asset_group === 'visual_language') score += 8;
+        // Penalize literal craft/object detail
+        if (['texture_ref', 'detail'].includes(shotType) && !img.location_ref) score -= 8;
         break;
       case 'visual_language':
         if (['texture_ref', 'detail', 'composition_ref', 'color_ref', 'lighting_ref'].includes(shotType)) score += 15;
@@ -673,15 +699,28 @@ export async function generateLookBookData(
         if (['tableau', 'medium', 'close_up', 'wide'].includes(shotType)) score += 15;
         if (img.asset_group === 'key_moment') score += 12;
         if (img.moment_ref) score += 10;
+        // Penalize texture/craft on key moments
+        if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(shotType)) score -= 15;
         break;
       case 'story_engine':
         if (img.moment_ref) score += 12;
         if (img.asset_group === 'key_moment') score += 8;
+        if (['texture_ref', 'detail'].includes(shotType)) score -= 10;
         break;
       case 'cover':
+        if (img.role === 'poster_primary') score += 20;
+        if (img.role === 'poster_variant') score += 10;
+        // Penalize texture/craft on cover
+        if (['texture_ref', 'detail', 'composition_ref'].includes(shotType)) score -= 20;
+        break;
       case 'closing':
         if (img.role === 'poster_primary') score += 20;
         if (img.role === 'poster_variant') score += 10;
+        if (['texture_ref', 'detail'].includes(shotType)) score -= 15;
+        break;
+      case 'creative_statement':
+        if (['atmospheric', 'wide'].includes(shotType)) score += 10;
+        if (['texture_ref', 'detail'].includes(shotType)) score -= 12;
         break;
     }
 
@@ -689,7 +728,36 @@ export async function generateLookBookData(
     const age = Date.now() - new Date(img.created_at || 0).getTime();
     score += Math.max(0, 3 - Math.floor(age / (1000 * 60 * 60 * 24))); // +3 for today, +2 for yesterday, etc.
 
+    // Deck-level reuse penalty — strongly prefer unique images
+    if (applyReusePenalty && img.signedUrl) {
+      score += getReusePenalty(img.signedUrl);
+    }
+
     return score;
+  }
+
+  /** Pick the best N foreground images from a pool, with deck-level dedup.
+   *  Returns unique URLs only, scored and sorted. */
+  function pickForegroundImages(
+    pool: ProjectImage[],
+    slideType: string,
+    maxCount: number,
+    excludeUrls: string[] = [],
+  ): string[] {
+    const seen = new Set(excludeUrls);
+    const scored = pool
+      .filter(img => img.signedUrl && !seen.has(img.signedUrl!))
+      .map(img => ({ img, score: scoreImageForSlide(img, slideType) }))
+      .sort((a, b) => b.score - a.score);
+
+    const result: string[] = [];
+    for (const { img } of scored) {
+      if (result.length >= maxCount) break;
+      if (seen.has(img.signedUrl!)) continue;
+      seen.add(img.signedUrl!);
+      result.push(img.signedUrl!);
+    }
+    return result;
   }
 
   /** Pick the best background image from section-appropriate pools.
@@ -721,7 +789,7 @@ export async function generateLookBookData(
       if (!combinedPrimary.includes(img)) combinedPrimary.push(img);
     }
 
-    // Score and sort all candidates
+    // Score and sort all candidates (with reuse penalty)
     const scored = combinedPrimary.map(img => ({
       img,
       score: scoreImageForSlide(img, slideType),
