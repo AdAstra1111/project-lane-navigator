@@ -229,6 +229,9 @@ export async function executeRequirements(
         const allCharNames = resolveAllCharacterNamesFromReq(targetReq);
         const resolvedAnchors: Record<string, { headshot: string | null; fullBody: string | null }> = {};
         let identityCharCount = 0;
+        const resolvedActorIds: Record<string, string> = {};
+        const resolvedActorVersionIds: Record<string, string> = {};
+        const identitySources: Record<string, string> = {};
 
         for (const cn of allCharNames) {
           const key = cn.toLowerCase().trim();
@@ -239,6 +242,9 @@ export async function executeRequirements(
               fullBody: anchors.fullBody || null,
             };
             identityCharCount++;
+            if (anchors.aiActorId) resolvedActorIds[cn] = anchors.aiActorId;
+            if ((anchors as any).aiActorVersionId) resolvedActorVersionIds[cn] = (anchors as any).aiActorVersionId;
+            identitySources[cn] = anchors.source;
           }
         }
 
@@ -254,7 +260,7 @@ export async function executeRequirements(
               identity_mode_used: true,
               identity_character_count: 1,
             };
-            log(`[${section}] Identity LOCKED for "${name}" (headshot=${!!anch.headshot}, fullBody=${!!anch.fullBody})`);
+            log(`[${section}] Identity LOCKED for "${name}" (source=${identitySources[name] || 'unknown'} headshot=${!!anch.headshot}, fullBody=${!!anch.fullBody}${resolvedActorIds[name] ? ` actor=${resolvedActorIds[name]}` : ''})`);
           } else {
             identityPayload = {
               identity_mode: true,
@@ -264,7 +270,7 @@ export async function executeRequirements(
               identity_mode_used: true,
               identity_character_count: identityCharCount,
             };
-            log(`[${section}] Multi-character identity LOCKED for ${Object.keys(resolvedAnchors).join(', ')} (${identityCharCount} chars)`);
+            log(`[${section}] Multi-character identity LOCKED for ${Object.keys(resolvedAnchors).join(', ')} (${identityCharCount} chars, sources=${JSON.stringify(identitySources)})`);
           }
         } else if (allCharNames.length > 0) {
           identityPayload = {
@@ -293,6 +299,11 @@ export async function executeRequirements(
                 slide_type: targetReq.slideType,
                 pass,
                 requested_shot_type: targetReq.shotType,
+                // ── ACTOR ATTRIBUTION: persisted on generated rows ──
+                resolved_character_names: allCharNames,
+                ai_actor_ids: Object.keys(resolvedActorIds).length > 0 ? resolvedActorIds : undefined,
+                ai_actor_version_ids: Object.keys(resolvedActorVersionIds).length > 0 ? resolvedActorVersionIds : undefined,
+                identity_sources: Object.keys(identitySources).length > 0 ? identitySources : undefined,
               },
             },
           });
