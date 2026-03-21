@@ -515,6 +515,54 @@ export async function generateLookBookData(
     }
   }
 
+  // ── Background image pool — collect ALL landscape images for cinematic backgrounds ──
+  const allSectionImages = [
+    ...canonImages.world_locations.images,
+    ...canonImages.atmosphere_lighting.images,
+    ...canonImages.key_moments.images,
+    ...canonImages.texture_detail.images,
+    ...canonImages.symbolic_motifs.images,
+  ];
+  
+  /** Pick the best landscape background image from a pool, preferring wider/atmospheric shots */
+  function pickBackgroundImage(
+    primaryPool: ProjectImage[],
+    fallbackPool: ProjectImage[] = allSectionImages,
+    excludeUrls: string[] = [],
+  ): string | undefined {
+    const isLandscapeImg = (img: ProjectImage) => {
+      const o = classifyOrientation(img.width, img.height);
+      return o === 'landscape';
+    };
+    const primaryLandscape = primaryPool.filter(i => i.signedUrl && isLandscapeImg(i) && !excludeUrls.includes(i.signedUrl!));
+    if (primaryLandscape.length > 0) return primaryLandscape[0].signedUrl!;
+    const primaryAny = primaryPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!));
+    if (primaryAny.length > 0) return primaryAny[0].signedUrl!;
+    const fallbackLandscape = fallbackPool.filter(i => i.signedUrl && isLandscapeImg(i) && !excludeUrls.includes(i.signedUrl!));
+    if (fallbackLandscape.length > 0) return fallbackLandscape[0].signedUrl!;
+    const fallbackAny = fallbackPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!));
+    if (fallbackAny.length > 0) return fallbackAny[0].signedUrl!;
+    return undefined;
+  }
+
+  /** Determine cinematic composition mode */
+  function resolveComposition(
+    slideType: string,
+    hasBackground: boolean,
+    hasForegroundImages: boolean,
+    imageCount: number,
+  ): SlideComposition {
+    if (slideType === 'characters') return 'character_feature';
+    if (slideType === 'key_moments' && imageCount >= 2) return 'montage_grid';
+    if (slideType === 'cover' || slideType === 'closing') return 'full_bleed_hero';
+    if (slideType === 'creative_statement') return hasBackground ? 'text_over_atmosphere' : 'gradient_only';
+    if (slideType === 'comparables') return hasBackground ? 'text_over_atmosphere' : 'editorial_panel';
+    if (!hasBackground && !hasForegroundImages) return 'gradient_only';
+    if (hasBackground && hasForegroundImages) return 'split_cinematic';
+    if (hasBackground) return 'text_over_atmosphere';
+    return 'editorial_panel';
+  }
+
   // 5. Build identity
   const identity = resolveIdentity(normalizedCanon.tone_style || tone, genre);
   const logline = normalizedCanon.logline;
@@ -522,7 +570,10 @@ export async function generateLookBookData(
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
 
-  // 6. Build slides with strengthened content
+  // Track used background URLs to avoid repeating the same image across slides
+  const usedBackgroundUrls: string[] = [];
+
+  // 6. Build slides with cinematic backgrounds
   const slides: SlideContent[] = [];
 
   // ── COVER ──
