@@ -459,14 +459,19 @@ export async function executeRequirements(
       if (req.promptContext.characterName) {
         const reqCharLower = req.promptContext.characterName.toLowerCase();
 
-        // Bonus: generated with identity lock for correct character
-        if (gc?.identity_locked && gc?.identity_mode) {
+        // Strong bonus: generated with identity lock for correct character
+        if (gc?.identity_locked || gc?.identity_mode) {
           const resolvedNames = gc?.resolved_character_names;
           if (Array.isArray(resolvedNames) && resolvedNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
-            score += 12; // Strong identity consistency bonus
+            score += 15; // Identity-locked + correct character
           } else if (img.subject && (img.subject as string).toLowerCase().includes(reqCharLower)) {
-            score += 10; // Subject name match with identity lock
+            score += 12; // Subject name match with identity lock
           }
+        }
+
+        // identity_mode_used bonus (from our generation metadata)
+        if (gc?.identity_mode_used === true) {
+          score += 5;
         }
 
         // Character name match (general)
@@ -474,13 +479,18 @@ export async function executeRequirements(
           score += 15;
         }
 
-        // Identity drift penalty: requirement is for specific character but candidate is
-        // a different named character or generic unnamed
+        // ── IDENTITY DRIFT PENALTY (STRONG) ──
+        // Candidate has NO identity metadata at all for a character requirement
+        if (!gc?.identity_mode && !gc?.identity_locked && !gc?.identity_mode_used) {
+          score -= 20; // No identity context = strong penalty
+          log(`[Match:no-identity] req=${req.id} candidate has no identity metadata for character "${req.promptContext.characterName}"`);
+        }
+
+        // Candidate is for WRONG character
         if (img.subject && !(img.subject as string).toLowerCase().includes(reqCharLower)) {
           const subjectLower = (img.subject as string).toLowerCase();
-          // If subject has a different name, heavy penalty
           if (subjectLower.length > 2 && !subjectLower.includes('character') && !subjectLower.includes('unknown')) {
-            score -= 20; // Wrong character identity
+            score -= 25; // Wrong character identity — heavy penalty
             log(`[Match:identity-drift] req=${req.id} candidate subject="${img.subject}" doesn't match required "${req.promptContext.characterName}"`);
           }
         }
