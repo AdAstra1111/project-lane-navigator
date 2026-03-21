@@ -33,8 +33,9 @@ import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 import { runLookbookPipeline } from '@/lib/lookbook/pipeline/runLookbookPipeline';
-import type { PipelineMode } from '@/lib/lookbook/pipeline/types';
+import type { PipelineMode, PipelineProgress } from '@/lib/lookbook/pipeline/types';
 import { sectionKeyToEdgeFunctionSection, sectionKeyToAssetGroup } from '@/lib/lookbook/pipeline/lookbookSlotRegistry';
+import { LookbookPipelineProgress } from '@/components/lookbook/LookbookPipelineProgress';
 
 type LookbookMode = 'workspace' | 'viewer';
 
