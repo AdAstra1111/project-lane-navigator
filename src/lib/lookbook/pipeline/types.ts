@@ -153,6 +153,13 @@ export interface QAResult {
   };
   /** Narrative evidence coverage score (0–1) */
   evidenceCoverageScore?: number;
+  /** Structured QA diagnostics */
+  diagnostics?: Array<{
+    category: 'slot_purpose' | 'identity' | 'diversity' | 'fill' | 'editorial';
+    severity: 'info' | 'warning' | 'error';
+    slideType: string;
+    message: string;
+  }>;
 }
 
 // ── Pipeline Progress Callback ───────────────────────────────────────────────
