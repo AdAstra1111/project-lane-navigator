@@ -129,7 +129,7 @@ export async function executeRequirements(
         ...firstReq.promptContext,
       };
 
-      const template = resolvePromptTemplate(firstReq.subjectType, firstReq.shotType);
+      const template = resolvePromptTemplate(firstReq.subjectType as any, firstReq.shotType);
       const { prompt } = buildPromptFromTemplate(template, promptCtx);
 
       log(`Generating ${count} ${section} images (prompt: ${prompt.slice(0, 80)}...)`);
