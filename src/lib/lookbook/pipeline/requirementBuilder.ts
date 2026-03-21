@@ -183,61 +183,78 @@ export function buildRequirementSet(
     });
   }
 
-  // ── CHARACTER PASS: one requirement per principal character ──
+  // ── CHARACTER PASS: multiple shot types per principal character ──
   const characters = narrativeEvidence?.characters || [];
   const principals = characters.filter(c => c.importance === 'principal');
   const recurring = characters.filter(c => c.importance === 'recurring');
 
-  // At least generate for principals; if none detected, generate 1 generic character
   const charTargets = principals.length > 0 ? principals : (recurring.length > 0 ? recurring.slice(0, 3) : []);
+
+  // Shot variety per principal: portrait close-up, medium context, expressive variation
+  const PRINCIPAL_SHOTS: Array<{ suffix: string; shotType: string; orientation: 'portrait' | 'any'; label: string }> = [
+    { suffix: 'portrait', shotType: 'close_up', orientation: 'portrait', label: 'Portrait' },
+    { suffix: 'medium', shotType: 'medium', orientation: 'any', label: 'Medium' },
+    { suffix: 'variation', shotType: 'three_quarter', orientation: 'portrait', label: 'Variation' },
+  ];
 
   if (charTargets.length > 0) {
     for (const char of charTargets) {
-      requirements.push({
-        id: `characters:${char.name.toLowerCase().replace(/\s+/g, '_')}`,
-        label: `Character — ${char.name}`,
-        slideType: 'characters',
-        pass: 'character',
-        subjectType: 'character',
-        shotType: 'close_up',
-        orientation: 'portrait',
-        minRequired: 1,
-        preferred: 2,
-        assetGroup: 'character',
-        section: 'character',
-        promptContext: {
-          characterName: char.name,
-          characterRole: char.role || '',
-          characterTraits: char.traits || '',
-        },
-        hardNegatives: ['multiple people in frame', 'group shot'],
-        critical: true,
-      });
+      const nameSlug = char.name.toLowerCase().replace(/\s+/g, '_');
+      const isPrincipal = char.importance === 'principal';
+      const shots = isPrincipal ? PRINCIPAL_SHOTS : PRINCIPAL_SHOTS.slice(0, 1); // recurring get portrait only
+
+      for (const shot of shots) {
+        requirements.push({
+          id: `characters:${nameSlug}:${shot.suffix}`,
+          label: `Character — ${char.name} (${shot.label})`,
+          slideType: 'characters',
+          pass: 'character',
+          subjectType: 'character',
+          shotType: shot.shotType,
+          orientation: shot.orientation,
+          minRequired: 1,
+          preferred: 1,
+          assetGroup: 'character',
+          section: 'character',
+          promptContext: {
+            characterName: char.name,
+            characterRole: char.role || '',
+            characterTraits: char.traits || '',
+            shotVariant: shot.suffix,
+          },
+          hardNegatives: ['multiple people in frame', 'group shot'],
+          critical: isPrincipal,
+        });
+      }
     }
   } else if (Array.isArray(narrative.characters) && (narrative.characters as any[]).length > 0) {
-    // Fallback: generate from raw narrative characters
     const rawChars = (narrative.characters as any[]).slice(0, 4);
     for (const raw of rawChars) {
       const name = raw?.name || 'Character';
-      requirements.push({
-        id: `characters:${name.toLowerCase().replace(/\s+/g, '_')}`,
-        label: `Character — ${name}`,
-        slideType: 'characters',
-        pass: 'character',
-        subjectType: 'character',
-        shotType: 'close_up',
-        orientation: 'portrait',
-        minRequired: 1,
-        preferred: 1,
-        assetGroup: 'character',
-        section: 'character',
-        promptContext: {
-          characterName: name,
-          characterRole: raw?.role || raw?.archetype || '',
-        },
-        hardNegatives: ['multiple people in frame'],
-        critical: false,
-      });
+      const nameSlug = name.toLowerCase().replace(/\s+/g, '_');
+      // Raw fallback: generate portrait + medium
+      for (const shot of PRINCIPAL_SHOTS.slice(0, 2)) {
+        requirements.push({
+          id: `characters:${nameSlug}:${shot.suffix}`,
+          label: `Character — ${name} (${shot.label})`,
+          slideType: 'characters',
+          pass: 'character',
+          subjectType: 'character',
+          shotType: shot.shotType,
+          orientation: shot.orientation,
+          minRequired: 1,
+          preferred: 1,
+          assetGroup: 'character',
+          section: 'character',
+          promptContext: {
+            characterName: name,
+            characterRole: raw?.role || raw?.archetype || '',
+            shotVariant: shot.suffix,
+          },
+          hardNegatives: ['multiple people in frame'],
+          critical: false,
+        });
+      }
     }
   }
 
