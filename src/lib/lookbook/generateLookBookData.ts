@@ -600,10 +600,10 @@ export async function generateLookBookData(
   // Track used background URLs to avoid repeating the same image across slides
   const usedBackgroundUrls: string[] = [];
 
-  // 6. Build slides with cinematic backgrounds
+  // 6. Build slides in premium vertical-drama sequence
   const slides: SlideContent[] = [];
 
-  // ── COVER ──
+  // ── 1. COVER ──
   slides.push({
     type: 'cover',
     slide_id: makeSemanticSlideId('cover'),
@@ -621,29 +621,38 @@ export async function generateLookBookData(
   });
   if (coverImageUrl) usedBackgroundUrls.push(coverImageUrl);
 
-  // ── OVERVIEW ──
-  const overviewBody = logline || normalizedCanon.premise || synopsis.slice(0, 300);
-  const overviewFallback = normalizedCanon.premise || synopsis.slice(0, 500);
-  const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
-  const overviewBg = pickBackgroundImage(worldImages, allSectionImages, usedBackgroundUrls);
-  if (overviewBg) usedBackgroundUrls.push(overviewBg);
-  slides.push({
-    type: 'overview',
-    slide_id: makeSemanticSlideId('overview'),
-    title,
-    body: overviewBody || undefined,
-    bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
-    backgroundImageUrl: overviewBg,
-    composition: overviewBg ? 'text_over_atmosphere' : 'gradient_only',
-    bullets: [
+  // ── 2. CREATIVE VISION (merged with Overview content) ──
+  {
+    const cvPrimary = creativeStatement?.slice(0, 500)
+      || normalizedCanon.premise
+      || logline
+      || synopsis.slice(0, 300)
+      || '';
+    const cvBullets = [
       genre ? `Genre: ${genre}` : '',
       formatLabel ? `Format: ${formatLabel}` : '',
       normalizedCanon.tone_style ? `Tone: ${normalizedCanon.tone_style}` : '',
       targetAudience ? `Audience: ${targetAudience}` : '',
-    ].filter(Boolean),
-  });
+    ].filter(Boolean);
+    const cvSecondary = creativeStatement && normalizedCanon.premise && normalizedCanon.premise !== creativeStatement
+      ? normalizedCanon.premise.slice(0, 300)
+      : undefined;
+    const cvBg = pickBackgroundImage(atmosphereImages, allSectionImages, usedBackgroundUrls);
+    if (cvBg) usedBackgroundUrls.push(cvBg);
+    slides.push({
+      type: 'creative_statement',
+      slide_id: makeSemanticSlideId('creative_statement'),
+      title: 'Creative Vision',
+      body: cvPrimary,
+      bodySecondary: cvSecondary,
+      bullets: cvBullets.length > 0 ? cvBullets : undefined,
+      credit: writerCredit,
+      backgroundImageUrl: cvBg,
+      composition: cvBg ? 'text_over_atmosphere' : 'gradient_only',
+    });
+  }
 
-  // ── WORLD ──
+  // ── 3. WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls);
     if (worldBg) usedBackgroundUrls.push(worldBg);
@@ -665,7 +674,27 @@ export async function generateLookBookData(
     });
   }
 
-  // ── CHARACTERS ──
+  // ── 4. KEY MOMENTS ──
+  {
+    const keyMomentBody = keyMomentImages.length > 0
+      ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
+      : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
+    const kmForeground = keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[];
+    slides.push({
+      type: 'key_moments',
+      slide_id: makeSemanticSlideId('key_moments'),
+      title: 'Key Moments',
+      body: keyMomentBody,
+      imageUrl: keyMomentImages[0]?.signedUrl || undefined,
+      imageUrls: kmForeground,
+      composition: resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length),
+      _debug_image_ids: canonImages.key_moments.imageIds,
+      _debug_provenance: toSlideProvenance(canonImages.key_moments),
+      _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
+    });
+  }
+
+  // ── 5. CHARACTERS ──
   const normalizedCharacters = normalizeCharacterSlides(canon.characters, characterImageMap, characterNameImageMap);
   if (normalizedCharacters.length > 0) {
     slides.push({
@@ -680,7 +709,28 @@ export async function generateLookBookData(
     });
   }
 
-  // ── THEMES ── (atmosphere imagery only — no texture overlap)
+  // ── 6. VISUAL LANGUAGE ──
+  const vlImages = [...textureImages, ...motifImages];
+  const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
+  const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls);
+  if (vlBg) usedBackgroundUrls.push(vlBg);
+  const vlForeground = vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+  slides.push({
+    type: 'visual_language',
+    slide_id: makeSemanticSlideId('visual_language'),
+    title: 'Visual Language',
+    body: vlCopy.body,
+    imageUrl: vlImages[0]?.signedUrl || undefined,
+    imageUrls: vlForeground,
+    backgroundImageUrl: vlBg,
+    composition: resolveComposition('visual_language', !!vlBg, vlForeground.length > 1, vlForeground.length),
+    bullets: vlCopy.bullets,
+    _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
+    _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
+    _has_unresolved: (canonImages.texture_detail.unresolvedCount + canonImages.symbolic_motifs.unresolvedCount) > 0,
+  });
+
+  // ── 7. THEMES & TONE ──
   const themesRaw = normalizedCanon.tone_style || tone || '';
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
@@ -704,28 +754,7 @@ export async function generateLookBookData(
     });
   }
 
-  // ── VISUAL LANGUAGE ── (texture + motif imagery — separate from themes)
-  const vlImages = [...textureImages, ...motifImages];
-  const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
-  const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls);
-  if (vlBg) usedBackgroundUrls.push(vlBg);
-  const vlForeground = vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
-  slides.push({
-    type: 'visual_language',
-    slide_id: makeSemanticSlideId('visual_language'),
-    title: 'Visual Language',
-    body: vlCopy.body,
-    imageUrl: vlImages[0]?.signedUrl || undefined,
-    imageUrls: vlForeground,
-    backgroundImageUrl: vlBg,
-    composition: resolveComposition('visual_language', !!vlBg, vlForeground.length > 1, vlForeground.length),
-    bullets: vlCopy.bullets,
-    _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
-    _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
-    _has_unresolved: (canonImages.texture_detail.unresolvedCount + canonImages.symbolic_motifs.unresolvedCount) > 0,
-  });
-
-  // ── STORY ENGINE ── (uses key moment imagery for narrative weight)
+  // ── OPTIONAL: STORY ENGINE ──
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
@@ -755,27 +784,7 @@ export async function generateLookBookData(
     });
   }
 
-  // ── KEY MOMENTS ──
-  {
-    const keyMomentBody = keyMomentImages.length > 0
-      ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
-      : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
-    const kmForeground = keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[];
-    slides.push({
-      type: 'key_moments',
-      slide_id: makeSemanticSlideId('key_moments'),
-      title: 'Key Moments',
-      body: keyMomentBody,
-      imageUrl: keyMomentImages[0]?.signedUrl || undefined,
-      imageUrls: kmForeground,
-      composition: resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length),
-      _debug_image_ids: canonImages.key_moments.imageIds,
-      _debug_provenance: toSlideProvenance(canonImages.key_moments),
-      _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
-    });
-  }
-
-  // ── COMPARABLES ──
+  // ── OPTIONAL: COMPARABLES ──
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
     const compBg = pickBackgroundImage([], allSectionImages, usedBackgroundUrls);
@@ -790,22 +799,7 @@ export async function generateLookBookData(
     });
   }
 
-  // ── CREATIVE STATEMENT ──
-  if (creativeStatement) {
-    const csBg = pickBackgroundImage(atmosphereImages, allSectionImages, usedBackgroundUrls);
-    if (csBg) usedBackgroundUrls.push(csBg);
-    slides.push({
-      type: 'creative_statement',
-      slide_id: makeSemanticSlideId('creative_statement'),
-      title: 'Creative Vision',
-      body: creativeStatement.slice(0, 500),
-      credit: writerCredit,
-      backgroundImageUrl: csBg,
-      composition: csBg ? 'text_over_atmosphere' : 'gradient_only',
-    });
-  }
-
-  // ── POSTER DIRECTIONS ── (dedicated poster showcase when posters exist)
+  // ── OPTIONAL: POSTER DIRECTIONS ──
   const posterImages = canonImages.poster_directions.images;
   if (posterImages.length > 1) {
     const posterForeground = posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
@@ -823,7 +817,7 @@ export async function generateLookBookData(
     });
   }
 
-  // ── CLOSING ──
+  // ── 8. CLOSING ──
   const closingBg = coverImageUrl || pickBackgroundImage(worldImages, allSectionImages);
   slides.push({
     type: 'closing',
