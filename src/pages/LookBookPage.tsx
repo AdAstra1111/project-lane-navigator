@@ -31,7 +31,7 @@ import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
-import { orchestrateGapResolution, summarizeOrchestration } from '@/lib/images/lookbookImageOrchestrator';
+import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations } from '@/lib/images/lookbookImageOrchestrator';
 
 type LookbookMode = 'workspace' | 'viewer';
 
@@ -347,22 +347,31 @@ export default function LookBookPage() {
       const genre = Array.isArray((proj as any)?.genres) ? (proj as any).genres.join(', ') : '';
       const tone = (proj as any)?.tone || '';
 
-      // 3. Orchestrate resolution
-      const result = await orchestrateGapResolution(projectId, gapAnalysis, {
-        projectTitle,
-        genre,
-        tone,
-      });
+      // 3. Orchestrate resolution (retrieve / reuse)
+      const promptContext = { projectTitle, genre, tone };
+      const result = await orchestrateGapResolution(projectId, gapAnalysis, promptContext);
 
       const summary = summarizeOrchestration(result);
-      toast.success(`Auto-complete: ${summary}`);
+      toast.success(`Auto-complete analysis: ${summary}`);
 
-      // 4. If anything was resolved or queued, rebuild
-      if (result.activeMatches > 0 || result.archiveReuses > 0) {
+      // 4. Execute generation for all queued gaps (closed-loop)
+      if (result.generationsQueued > 0) {
+        toast.info(`Generating ${result.generationsQueued} missing images…`);
+        const genResult = await executeGapGenerations(projectId, result.resolutions, promptContext);
+        if (genResult.generated > 0) {
+          toast.success(`Generated ${genResult.generated} new image${genResult.generated > 1 ? 's' : ''}`);
+        }
+        if (genResult.failed > 0) {
+          toast.warning(`${genResult.failed} generation${genResult.failed > 1 ? 's' : ''} failed — can retry`);
+        }
+      }
+
+      // 5. Invalidate caches and rebuild with all new + reused images
+      if (result.activeMatches > 0 || result.archiveReuses > 0 || result.generationsQueued > 0) {
         invalidateImageCaches();
+        // Small delay to let cache invalidation propagate
+        await new Promise(r => setTimeout(r, 500));
         await handleGenerate();
-      } else if (result.generationsQueued > 0) {
-        toast.info(`${result.generationsQueued} images need generation — use section Auto Populate to create them`);
       }
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
