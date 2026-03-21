@@ -196,4 +196,6 @@ export interface PipelineResult {
   stages: StageState[];
   logs: string[];
   durationMs: number;
+  /** Final requirement progress snapshot */
+  requirements?: RequirementProgress[];
 }
