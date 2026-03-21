@@ -1,43 +1,24 @@
 /**
- * assemblyStage — Assembles LookBook slides from elected images and narrative context.
+ * assemblyStage — Assembles LookBook slides from ELECTED images and narrative context.
  *
- * INPUT: narrative context, elected images per slide, identity
+ * INPUT: narrative context, ElectionResult, identity
  * OUTPUT: SlideContent[] array
  * SIDE EFFECTS: none (pure function)
  *
- * This stage handles:
- * - Slide ordering and construction
- * - Layout hint resolution
- * - Composition mode resolution
- * - Visual rhythm tracking
- * - Per-slide deduplication
- * - Layout family resolution + slot matching
+ * CRITICAL: This stage does NOT perform image selection.
+ * It consumes the ElectionResult produced by runElectionStage.
  */
 import type { SlideContent, SlideComposition, LayoutHint, LookBookVisualIdentity } from '../types';
 import { resolveLookbookLayoutFamily, summarizeOrientations } from '../lookbookLayoutFamilies';
 import { matchImagesToSlots, type ImageCandidate } from '../lookbookSlotMatcher';
-import type { ElectionContext } from './electionStage';
-import { pickForegroundImages, pickBackgroundImage, selectPosterHero, assignImageRoles, trackSelection } from './electionStage';
-import type { NarrativeContext } from './types';
+import type { ElectionResult, SlideElection, ElectionContext, NarrativeContext } from './types';
 import type { SectionImageResult } from '../resolveCanonImages';
 import { normalizeCanonText } from '../normalizeCanonText';
-import type { ProjectImage } from '@/lib/images/types';
 
 // ── Rhythm Engine ────────────────────────────────────────────────────────────
 
 class RhythmTracker {
   private history: SlideComposition[] = [];
-
-  getRhythmPenalty(composition: SlideComposition): number {
-    if (this.history.length === 0) return 0;
-    const last = this.history[this.history.length - 1];
-    if (last === composition) return -1;
-    const imageDense: SlideComposition[] = ['full_bleed_hero', 'montage_grid', 'split_cinematic'];
-    const textDense: SlideComposition[] = ['text_over_atmosphere', 'editorial_panel', 'gradient_only'];
-    if (imageDense.includes(last) && imageDense.includes(composition)) return -0.5;
-    if (textDense.includes(last) && textDense.includes(composition)) return -0.5;
-    return 0;
-  }
 
   resolveComposition(
     slideType: string,
@@ -57,12 +38,21 @@ class RhythmTracker {
     else if (hasBackground) primary = 'text_over_atmosphere';
     else primary = 'editorial_panel';
 
-    const penalty = this.getRhythmPenalty(primary);
-    if (penalty < -0.5 && hasBackground && hasForegroundImages) {
-      if (primary === 'split_cinematic') primary = 'montage_grid';
-      else if (primary === 'montage_grid' && imageCount >= 1) primary = 'split_cinematic';
-      else if (primary === 'text_over_atmosphere') primary = 'editorial_panel';
-      else if (primary === 'editorial_panel' && hasBackground) primary = 'text_over_atmosphere';
+    // Rhythm variation
+    if (this.history.length > 0) {
+      const last = this.history[this.history.length - 1];
+      const imageDense: SlideComposition[] = ['full_bleed_hero', 'montage_grid', 'split_cinematic'];
+      const textDense: SlideComposition[] = ['text_over_atmosphere', 'editorial_panel', 'gradient_only'];
+      const penalty = last === primary ? -1 :
+        (imageDense.includes(last) && imageDense.includes(primary)) ? -0.5 :
+        (textDense.includes(last) && textDense.includes(primary)) ? -0.5 : 0;
+
+      if (penalty < -0.5 && hasBackground && hasForegroundImages) {
+        if (primary === 'split_cinematic') primary = 'montage_grid';
+        else if (primary === 'montage_grid' && imageCount >= 1) primary = 'split_cinematic';
+        else if (primary === 'text_over_atmosphere') primary = 'editorial_panel';
+        else if (primary === 'editorial_panel' && hasBackground) primary = 'text_over_atmosphere';
+      }
     }
 
     this.history.push(primary);
@@ -120,14 +110,25 @@ function toSlideProvenance(result: SectionImageResult) {
   }));
 }
 
+// ── Helper to get election for a slide ───────────────────────────────────────
+
+function getElection(result: ElectionResult, slideId: string): SlideElection {
+  return result.slideElections.get(slideId) || {
+    slideType: slideId.split(':')[0],
+    slideId,
+    backgroundUrl: undefined,
+    foregroundUrls: [],
+    roledImages: [],
+  };
+}
+
 // ── Main Assembly ────────────────────────────────────────────────────────────
 
 export interface AssemblyInput {
   narrative: NarrativeContext;
   identity: LookBookVisualIdentity;
   canonImages: Record<string, SectionImageResult>;
-  sectionPools: Record<string, ProjectImage[]>;
-  electionCtx: ElectionContext;
+  electionResult: ElectionResult;
   companyName: string;
   companyLogoUrl: string | null;
   isVerticalDrama: boolean;
@@ -137,57 +138,40 @@ export interface AssemblyInput {
 
 export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
   const {
-    narrative, identity, canonImages, sectionPools, electionCtx,
+    narrative, identity, canonImages, electionResult,
     companyName, companyLogoUrl, isVerticalDrama, assignedLane, format,
   } = input;
 
   const rhythm = new RhythmTracker();
   const slides: SlideContent[] = [];
   const writerCredit = 'Written by Sebastian Street';
-
-  // Convenience pool aliases
-  const worldImages = sectionPools.world || [];
-  const atmosphereImages = sectionPools.atmosphere || [];
-  const textureImages = sectionPools.texture || [];
-  const motifImages = sectionPools.motifs || [];
-  const keyMomentImages = sectionPools.keyMoments || [];
-
-  // ── Poster Hero Election ──
-  const allUniqueImages: ProjectImage[] = [];
-  const seenIds = new Set<string>();
-  for (const pool of Object.values(sectionPools)) {
-    for (const img of pool as ProjectImage[]) {
-      if (!seenIds.has(img.id)) {
-        seenIds.add(img.id);
-        allUniqueImages.push(img);
-      }
-    }
-  }
-  const posterHero = selectPosterHero(allUniqueImages);
-  const coverImageUrl = posterHero?.url || '';
+  const coverImageUrl = electionResult.posterHero?.url || '';
 
   // ── 1. COVER ──
-  const coverBg = coverImageUrl || pickBackgroundImage(worldImages, electionCtx, 'cover') || undefined;
-  slides.push({
-    type: 'cover',
-    slide_id: makeSemanticSlideId('cover'),
-    title: narrative.projectTitle,
-    subtitle: narrative.logline || undefined,
-    credit: writerCredit,
-    companyName,
-    companyLogoUrl,
-    imageUrl: coverImageUrl || undefined,
-    backgroundImageUrl: coverBg,
-    composition: 'full_bleed_hero',
-    _debug_image_ids: canonImages.poster_directions?.imageIds?.slice(0, 1),
-    _debug_provenance: canonImages.poster_directions ? toSlideProvenance(canonImages.poster_directions).slice(0, 1) : [],
-    _has_unresolved: canonImages.poster_directions?.unresolvedCount > 0,
-  });
-  if (coverBg) { electionCtx.usedBackgroundUrls.push(coverBg); trackSelection(electionCtx, coverBg, 'cover'); }
-  if (coverImageUrl && coverImageUrl !== coverBg) trackSelection(electionCtx, coverImageUrl, 'cover');
+  {
+    const e = getElection(electionResult, 'cover:main');
+    const coverBg = e.backgroundUrl || coverImageUrl || undefined;
+    slides.push({
+      type: 'cover',
+      slide_id: makeSemanticSlideId('cover'),
+      title: narrative.projectTitle,
+      subtitle: narrative.logline || undefined,
+      credit: writerCredit,
+      companyName,
+      companyLogoUrl,
+      imageUrl: coverImageUrl || undefined,
+      backgroundImageUrl: coverBg,
+      composition: 'full_bleed_hero',
+      roledImages: e.roledImages,
+      _debug_image_ids: canonImages.poster_directions?.imageIds?.slice(0, 1),
+      _debug_provenance: canonImages.poster_directions ? toSlideProvenance(canonImages.poster_directions).slice(0, 1) : [],
+      _has_unresolved: canonImages.poster_directions?.unresolvedCount > 0,
+    });
+  }
 
   // ── 2. CREATIVE VISION ──
   {
+    const e = getElection(electionResult, 'creative_statement:main');
     const cvRaw = narrative.creativeStatement?.slice(0, 500)
       || narrative.premise
       || narrative.logline
@@ -208,8 +192,6 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
     ].filter(Boolean);
     const cvSecondary = narrative.creativeStatement && narrative.premise && narrative.premise !== narrative.creativeStatement
       ? narrative.premise.slice(0, 300) : undefined;
-    const cvBg = pickBackgroundImage(atmosphereImages, electionCtx, 'creative_statement');
-    if (cvBg) { electionCtx.usedBackgroundUrls.push(cvBg); trackSelection(electionCtx, cvBg, 'creative_statement'); }
     slides.push({
       type: 'creative_statement',
       slide_id: makeSemanticSlideId('creative_statement'),
@@ -218,20 +200,18 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
       bodySecondary: cvSecondary,
       bullets: cvBullets.length > 0 ? cvBullets : undefined,
       credit: writerCredit,
-      backgroundImageUrl: cvBg,
-      composition: cvBg ? 'text_over_atmosphere' : 'gradient_only',
-      layoutHint: resolveLayoutHint('creative_statement', 0, !!cvBg, false),
+      backgroundImageUrl: e.backgroundUrl,
+      composition: e.backgroundUrl ? 'text_over_atmosphere' : 'gradient_only',
+      layoutHint: resolveLayoutHint('creative_statement', 0, !!e.backgroundUrl, false),
+      roledImages: e.roledImages,
     });
   }
 
   // ── 3. WORLD ──
-  if (narrative.worldRules || narrative.locations || narrative.timeline || worldImages.length > 0) {
-    const worldBg = pickBackgroundImage(worldImages, electionCtx, 'world');
-    if (worldBg) { electionCtx.usedBackgroundUrls.push(worldBg); trackSelection(electionCtx, worldBg, 'world'); }
-    const worldForeground = pickForegroundImages(worldImages, 'world', 4, electionCtx, worldBg ? [worldBg] : []);
-    worldForeground.forEach(u => trackSelection(electionCtx, u, 'world'));
-    const worldComp = rhythm.resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length);
-    const worldHint = resolveLayoutHint('world', worldForeground.length, !!worldBg, !!worldForeground[0]);
+  if (narrative.worldRules || narrative.locations || narrative.timeline) {
+    const e = getElection(electionResult, 'world:main');
+    const worldComp = rhythm.resolveComposition('world', !!e.backgroundUrl, e.foregroundUrls.length > 1, e.foregroundUrls.length);
+    const worldHint = resolveLayoutHint('world', e.foregroundUrls.length, !!e.backgroundUrl, !!e.foregroundUrls[0]);
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -239,12 +219,12 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
       body: narrative.worldRules || undefined,
       bodySecondary: narrative.locations || undefined,
       quote: narrative.timeline || undefined,
-      imageUrl: worldForeground[0] || undefined,
-      imageUrls: worldForeground,
-      backgroundImageUrl: worldBg,
+      imageUrl: e.foregroundUrls[0] || undefined,
+      imageUrls: e.foregroundUrls,
+      backgroundImageUrl: e.backgroundUrl,
       composition: worldComp,
       layoutHint: worldHint,
-      roledImages: assignImageRoles(worldForeground, 'world', electionCtx, worldBg),
+      roledImages: e.roledImages,
       _debug_image_ids: canonImages.world_locations?.imageIds,
       _debug_provenance: canonImages.world_locations ? toSlideProvenance(canonImages.world_locations) : [],
       _has_unresolved: canonImages.world_locations?.unresolvedCount > 0,
@@ -253,23 +233,22 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
 
   // ── 4. KEY MOMENTS ──
   {
-    const keyMomentBody = keyMomentImages.length > 0
+    const e = getElection(electionResult, 'key_moments:main');
+    const keyMomentBody = e.foregroundUrls.length > 0
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
       : 'Key visual moments will be populated as the project\'s visual canon develops.';
-    const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6, electionCtx);
-    kmForeground.forEach(u => trackSelection(electionCtx, u, 'key_moments'));
-    const kmComp = rhythm.resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length);
-    const kmHint = resolveLayoutHint('key_moments', kmForeground.length, false, !!kmForeground[0]);
+    const kmComp = rhythm.resolveComposition('key_moments', false, e.foregroundUrls.length > 0, e.foregroundUrls.length);
+    const kmHint = resolveLayoutHint('key_moments', e.foregroundUrls.length, false, !!e.foregroundUrls[0]);
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
       title: 'Key Moments',
       body: keyMomentBody,
-      imageUrl: keyMomentImages[0]?.signedUrl || undefined,
-      imageUrls: kmForeground,
+      imageUrl: e.foregroundUrls[0] || undefined,
+      imageUrls: e.foregroundUrls,
       composition: kmComp,
       layoutHint: kmHint,
-      roledImages: assignImageRoles(kmForeground, 'key_moments', electionCtx),
+      roledImages: e.roledImages,
       _debug_image_ids: canonImages.key_moments?.imageIds,
       _debug_provenance: canonImages.key_moments ? toSlideProvenance(canonImages.key_moments) : [],
       _has_unresolved: canonImages.key_moments?.unresolvedCount > 0,
@@ -278,8 +257,6 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
 
   // ── 5. CHARACTERS ──
   if (narrative.characters && Array.isArray(narrative.characters) && (narrative.characters as any[]).length > 0) {
-    // Character normalization is done here using the narrative context
-    // The character image maps come from the inventory stage
     slides.push({
       type: 'characters',
       slide_id: makeSemanticSlideId('characters'),
@@ -294,22 +271,18 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
 
   // ── 6. VISUAL LANGUAGE ──
   {
-    const vlImages = [...textureImages, ...motifImages];
-    const vlBg = pickBackgroundImage(vlImages, electionCtx, 'visual_language', atmosphereImages);
-    if (vlBg) { electionCtx.usedBackgroundUrls.push(vlBg); trackSelection(electionCtx, vlBg, 'visual_language'); }
-    const vlForeground = pickForegroundImages(vlImages, 'visual_language', 4, electionCtx, vlBg ? [vlBg] : []);
-    vlForeground.forEach(u => trackSelection(electionCtx, u, 'visual_language'));
+    const e = getElection(electionResult, 'visual_language:main');
     slides.push({
       type: 'visual_language',
       slide_id: makeSemanticSlideId('visual_language'),
       title: 'Visual Language',
       body: 'A unified visual philosophy where atmosphere, colour, and composition serve the narrative.',
-      imageUrl: vlImages[0]?.signedUrl || undefined,
-      imageUrls: vlForeground,
-      backgroundImageUrl: vlBg,
-      composition: rhythm.resolveComposition('visual_language', !!vlBg, vlForeground.length > 1, vlForeground.length),
-      layoutHint: resolveLayoutHint('visual_language', vlForeground.length, !!vlBg, !!vlForeground[0]),
-      roledImages: assignImageRoles(vlForeground, 'visual_language', electionCtx, vlBg),
+      imageUrl: e.foregroundUrls[0] || undefined,
+      imageUrls: e.foregroundUrls,
+      backgroundImageUrl: e.backgroundUrl,
+      composition: rhythm.resolveComposition('visual_language', !!e.backgroundUrl, e.foregroundUrls.length > 1, e.foregroundUrls.length),
+      layoutHint: resolveLayoutHint('visual_language', e.foregroundUrls.length, !!e.backgroundUrl, !!e.foregroundUrls[0]),
+      roledImages: e.roledImages,
       _debug_image_ids: [...(canonImages.texture_detail?.imageIds || []), ...(canonImages.symbolic_motifs?.imageIds || [])].slice(0, 4),
       _debug_provenance: [...(canonImages.texture_detail ? toSlideProvenance(canonImages.texture_detail) : []), ...(canonImages.symbolic_motifs ? toSlideProvenance(canonImages.symbolic_motifs) : [])].slice(0, 4),
       _has_unresolved: (canonImages.texture_detail?.unresolvedCount || 0) + (canonImages.symbolic_motifs?.unresolvedCount || 0) > 0,
@@ -318,21 +291,18 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
 
   // ── 7. THEMES & TONE ──
   if (narrative.toneStyle) {
-    const themesBg = pickBackgroundImage(atmosphereImages, electionCtx, 'themes', worldImages);
-    if (themesBg) { electionCtx.usedBackgroundUrls.push(themesBg); trackSelection(electionCtx, themesBg, 'themes'); }
-    const themesForeground = pickForegroundImages(atmosphereImages, 'themes', 4, electionCtx, themesBg ? [themesBg] : []);
-    themesForeground.forEach(u => trackSelection(electionCtx, u, 'themes'));
+    const e = getElection(electionResult, 'themes:main');
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
       title: 'Themes & Tone',
       body: narrative.toneStyle,
-      imageUrl: themesForeground[0] || undefined,
-      imageUrls: themesForeground,
-      backgroundImageUrl: themesBg,
-      composition: rhythm.resolveComposition('themes', !!themesBg, themesForeground.length > 1, themesForeground.length),
-      layoutHint: resolveLayoutHint('themes', themesForeground.length, !!themesBg, false),
-      roledImages: assignImageRoles(themesForeground, 'themes', electionCtx, themesBg),
+      imageUrl: e.foregroundUrls[0] || undefined,
+      imageUrls: e.foregroundUrls,
+      backgroundImageUrl: e.backgroundUrl,
+      composition: rhythm.resolveComposition('themes', !!e.backgroundUrl, e.foregroundUrls.length > 1, e.foregroundUrls.length),
+      layoutHint: resolveLayoutHint('themes', e.foregroundUrls.length, !!e.backgroundUrl, false),
+      roledImages: e.roledImages,
       _debug_image_ids: canonImages.atmosphere_lighting?.imageIds?.slice(0, 4),
       _debug_provenance: canonImages.atmosphere_lighting ? toSlideProvenance(canonImages.atmosphere_lighting).slice(0, 4) : [],
       _has_unresolved: canonImages.atmosphere_lighting?.unresolvedCount > 0,
@@ -343,23 +313,19 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
   {
     const fmt = narrative.format.toLowerCase();
     if (fmt.includes('series') || fmt.includes('vertical') || fmt.includes('limited') || fmt.includes('feature') || fmt.includes('film') || narrative.logline) {
-      const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
-      const seBg = pickBackgroundImage(seImages, electionCtx, 'story_engine', keyMomentImages);
-      if (seBg) { electionCtx.usedBackgroundUrls.push(seBg); trackSelection(electionCtx, seBg, 'story_engine'); }
-      const seForeground = pickForegroundImages(seImages, 'story_engine', 3, electionCtx, seBg ? [seBg] : []);
-      seForeground.forEach(u => trackSelection(electionCtx, u, 'story_engine'));
+      const e = getElection(electionResult, 'story_engine:main');
       slides.push({
         type: 'story_engine',
         slide_id: makeSemanticSlideId('story_engine'),
         title: 'Story Engine',
         body: narrative.formatConstraints || 'A tightly structured narrative built around escalating dramatic pressure.',
-        imageUrl: seForeground[0] || undefined,
-        imageUrls: seForeground,
-        backgroundImageUrl: seBg,
-        composition: rhythm.resolveComposition('story_engine', !!seBg, seForeground.length > 1, seForeground.length),
-        layoutHint: resolveLayoutHint('story_engine', seForeground.length, !!seBg, !!seForeground[0]),
-        roledImages: assignImageRoles(seForeground, 'story_engine', electionCtx, seBg),
-        _has_unresolved: seImages.length === 0,
+        imageUrl: e.foregroundUrls[0] || undefined,
+        imageUrls: e.foregroundUrls,
+        backgroundImageUrl: e.backgroundUrl,
+        composition: rhythm.resolveComposition('story_engine', !!e.backgroundUrl, e.foregroundUrls.length > 1, e.foregroundUrls.length),
+        layoutHint: resolveLayoutHint('story_engine', e.foregroundUrls.length, !!e.backgroundUrl, !!e.foregroundUrls[0]),
+        roledImages: e.roledImages,
+        _has_unresolved: e.foregroundUrls.length === 0 && !e.backgroundUrl,
       });
     }
   }
@@ -372,15 +338,15 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
       return { title: line.trim(), reason: '' };
     });
     if (comps.length > 0) {
-      const compBg = pickBackgroundImage([], electionCtx, 'comparables');
-      if (compBg) { electionCtx.usedBackgroundUrls.push(compBg); trackSelection(electionCtx, compBg, 'comparables'); }
+      const e = getElection(electionResult, 'comparables:main');
       slides.push({
         type: 'comparables',
         slide_id: makeSemanticSlideId('comparables'),
         title: 'Comparables',
         comparables: comps,
-        backgroundImageUrl: compBg,
-        composition: compBg ? 'text_over_atmosphere' : 'gradient_only',
+        backgroundImageUrl: e.backgroundUrl,
+        composition: e.backgroundUrl ? 'text_over_atmosphere' : 'gradient_only',
+        roledImages: e.roledImages,
       });
     }
   }
@@ -388,33 +354,40 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
   // ── 10. POSTER DIRECTIONS ──
   const posterImages = canonImages.poster_directions?.images || [];
   if (posterImages.length > 1) {
-    const posterForeground = pickForegroundImages(posterImages, 'cover', 4, electionCtx);
-    posterForeground.forEach(u => trackSelection(electionCtx, u, 'poster_directions'));
+    // Poster directions uses its own mini-election (already scored in election stage context)
+    const posterFg = posterImages
+      .filter(img => img.signedUrl)
+      .slice(0, 4)
+      .map(img => img.signedUrl!);
     slides.push({
       type: 'key_moments' as any,
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
       title: 'Poster Directions',
       body: 'Key art explorations — the visual identity that anchors the marketing campaign.',
-      imageUrl: posterForeground[0] || undefined,
-      imageUrls: posterForeground,
+      imageUrl: posterFg[0] || undefined,
+      imageUrls: posterFg,
       composition: 'montage_grid',
     });
   }
 
   // ── 11. CLOSING ──
-  const closingBg = coverImageUrl || pickBackgroundImage(worldImages, electionCtx, 'closing');
-  slides.push({
-    type: 'closing',
-    slide_id: makeSemanticSlideId('closing'),
-    title: narrative.projectTitle,
-    subtitle: narrative.logline || undefined,
-    credit: writerCredit,
-    companyName,
-    companyLogoUrl,
-    imageUrl: coverImageUrl || undefined,
-    backgroundImageUrl: closingBg,
-    composition: 'full_bleed_hero',
-  });
+  {
+    const e = getElection(electionResult, 'closing:main');
+    const closingBg = e.backgroundUrl || coverImageUrl || undefined;
+    slides.push({
+      type: 'closing',
+      slide_id: makeSemanticSlideId('closing'),
+      title: narrative.projectTitle,
+      subtitle: narrative.logline || undefined,
+      credit: writerCredit,
+      companyName,
+      companyLogoUrl,
+      imageUrl: coverImageUrl || undefined,
+      backgroundImageUrl: closingBg,
+      composition: 'full_bleed_hero',
+      roledImages: e.roledImages,
+    });
+  }
 
   // ── Layout family resolution (landscape decks) ──
   const deckFormat = isVerticalDrama ? 'portrait' as const : 'landscape' as const;

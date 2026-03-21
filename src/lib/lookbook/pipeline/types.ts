@@ -71,7 +71,6 @@ export interface InventoryResult {
   characterImageMap: Map<string, string>;
   characterNameImageMap: Map<string, string>;
 }
-
 export interface ElectionContext {
   /** Deck-level URL usage tracker */
   deckImageUsage: Map<string, { count: number; usedOnSlides: string[] }>;
@@ -79,8 +78,28 @@ export interface ElectionContext {
   usedFingerprints: Map<string, number>;
   /** URL → ProjectImage lookup */
   urlToImage: Map<string, ProjectImage>;
+  /** Section pools by pool key */
+  sectionPools: Record<PoolKey, ProjectImage[]>;
   /** Used background URLs for dedup */
   usedBackgroundUrls: string[];
+}
+
+// ── Election Result (first-class stage output) ──────────────────────────────
+
+/** Per-slide elected images */
+export interface SlideElection {
+  slideType: string;
+  slideId: string;
+  backgroundUrl: string | undefined;
+  foregroundUrls: string[];
+  roledImages: Array<{ url: string; role: 'hero' | 'support' | 'background'; score: number }>;
+}
+
+/** Full election result — produced by election stage, consumed by assembly */
+export interface ElectionResult {
+  posterHero: { url: string; id: string; score: number } | null;
+  slideElections: Map<string, SlideElection>;
+  electionCtx: ElectionContext;
 }
 
 export interface QAResult {

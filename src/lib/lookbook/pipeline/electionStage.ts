@@ -4,29 +4,15 @@
  * Uses the CANONICAL scorer only (lookbookScorer.scoreImageForSlide).
  * No alternative scoring logic.
  *
- * INPUT: section pools, slide type, scoring context
- * OUTPUT: elected image URLs with diagnostics
+ * INPUT: section pools, slide definitions
+ * OUTPUT: ElectionResult (per-slide winners + poster hero)
  * SIDE EFFECTS: none (pure functions)
  */
 import type { ProjectImage } from '@/lib/images/types';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
 import { scoreImageForSlide, getImageFingerprint, type ScoringContext } from './lookbookScorer';
-import { SLIDE_SECTION_AFFINITY, type PoolKey } from './lookbookSlotRegistry';
-
-// ── Election Context ─────────────────────────────────────────────────────────
-
-export interface ElectionContext {
-  /** Deck-level URL usage tracker */
-  deckImageUsage: Map<string, { count: number; usedOnSlides: string[] }>;
-  /** Semantic fingerprint tracker */
-  usedFingerprints: Map<string, number>;
-  /** URL → ProjectImage lookup */
-  urlToImage: Map<string, ProjectImage>;
-  /** Section pools by pool key */
-  sectionPools: Record<PoolKey, ProjectImage[]>;
-  /** Used background URLs for dedup */
-  usedBackgroundUrls: string[];
-}
+import { SLIDE_SECTION_AFFINITY, SLIDE_TO_POOL, type PoolKey } from './lookbookSlotRegistry';
+import type { ElectionContext, ElectionResult, SlideElection } from './types';
 
 /**
  * Create a fresh election context from inventory results.
@@ -53,7 +39,6 @@ export function createElectionContext(
 // ── Tracking helpers ─────────────────────────────────────────────────────────
 
 export function trackSelection(ctx: ElectionContext, url: string, slideType: string): void {
-  // Track URL usage
   const entry = ctx.deckImageUsage.get(url);
   if (entry) {
     entry.count++;
@@ -61,7 +46,6 @@ export function trackSelection(ctx: ElectionContext, url: string, slideType: str
   } else {
     ctx.deckImageUsage.set(url, { count: 1, usedOnSlides: [slideType] });
   }
-  // Track fingerprint
   const img = ctx.urlToImage.get(url);
   if (img) {
     const fp = getImageFingerprint(img);
@@ -78,10 +62,6 @@ function getScoringContext(ctx: ElectionContext): ScoringContext {
 
 // ── Foreground election ──────────────────────────────────────────────────────
 
-/**
- * Pick the best N foreground images from a pool using the canonical scorer.
- * Returns unique URLs only, scored and sorted. Logs election diagnostics.
- */
 export function pickForegroundImages(
   pool: ProjectImage[],
   slideType: string,
@@ -124,11 +104,6 @@ export function pickForegroundImages(
 
 // ── Background election ──────────────────────────────────────────────────────
 
-/**
- * Pick the best background image from section-appropriate pools.
- * Uses section affinity to prevent cross-contamination.
- * Falls back to global pool ONLY when all affinity pools are empty.
- */
 export function pickBackgroundImage(
   primaryPool: ProjectImage[],
   ctx: ElectionContext,
@@ -139,7 +114,6 @@ export function pickBackgroundImage(
   const isExcluded = (img: ProjectImage) => !img.signedUrl || excludeUrls.includes(img.signedUrl!);
   const scoringCtx = getScoringContext(ctx);
 
-  // Build affinity-ordered pool from section pools
   const affinityKeys = SLIDE_SECTION_AFFINITY[slideType] || [];
   const affinityPool: ProjectImage[] = [];
   for (const key of affinityKeys) {
@@ -150,7 +124,6 @@ export function pickBackgroundImage(
     }
   }
 
-  // Merge primary + affinity, removing duplicates
   const combinedPrimary = [...primaryPool.filter(i => !isExcluded(i))];
   for (const img of affinityPool) {
     if (!combinedPrimary.includes(img)) combinedPrimary.push(img);
@@ -173,12 +146,11 @@ export function pickBackgroundImage(
     console.log(`[LookBook:election] ${slideType} bg: candidates=${scored.length} top3=${JSON.stringify(top3)}`);
   }
 
-  // Prefer landscape for backgrounds
   const bestLandscape = scored.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
   if (bestLandscape) return bestLandscape.img.signedUrl!;
   if (scored.length > 0) return scored[0].img.signedUrl!;
 
-  // Global fallback — LAST RESORT only
+  // Global fallback
   const allSectionImages: ProjectImage[] = [];
   for (const pool of Object.values(ctx.sectionPools)) {
     for (const img of pool) {
@@ -200,10 +172,6 @@ export function pickBackgroundImage(
 
 // ── Poster Hero Election ─────────────────────────────────────────────────────
 
-/**
- * Global election across all project images for the poster hero.
- * Returns the single best poster-worthy image.
- */
 export function selectPosterHero(
   allImages: ProjectImage[],
 ): { url: string; id: string; score: number } | null {
@@ -212,42 +180,27 @@ export function selectPosterHero(
 
   const scored = candidates.map(img => {
     let score = 0;
-
-    // Role-based scoring
     if (img.role === 'poster_primary') score += 30;
     if (img.role === 'poster_variant') score += 15;
     if (img.role === 'lookbook_cover') score += 20;
-
-    // Shot type scoring
     const st = img.shot_type || '';
     if (['close_up', 'emotional_variant'].includes(st)) score += 12;
     if (['tableau', 'wide'].includes(st)) score += 8;
     if (['medium', 'full_body'].includes(st)) score += 6;
     if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(st)) score -= 20;
-
-    // Narrative truth
     if (img.entity_id || img.subject_ref) score += 10;
     if (img.moment_ref) score += 8;
-
-    // Landscape bonus
     if (classifyOrientation(img.width, img.height) === 'landscape') score += 6;
-
-    // Freshness
     const ageDays = (Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24);
     if (ageDays < 1) score += 8;
     else if (ageDays < 3) score += 5;
     else if (ageDays < 7) score += 2;
-
-    // Primary status
     if (img.is_primary) score += 3;
-
-    // Anti-pattern: craft imagery
     const prompt = ((img as any).prompt_used || '').toLowerCase();
     if (prompt.includes('pottery') || prompt.includes('ceramic') || prompt.includes('workshop') ||
         prompt.includes('kiln') || prompt.includes('craftsman')) {
       score -= 30;
     }
-
     return { img, score };
   });
 
@@ -294,10 +247,118 @@ export function assignImageRoles(
   return roles;
 }
 
+// ── Slide definition for election ────────────────────────────────────────────
+
+interface SlideElectionSpec {
+  slideType: string;
+  slideId: string;
+  primaryPoolKey: PoolKey;
+  fallbackPoolKeys: PoolKey[];
+  maxForeground: number;
+  needsBackground: boolean;
+}
+
+const SLIDE_ELECTION_SPECS: SlideElectionSpec[] = [
+  { slideType: 'cover', slideId: 'cover:main', primaryPoolKey: 'poster', fallbackPoolKeys: ['world', 'atmosphere'], maxForeground: 0, needsBackground: true },
+  { slideType: 'creative_statement', slideId: 'creative_statement:main', primaryPoolKey: 'atmosphere', fallbackPoolKeys: ['world'], maxForeground: 0, needsBackground: true },
+  { slideType: 'world', slideId: 'world:main', primaryPoolKey: 'world', fallbackPoolKeys: ['atmosphere'], maxForeground: 4, needsBackground: true },
+  { slideType: 'key_moments', slideId: 'key_moments:main', primaryPoolKey: 'keyMoments', fallbackPoolKeys: ['motifs', 'atmosphere'], maxForeground: 6, needsBackground: false },
+  { slideType: 'visual_language', slideId: 'visual_language:main', primaryPoolKey: 'texture', fallbackPoolKeys: ['motifs', 'atmosphere'], maxForeground: 4, needsBackground: true },
+  { slideType: 'themes', slideId: 'themes:main', primaryPoolKey: 'atmosphere', fallbackPoolKeys: ['world'], maxForeground: 4, needsBackground: true },
+  { slideType: 'story_engine', slideId: 'story_engine:main', primaryPoolKey: 'keyMoments', fallbackPoolKeys: ['motifs'], maxForeground: 3, needsBackground: true },
+  { slideType: 'comparables', slideId: 'comparables:main', primaryPoolKey: 'atmosphere', fallbackPoolKeys: [], maxForeground: 0, needsBackground: true },
+  { slideType: 'closing', slideId: 'closing:main', primaryPoolKey: 'poster', fallbackPoolKeys: ['world'], maxForeground: 0, needsBackground: true },
+];
+
+/**
+ * runElectionStage — Produces a complete ElectionResult.
+ * All image selection happens HERE. Assembly consumes results only.
+ */
+export function runElectionStage(
+  sectionPools: Record<PoolKey, ProjectImage[]>,
+  allUniqueImages: ProjectImage[],
+): ElectionResult {
+  const ctx = createElectionContext(sectionPools);
+
+  // 1. Poster hero — global election
+  const posterHero = selectPosterHero(allUniqueImages);
+  const coverImageUrl = posterHero?.url || '';
+
+  // 2. Per-slide elections
+  const slideElections = new Map<string, SlideElection>();
+
+  for (const spec of SLIDE_ELECTION_SPECS) {
+    const primaryPool = sectionPools[spec.primaryPoolKey] || [];
+    const fallbackPool: ProjectImage[] = [];
+    for (const k of spec.fallbackPoolKeys) {
+      for (const img of (sectionPools[k] || [])) {
+        if (!fallbackPool.includes(img)) fallbackPool.push(img);
+      }
+    }
+
+    // Special handling for cover/closing — use poster hero
+    if (spec.slideType === 'cover' || spec.slideType === 'closing') {
+      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool);
+      if (bgUrl) {
+        ctx.usedBackgroundUrls.push(bgUrl);
+        trackSelection(ctx, bgUrl, spec.slideType);
+      }
+      slideElections.set(spec.slideId, {
+        slideType: spec.slideType,
+        slideId: spec.slideId,
+        backgroundUrl: bgUrl,
+        foregroundUrls: [],
+        roledImages: assignImageRoles([], spec.slideType, ctx, bgUrl),
+      });
+      continue;
+    }
+
+    // Background
+    let bgUrl: string | undefined;
+    if (spec.needsBackground) {
+      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool);
+      if (bgUrl) {
+        ctx.usedBackgroundUrls.push(bgUrl);
+        trackSelection(ctx, bgUrl, spec.slideType);
+      }
+    }
+
+    // Foreground
+    const combinedPool = [...primaryPool];
+    for (const img of fallbackPool) {
+      if (!combinedPool.includes(img)) combinedPool.push(img);
+    }
+    let fgUrls: string[] = [];
+    if (spec.maxForeground > 0) {
+      // For story_engine, use tail of key moments pool
+      if (spec.slideType === 'story_engine') {
+        const kmPool = sectionPools.keyMoments || [];
+        const sePool = kmPool.length > 2 ? kmPool.slice(2, 6) : (sectionPools.motifs || []);
+        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : []);
+      } else if (spec.slideType === 'visual_language') {
+        const vlPool = [...(sectionPools.texture || []), ...(sectionPools.motifs || [])];
+        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : []);
+      } else {
+        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : []);
+      }
+      fgUrls.forEach(u => trackSelection(ctx, u, spec.slideType));
+    }
+
+    slideElections.set(spec.slideId, {
+      slideType: spec.slideType,
+      slideId: spec.slideId,
+      backgroundUrl: bgUrl,
+      foregroundUrls: fgUrls,
+      roledImages: assignImageRoles(fgUrls, spec.slideType, ctx, bgUrl),
+    });
+  }
+
+  return { posterHero, slideElections, electionCtx: ctx };
+}
+
 // ── Diagnostics ──────────────────────────────────────────────────────────────
 
 export function logElectionDiagnostics(ctx: ElectionContext): void {
-  // Reuse diagnostics
   const reuseEntries = Array.from(ctx.deckImageUsage.entries())
     .filter(([, v]) => v.count > 1)
     .map(([, v]) => `${v.usedOnSlides.join('+')} (×${v.count})`);
@@ -307,7 +368,6 @@ export function logElectionDiagnostics(ctx: ElectionContext): void {
     console.log('[LookBook] ✓ no cross-slide image reuse');
   }
 
-  // Fingerprint diagnostics
   const fpStats = Array.from(ctx.usedFingerprints.entries())
     .filter(([, count]) => count > 1)
     .map(([fp, count]) => `${fp} (×${count})`);
