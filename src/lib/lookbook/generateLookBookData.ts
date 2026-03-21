@@ -1050,7 +1050,8 @@ export async function generateLookBookData(
   // ── OPTIONAL: POSTER DIRECTIONS ──
   const posterImages = canonImages.poster_directions.images;
   if (posterImages.length > 1) {
-    const posterForeground = posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+    const posterForeground = pickForegroundImages(posterImages, 'cover', 4);
+    posterForeground.forEach(u => trackImageUsage(u, 'poster_directions'));
     slides.push({
       type: 'key_moments' as any,
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
