@@ -208,7 +208,7 @@ export function buildRequirementSet(
         promptContext: {
           characterName: char.name,
           characterRole: char.role || '',
-          characterTraits: char.traits?.join(', ') || '',
+          characterTraits: char.traits || '',
         },
         hardNegatives: ['multiple people in frame', 'group shot'],
         critical: true,
