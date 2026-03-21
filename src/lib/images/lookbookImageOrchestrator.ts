@@ -224,15 +224,17 @@ export function summarizeOrchestration(result: OrchestrationResult): string {
 }
 
 // ── Subject → Edge Function section mapping ──────────────────────────────────
+// These MUST match the valid sections in generate-lookbook-image edge function:
+// "world" | "character" | "key_moment" | "visual_language"
 
 const SUBJECT_TO_SECTION: Record<string, string> = {
-  character: 'character_identity',
-  world: 'world_locations',
-  atmosphere: 'atmosphere_lighting',
-  moment: 'key_moments',
-  texture: 'texture_detail',
-  poster: 'poster_directions',
-  generic: 'atmosphere_lighting',
+  character: 'character',
+  world: 'world',
+  atmosphere: 'visual_language',
+  moment: 'key_moment',
+  texture: 'visual_language',
+  poster: 'key_moment',
+  generic: 'visual_language',
 };
 
 // ── Closed-Loop Generation Executor ──────────────────────────────────────────
