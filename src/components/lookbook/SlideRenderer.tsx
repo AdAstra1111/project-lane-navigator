@@ -1186,11 +1186,13 @@ function VisualLanguageSlide({ slide, colors, titleStyle, baseStyle, fontBody, s
     );
   }
 
-  // ── Landscape visual language ──
+  // ── Landscape visual language — cinematic background ──
+  const vlBg = slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ height: '100%', display: 'flex' }}>
+      {vlBg && <CinematicBackground src={vlBg} colors={colors} overlayStrength="heavy" overlayDirection="left-heavy" />}
+      {!vlBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
         <div style={{ flex: 1, padding: '72px 56px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Visual Language" color={colors.accent} />
           <AccentRule color={colors.accent} />
