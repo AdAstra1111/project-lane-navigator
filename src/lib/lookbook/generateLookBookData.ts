@@ -586,21 +586,28 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
+    backgroundImageUrl: coverImageUrl || pickBackgroundImage(worldImages, allSectionImages) || undefined,
+    composition: 'full_bleed_hero',
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
     _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
+  if (coverImageUrl) usedBackgroundUrls.push(coverImageUrl);
 
   // ── OVERVIEW ──
   const overviewBody = logline || normalizedCanon.premise || synopsis.slice(0, 300);
   const overviewFallback = normalizedCanon.premise || synopsis.slice(0, 500);
   const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
+  const overviewBg = pickBackgroundImage(worldImages, allSectionImages, usedBackgroundUrls);
+  if (overviewBg) usedBackgroundUrls.push(overviewBg);
   slides.push({
     type: 'overview',
     slide_id: makeSemanticSlideId('overview'),
     title,
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
+    backgroundImageUrl: overviewBg,
+    composition: overviewBg ? 'text_over_atmosphere' : 'gradient_only',
     bullets: [
       genre ? `Genre: ${genre}` : '',
       formatLabel ? `Format: ${formatLabel}` : '',
