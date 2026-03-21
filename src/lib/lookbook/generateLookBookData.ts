@@ -977,6 +977,47 @@ export async function generateLookBookData(
   // Track used background URLs to avoid repeating the same image across slides
   const usedBackgroundUrls: string[] = [];
 
+  // ── Pool Expansion: ensure slides have enough candidates ──
+  // Must happen AFTER scoreImageForSlide is defined and BEFORE slide building
+  sectionPools.keyMoments = ensurePoolSize(
+    sectionPools.keyMoments,
+    [sectionPools.motifs, sectionPools.atmosphere, sectionPools.world],
+    3, 'key_moments', 'keyMoments',
+  );
+  sectionPools.world = ensurePoolSize(
+    sectionPools.world,
+    [sectionPools.atmosphere],
+    2, 'world', 'world',
+  );
+  sectionPools.atmosphere = ensurePoolSize(
+    sectionPools.atmosphere,
+    [sectionPools.world, sectionPools.texture],
+    2, 'themes', 'atmosphere',
+  );
+  sectionPools.poster = ensurePoolSize(
+    sectionPools.poster,
+    [sectionPools.world, sectionPools.keyMoments],
+    1, 'cover', 'poster',
+  );
+
+  // Re-derive convenience aliases after expansion
+  const worldImages = sectionPools.world;
+  const atmosphereImages = sectionPools.atmosphere;
+  const textureImages = sectionPools.texture;
+  const motifImages = sectionPools.motifs;
+  const keyMomentImages = sectionPools.keyMoments;
+
+  // Log post-expansion pool sizes
+  console.log('[LookBook:pools] post-expansion:',
+    Object.entries(sectionPools).map(([k, v]) => `${k}=${v.length}`).join(' '));
+
+  // Rebuild urlToImage lookup after expansion
+  for (const pool of Object.values(sectionPools)) {
+    for (const img of pool) {
+      if (img.signedUrl) urlToImage.set(img.signedUrl, img);
+    }
+  }
+
   // 6. Build slides in premium vertical-drama sequence
   const slides: SlideContent[] = [];
 
