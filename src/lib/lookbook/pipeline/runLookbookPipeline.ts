@@ -251,7 +251,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     if (idx >= 0) stages[idx] = updater(stages[idx]);
   };
 
-  const reportProgress = (stage: PipelineStage, message: string, percent?: number) => {
+  const reportProgress = (stage: PipelineStage, message: string, percent?: number, requirements?: RequirementProgress[]) => {
     const stageState = stages.find(s => s.stage === stage);
     options.onProgress?.({
       currentStage: stage,
@@ -259,8 +259,12 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       message,
       percent,
       logs,
+      requirements,
     });
   };
+
+  // Requirement-level progress tracker
+  const requirements: RequirementProgress[] = [];
 
   try {
     // ── STAGE: MODE_SELECTION ──
