@@ -1057,7 +1057,7 @@ export async function generateLookBookData(
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
       title: 'Poster Directions',
       body: 'Key art explorations — the visual identity that anchors the marketing campaign and defines the audience\'s first impression.',
-      imageUrl: posterImages[0]?.signedUrl || undefined,
+      imageUrl: posterForeground[0] || undefined,
       imageUrls: posterForeground,
       composition: 'montage_grid',
       _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 4),
