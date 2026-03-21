@@ -1196,6 +1196,44 @@ export async function generateLookBookData(
     }
   }
 
+  // ── Final per-slide deduplication pass ──
+  // Ensures no slide has the same image URL twice (across bg, hero, and gallery)
+  for (const slide of slides) {
+    const usedOnSlide = new Set<string>();
+    // Background is highest priority — keep it
+    if (slide.backgroundImageUrl) usedOnSlide.add(slide.backgroundImageUrl);
+    // Hero: remove if duplicate of background
+    if (slide.imageUrl && usedOnSlide.has(slide.imageUrl)) {
+      // Cover/closing intentionally reuse bg as hero — allow
+      if (slide.type !== 'cover' && slide.type !== 'closing') {
+        slide.imageUrl = undefined;
+      }
+    } else if (slide.imageUrl) {
+      usedOnSlide.add(slide.imageUrl);
+    }
+    // Gallery: remove any duplicates
+    if (slide.imageUrls?.length) {
+      const deduped: string[] = [];
+      for (const url of slide.imageUrls) {
+        if (!usedOnSlide.has(url)) {
+          usedOnSlide.add(url);
+          deduped.push(url);
+        }
+      }
+      slide.imageUrls = deduped.length > 0 ? deduped : undefined;
+    }
+  }
+
+  // ── Deck reuse diagnostics ──
+  const reuseEntries = Array.from(deckImageUsage.entries())
+    .filter(([, v]) => v.count > 1)
+    .map(([url, v]) => `${v.usedOnSlides.join('+')} (×${v.count})`);
+  if (reuseEntries.length > 0) {
+    console.warn(`[LookBook] ⚠ image reuse detected: ${reuseEntries.join(' | ')}`);
+  } else {
+    console.log('[LookBook] ✓ no cross-slide image reuse');
+  }
+
   // ── Selection diagnostics — log WHY each slide got its images ──
   const selectionDiagnostics: string[] = [];
   for (const slide of slides) {
