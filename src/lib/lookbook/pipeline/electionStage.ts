@@ -123,10 +123,12 @@ export function pickBackgroundImage(
   ctx: ElectionContext,
   slideType: string,
   fallbackPool: ProjectImage[] = [],
+  boundPrincipalIds?: Set<string>,
+  hasSceneEvidence?: boolean,
 ): string | undefined {
   const excludeUrls = ctx.usedBackgroundUrls;
   const isExcluded = (img: ProjectImage) => !img.signedUrl || excludeUrls.includes(img.signedUrl!);
-  const scoringCtx = getScoringContext(ctx, slideType);
+  const scoringCtx = getScoringContext(ctx, slideType, boundPrincipalIds, hasSceneEvidence);
 
   const affinityKeys = SLIDE_SECTION_AFFINITY[slideType] || [];
   const affinityPool: ProjectImage[] = [];
