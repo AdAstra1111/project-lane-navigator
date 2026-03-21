@@ -31,7 +31,7 @@ import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
-import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations, autoPromoteGeneratedImages } from '@/lib/images/lookbookImageOrchestrator';
+import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations, buildWorkingSetFromResolutions, augmentWorkingSetWithRecentGenerations, type BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
 
 type LookbookMode = 'workspace' | 'viewer';
 
@@ -43,6 +43,7 @@ export default function LookBookPage() {
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
+  const [activeWorkingSet, setActiveWorkingSet] = useState<BuildWorkingSet | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [autoCompleting, setAutoCompleting] = useState(false);
@@ -139,6 +140,7 @@ export default function LookBookPage() {
       const freshData = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
+        workingSet: activeWorkingSet,
       });
 
       // Preserve valid user decisions from previous build (read from ref, not state)
@@ -189,7 +191,7 @@ export default function LookBookPage() {
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding, invalidateImageCaches]);
+  }, [projectId, branding, invalidateImageCaches, activeWorkingSet]);
 
   useEffect(() => {
     const routeState = location.state as { mode?: LookbookMode; autoBuild?: boolean; buildKey?: string } | null;
@@ -366,21 +368,25 @@ export default function LookBookPage() {
         }
       }
 
-      // 5. Auto-promote high-confidence images into active canon
-      const promoResult = await autoPromoteGeneratedImages(projectId, result.resolutions);
-      if (promoResult.promoted > 0) {
-        toast.success(`${promoResult.promoted} image${promoResult.promoted > 1 ? 's' : ''} auto-promoted to active canon`);
-      }
-      if (promoResult.skipped > 0) {
-        toast.info(`${promoResult.skipped} image${promoResult.skipped > 1 ? 's' : ''} left for manual review`);
+      // 5. Build working set (NO canon promotion — images stay as candidates)
+      let workingSet = await buildWorkingSetFromResolutions(result.resolutions);
+
+      // 6. Augment with recently generated candidates
+      if (result.generationsQueued > 0) {
+        workingSet = await augmentWorkingSetWithRecentGenerations(projectId, workingSet, result.resolutions);
       }
 
-      // 6. Invalidate caches and rebuild with all new + reused + promoted images
-      if (result.activeMatches > 0 || result.archiveReuses > 0 || result.generationsQueued > 0 || promoResult.promoted > 0) {
-        invalidateImageCaches();
-        await new Promise(r => setTimeout(r, 500));
-        await handleGenerate();
+      const wsSize = workingSet.bySlotKey.size;
+      const candidateCount = workingSet.entries.filter(e => e.source !== 'active').length;
+      if (wsSize > 0) {
+        toast.success(`Working set: ${wsSize} slots filled (${candidateCount} provisional — approve in Review Studio to make permanent)`);
       }
+
+      // 7. Store working set and rebuild with overlay
+      setActiveWorkingSet(workingSet);
+      invalidateImageCaches();
+      await new Promise(r => setTimeout(r, 300));
+      await handleGenerate();
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
     } finally {
