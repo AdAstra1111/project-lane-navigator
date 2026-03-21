@@ -898,10 +898,9 @@ export async function generateLookBookData(
   // ── 3. WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'world');
-    if (worldBg) usedBackgroundUrls.push(worldBg);
-    const worldForeground = [...worldImages]
-      .sort((a, b) => scoreImageForSlide(b, 'world') - scoreImageForSlide(a, 'world'))
-      .slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+    if (worldBg) { usedBackgroundUrls.push(worldBg); trackImageUsage(worldBg, 'world'); }
+    const worldForeground = pickForegroundImages(worldImages, 'world', 4, worldBg ? [worldBg] : []);
+    worldForeground.forEach(u => trackImageUsage(u, 'world'));
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -909,7 +908,7 @@ export async function generateLookBookData(
       body: normalizedCanon.world_rules || undefined,
       bodySecondary: normalizedCanon.locations || undefined,
       quote: normalizedCanon.timeline || undefined,
-      imageUrl: worldImageUrl || undefined,
+      imageUrl: worldForeground[0] || undefined,
       imageUrls: worldForeground,
       backgroundImageUrl: worldBg,
       composition: resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length),
