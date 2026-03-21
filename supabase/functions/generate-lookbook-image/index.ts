@@ -1280,14 +1280,22 @@ serve(async (req) => {
       const isIdentityShot = shotType?.startsWith("identity_");
       const isIdentityGeneration = identity_mode || (forced_shot_type && isIdentityShot);
 
-      // Step 1: Base prompt
+      // Step 1: Base prompt — prompt_override takes priority when provided
       let prompt: string;
+      let promptOverrideUsed = false;
       if (isIdentityGeneration && isIdentityShot && character_name) {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
+      } else if (autoCompleteContext?.prompt_override) {
+        // Use the client-built prompt which includes slot-intent constraints,
+        // slide-type guardrails, and hard negatives from the requirement pipeline.
+        prompt = autoCompleteContext.prompt_override;
+        promptOverrideUsed = true;
+        console.log(`[Lookbook] Using prompt_override (len=${prompt.length}) for section=${section} shot=${shotType || 'auto'}`);
       } else {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx, i)
           : buildSectionPrompt(section, ctx, i);
+        console.log(`[Lookbook] Fallback to buildPackPrompt (no override) for section=${section} shot=${shotType || 'auto'}`);
       }
 
       // ── VERTICAL COMPLIANCE: Inject strict aspect instruction into prompt ──
@@ -1349,7 +1357,8 @@ FRAMING RULES:
       }
 
       // Step 8: VSAL — Visual Style Authority Lock (if available)
-      if (vsalPromptBlock) {
+      // Skip when prompt_override is active — override already contains creative direction
+      if (vsalPromptBlock && !promptOverrideUsed) {
         prompt += `\n\n${vsalPromptBlock}`;
         if (visualStyleLock && visualStyleLock.forbid.length > 0) {
           prompt += `\n\nADDITIONAL PROHIBITIONS (VSAL): ${visualStyleLock.forbid.join(", ")}`;
@@ -1357,9 +1366,9 @@ FRAMING RULES:
       }
 
       // Step 8b: PRESTIGE STYLE — Inject lane grammar + prestige style composite
-      // This is the CORE style consistency layer. Without it, generated images
-      // lack specific lighting/palette/texture/tone direction and drift to generic AI output.
-      if (!isIdentityGeneration && prestigeComposite.promptBlock) {
+      // Skip when prompt_override is active — override already contains style direction
+      // This avoids duplication and conflicting composition instructions
+      if (!isIdentityGeneration && prestigeComposite.promptBlock && !promptOverrideUsed) {
         prompt += `\n\n${prestigeComposite.promptBlock}`;
         if (prestigeComposite.negativeBlock) {
           prompt += `\n\nSTYLE PROHIBITIONS: ${prestigeComposite.negativeBlock}`;
@@ -1498,6 +1507,8 @@ FRAMING RULES:
                   requested_shot_type: autoCompleteContext.requested_shot_type || null,
                   batch_index: autoCompleteContext.batch_index ?? null,
                   requirement_ids: autoCompleteContext.requirement_ids || [],
+                  prompt_override_used: promptOverrideUsed,
+                  prompt_override_length: promptOverrideUsed ? (autoCompleteContext.prompt_override?.length ?? 0) : 0,
                 },
               } : {}),
             },
