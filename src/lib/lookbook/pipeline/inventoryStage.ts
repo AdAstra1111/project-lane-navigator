@@ -9,6 +9,8 @@
 import { resolveAllCanonImages } from '../resolveCanonImages';
 import type { SectionImageResult, ResolutionDiagnostics } from '../resolveCanonImages';
 import type { ProjectImage } from '@/lib/images/types';
+import { classifyOrientation } from '@/lib/images/orientationUtils';
+import type { ProjectImage } from '@/lib/images/types';
 import type { BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
 import { scoreImageForSlide } from './lookbookScorer';
 import type { PoolKey } from './lookbookSlotRegistry';
