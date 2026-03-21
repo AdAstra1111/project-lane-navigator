@@ -881,7 +881,7 @@ export async function generateLookBookData(
       ? normalizedCanon.premise.slice(0, 300)
       : undefined;
     const cvBg = pickBackgroundImage(atmosphereImages, [], usedBackgroundUrls, 'creative_statement');
-    if (cvBg) usedBackgroundUrls.push(cvBg);
+    if (cvBg) { usedBackgroundUrls.push(cvBg); trackImageUsage(cvBg, 'creative_statement'); }
     slides.push({
       type: 'creative_statement',
       slide_id: makeSemanticSlideId('creative_statement'),
