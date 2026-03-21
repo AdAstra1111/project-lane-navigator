@@ -656,8 +656,62 @@ export async function generateLookBookData(
   function getReusePenalty(url: string): number {
     const usage = deckImageUsage.get(url);
     if (!usage || usage.count === 0) return 0;
-    // First reuse: -30, second: -60, etc. — heavy enough to prefer ANY unique image
     return usage.count * -30;
+  }
+
+  // ── Semantic Fingerprint Diversity Layer ──
+  // Tracks semantic "types" of images used across the deck to penalize repetition
+  // even when URLs differ. Fingerprint = asset_group|subject|location_ref|shot_type
+  const usedFingerprints = new Map<string, number>();
+
+  function getImageFingerprint(img: ProjectImage): string {
+    return [
+      img.asset_group || 'none',
+      img.subject || 'none',
+      img.location_ref || 'none',
+      img.shot_type || 'none',
+    ].join('|');
+  }
+
+  function getFingerprintPenalty(img: ProjectImage): number {
+    const fp = getImageFingerprint(img);
+    const count = usedFingerprints.get(fp) || 0;
+    // -25 per prior use of same semantic type — strong enough to force variety
+    return count * -25;
+  }
+
+  function trackFingerprint(img: ProjectImage) {
+    const fp = getImageFingerprint(img);
+    usedFingerprints.set(fp, (usedFingerprints.get(fp) || 0) + 1);
+  }
+
+  /** Detect craft/workshop imagery via prompt text — guards against mis-tagged images */
+  function isCraftScene(img: ProjectImage): boolean {
+    const text = (img.prompt_used || '').toLowerCase();
+    return (
+      text.includes('pottery') ||
+      text.includes('ceramic') ||
+      text.includes('workshop') ||
+      text.includes('kiln') ||
+      text.includes('craftsman') ||
+      text.includes('artisan') ||
+      text.includes('handicraft')
+    );
+  }
+
+  // URL-to-ProjectImage lookup for fingerprint tracking after URL-based selection
+  const urlToImage = new Map<string, ProjectImage>();
+  for (const pool of Object.values(sectionPools)) {
+    for (const img of pool) {
+      if (img.signedUrl) urlToImage.set(img.signedUrl, img);
+    }
+  }
+
+  /** Track both URL usage and fingerprint for a selected image URL */
+  function trackSelection(url: string, slideType: string) {
+    trackImageUsage(url, slideType);
+    const img = urlToImage.get(url);
+    if (img) trackFingerprint(img);
   }
 
   /** Score an image for section relevance + visual suitability */
