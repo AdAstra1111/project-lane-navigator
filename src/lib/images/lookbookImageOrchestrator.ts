@@ -5,6 +5,7 @@
  * 1. Searches active pool for a better match
  * 2. Searches archive/candidate pool for reusable images
  * 3. Queues generation for truly missing images
+ * 4. Auto-promotes high-confidence results into active canon
  * 
  * Does NOT duplicate resolveCanonImages logic.
  * Uses project_images as the single source of truth.
@@ -306,4 +307,145 @@ export async function executeGapGenerations(
   }
 
   return { generated, failed };
+}
+
+// ── Auto-Promotion Scoring ───────────────────────────────────────────────────
+
+const AUTO_PROMOTE_THRESHOLD = 12; // Minimum score to auto-promote
+
+/**
+ * Score a candidate image for auto-promotion eligibility.
+ * Reuses the same scoring signals as the gap search — no duplicate logic.
+ */
+function scoreForAutoPromotion(img: ProjectImage, gap: ImageGap): number {
+  let score = 0;
+  const orientation = classifyOrientation(img.width, img.height);
+
+  // Orientation match (+10)
+  if (gap.orientation === 'any' || orientation === gap.orientation) score += 10;
+  else if (orientation === 'square') score += 3;
+
+  // Shot type match (+8)
+  if (img.shot_type === gap.shotType) score += 8;
+
+  // Narrative binding (+6)
+  if (img.entity_id || img.location_ref || img.moment_ref) score += 6;
+
+  // Asset group alignment (+4)
+  const expectedAssetGroup = SUBJECT_TO_ASSET_GROUP[gap.subjectType] || 'visual_language';
+  if ((img as any).asset_group === expectedAssetGroup) score += 4;
+
+  return score;
+}
+
+/**
+ * Auto-promote the best newly generated candidate per slot into active canon.
+ * Only promotes images scoring above AUTO_PROMOTE_THRESHOLD.
+ * Reuses the same slot-primary demotion logic as approveIntoCanon.
+ * 
+ * Returns { promoted, skipped } counts.
+ */
+export async function autoPromoteGeneratedImages(
+  projectId: string,
+  resolutions: GapResolution[],
+): Promise<{ promoted: number; skipped: number }> {
+  // Collect all gaps that had generation queued or archive reuse
+  const promotable = resolutions.filter(
+    r => r.method === 'generation_queued' || r.method === 'archive_reuse'
+  );
+  if (promotable.length === 0) return { promoted: 0, skipped: 0 };
+
+  let promoted = 0;
+  let skipped = 0;
+
+  // Fetch all recent candidates for this project (generated in last 5 min)
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const { data: recentCandidates } = await (supabase as any)
+    .from('project_images')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('curation_state', 'candidate')
+    .gte('created_at', fiveMinAgo)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (!recentCandidates?.length) {
+    console.log('[AutoPromote] No recent candidates found');
+    return { promoted: 0, skipped: promotable.length };
+  }
+
+  const candidates = recentCandidates as ProjectImage[];
+
+  // Track which slots already got a promoted image (one winner per slot)
+  const promotedSlots = new Set<string>();
+
+  for (const res of promotable) {
+    const slotKey = `${res.gap.subjectType}:${res.gap.shotType}:${res.gap.orientation}`;
+    if (promotedSlots.has(slotKey)) {
+      skipped++;
+      continue;
+    }
+
+    // Find best candidate for this gap
+    const assetGroup = SUBJECT_TO_ASSET_GROUP[res.gap.subjectType] || 'visual_language';
+    const matching = candidates.filter(c => {
+      // Must be same asset group
+      if ((c as any).asset_group && (c as any).asset_group !== assetGroup) return false;
+      return true;
+    });
+
+    if (matching.length === 0) {
+      skipped++;
+      continue;
+    }
+
+    // Score and pick best
+    const scored = matching.map(img => ({
+      img,
+      score: scoreForAutoPromotion(img, res.gap),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+
+    const best = scored[0];
+    if (best.score < AUTO_PROMOTE_THRESHOLD) {
+      console.log(`[AutoPromote] Skipping ${slotKey} — best score ${best.score} < threshold ${AUTO_PROMOTE_THRESHOLD}`);
+      skipped++;
+      continue;
+    }
+
+    // Promote: demote existing primaries in same slot, then activate
+    try {
+      // Demote existing primaries in same asset_group + subject + shot_type
+      let demoteQ = (supabase as any)
+        .from('project_images')
+        .update({ is_primary: false })
+        .eq('project_id', projectId)
+        .eq('is_primary', true);
+
+      if ((best.img as any).asset_group) demoteQ = demoteQ.eq('asset_group', (best.img as any).asset_group);
+      if (best.img.subject) demoteQ = demoteQ.eq('subject', best.img.subject);
+      if (best.img.shot_type) demoteQ = demoteQ.eq('shot_type', best.img.shot_type);
+      await demoteQ;
+
+      // Promote the winner
+      await (supabase as any)
+        .from('project_images')
+        .update({
+          is_primary: true,
+          is_active: true,
+          curation_state: 'active',
+          archived_from_active_at: null,
+        })
+        .eq('id', best.img.id);
+
+      promotedSlots.add(slotKey);
+      promoted++;
+      console.log(`[AutoPromote] ✓ Promoted ${best.img.id} for ${slotKey} (score: ${best.score})`);
+    } catch (e) {
+      console.error(`[AutoPromote] Failed to promote ${best.img.id}:`, e);
+      skipped++;
+    }
+  }
+
+  return { promoted, skipped };
 }
