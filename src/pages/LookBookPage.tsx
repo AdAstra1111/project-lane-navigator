@@ -43,6 +43,7 @@ export default function LookBookPage() {
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
+  const [activeWorkingSet, setActiveWorkingSet] = useState<BuildWorkingSet | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [autoCompleting, setAutoCompleting] = useState(false);
