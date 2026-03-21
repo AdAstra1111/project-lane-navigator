@@ -639,8 +639,29 @@ export async function generateLookBookData(
     closing: ['poster', 'world', 'atmosphere'],
   };
 
+  // ── Deck-Level Image Budget ──
+  // Tracks every image URL used across the entire deck to penalize/block reuse
+  const deckImageUsage = new Map<string, { count: number; usedOnSlides: string[] }>();
+
+  function trackImageUsage(url: string, slideType: string) {
+    const entry = deckImageUsage.get(url);
+    if (entry) {
+      entry.count++;
+      entry.usedOnSlides.push(slideType);
+    } else {
+      deckImageUsage.set(url, { count: 1, usedOnSlides: [slideType] });
+    }
+  }
+
+  function getReusePenalty(url: string): number {
+    const usage = deckImageUsage.get(url);
+    if (!usage || usage.count === 0) return 0;
+    // First reuse: -30, second: -60, etc. — heavy enough to prefer ANY unique image
+    return usage.count * -30;
+  }
+
   /** Score an image for section relevance + visual suitability */
-  function scoreImageForSlide(img: ProjectImage, slideType: string): number {
+  function scoreImageForSlide(img: ProjectImage, slideType: string, applyReusePenalty = true): number {
     let score = 0;
     const hasNarrative = !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
     const isLandscape = classifyOrientation(img.width, img.height) === 'landscape';
@@ -661,10 +682,15 @@ export async function generateLookBookData(
         if (['wide', 'atmospheric', 'establishing'].includes(shotType)) score += 15;
         if (img.asset_group === 'world') score += 12;
         if (img.location_ref) score += 10;
+        // Penalize texture/craft detail on world slides
+        if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(shotType)) score -= 15;
+        if (img.asset_group === 'visual_language' && !img.location_ref) score -= 10;
         break;
       case 'themes':
         if (['atmospheric', 'time_variant', 'lighting_ref'].includes(shotType)) score += 15;
         if (img.asset_group === 'visual_language') score += 8;
+        // Penalize literal craft/object detail
+        if (['texture_ref', 'detail'].includes(shotType) && !img.location_ref) score -= 8;
         break;
       case 'visual_language':
         if (['texture_ref', 'detail', 'composition_ref', 'color_ref', 'lighting_ref'].includes(shotType)) score += 15;
@@ -673,15 +699,28 @@ export async function generateLookBookData(
         if (['tableau', 'medium', 'close_up', 'wide'].includes(shotType)) score += 15;
         if (img.asset_group === 'key_moment') score += 12;
         if (img.moment_ref) score += 10;
+        // Penalize texture/craft on key moments
+        if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(shotType)) score -= 15;
         break;
       case 'story_engine':
         if (img.moment_ref) score += 12;
         if (img.asset_group === 'key_moment') score += 8;
+        if (['texture_ref', 'detail'].includes(shotType)) score -= 10;
         break;
       case 'cover':
+        if (img.role === 'poster_primary') score += 20;
+        if (img.role === 'poster_variant') score += 10;
+        // Penalize texture/craft on cover
+        if (['texture_ref', 'detail', 'composition_ref'].includes(shotType)) score -= 20;
+        break;
       case 'closing':
         if (img.role === 'poster_primary') score += 20;
         if (img.role === 'poster_variant') score += 10;
+        if (['texture_ref', 'detail'].includes(shotType)) score -= 15;
+        break;
+      case 'creative_statement':
+        if (['atmospheric', 'wide'].includes(shotType)) score += 10;
+        if (['texture_ref', 'detail'].includes(shotType)) score -= 12;
         break;
     }
 
@@ -689,7 +728,36 @@ export async function generateLookBookData(
     const age = Date.now() - new Date(img.created_at || 0).getTime();
     score += Math.max(0, 3 - Math.floor(age / (1000 * 60 * 60 * 24))); // +3 for today, +2 for yesterday, etc.
 
+    // Deck-level reuse penalty — strongly prefer unique images
+    if (applyReusePenalty && img.signedUrl) {
+      score += getReusePenalty(img.signedUrl);
+    }
+
     return score;
+  }
+
+  /** Pick the best N foreground images from a pool, with deck-level dedup.
+   *  Returns unique URLs only, scored and sorted. */
+  function pickForegroundImages(
+    pool: ProjectImage[],
+    slideType: string,
+    maxCount: number,
+    excludeUrls: string[] = [],
+  ): string[] {
+    const seen = new Set(excludeUrls);
+    const scored = pool
+      .filter(img => img.signedUrl && !seen.has(img.signedUrl!))
+      .map(img => ({ img, score: scoreImageForSlide(img, slideType) }))
+      .sort((a, b) => b.score - a.score);
+
+    const result: string[] = [];
+    for (const { img } of scored) {
+      if (result.length >= maxCount) break;
+      if (seen.has(img.signedUrl!)) continue;
+      seen.add(img.signedUrl!);
+      result.push(img.signedUrl!);
+    }
+    return result;
   }
 
   /** Pick the best background image from section-appropriate pools.
@@ -721,7 +789,7 @@ export async function generateLookBookData(
       if (!combinedPrimary.includes(img)) combinedPrimary.push(img);
     }
 
-    // Score and sort all candidates
+    // Score and sort all candidates (with reuse penalty)
     const scored = combinedPrimary.map(img => ({
       img,
       score: scoreImageForSlide(img, slideType),
@@ -777,6 +845,7 @@ export async function generateLookBookData(
   const slides: SlideContent[] = [];
 
   // ── 1. COVER ──
+  const coverBg = coverImageUrl || pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'cover') || undefined;
   slides.push({
     type: 'cover',
     slide_id: makeSemanticSlideId('cover'),
@@ -786,13 +855,14 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
-    backgroundImageUrl: coverImageUrl || pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'cover') || undefined,
+    backgroundImageUrl: coverBg,
     composition: 'full_bleed_hero',
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
     _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
-  if (coverImageUrl) usedBackgroundUrls.push(coverImageUrl);
+  if (coverBg) { usedBackgroundUrls.push(coverBg); trackImageUsage(coverBg, 'cover'); }
+  if (coverImageUrl && coverImageUrl !== coverBg) trackImageUsage(coverImageUrl, 'cover');
 
   // ── 2. CREATIVE VISION (merged with Overview content) ──
   {
@@ -811,7 +881,7 @@ export async function generateLookBookData(
       ? normalizedCanon.premise.slice(0, 300)
       : undefined;
     const cvBg = pickBackgroundImage(atmosphereImages, [], usedBackgroundUrls, 'creative_statement');
-    if (cvBg) usedBackgroundUrls.push(cvBg);
+    if (cvBg) { usedBackgroundUrls.push(cvBg); trackImageUsage(cvBg, 'creative_statement'); }
     slides.push({
       type: 'creative_statement',
       slide_id: makeSemanticSlideId('creative_statement'),
@@ -828,10 +898,9 @@ export async function generateLookBookData(
   // ── 3. WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'world');
-    if (worldBg) usedBackgroundUrls.push(worldBg);
-    const worldForeground = [...worldImages]
-      .sort((a, b) => scoreImageForSlide(b, 'world') - scoreImageForSlide(a, 'world'))
-      .slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+    if (worldBg) { usedBackgroundUrls.push(worldBg); trackImageUsage(worldBg, 'world'); }
+    const worldForeground = pickForegroundImages(worldImages, 'world', 4, worldBg ? [worldBg] : []);
+    worldForeground.forEach(u => trackImageUsage(u, 'world'));
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -839,7 +908,7 @@ export async function generateLookBookData(
       body: normalizedCanon.world_rules || undefined,
       bodySecondary: normalizedCanon.locations || undefined,
       quote: normalizedCanon.timeline || undefined,
-      imageUrl: worldImageUrl || undefined,
+      imageUrl: worldForeground[0] || undefined,
       imageUrls: worldForeground,
       backgroundImageUrl: worldBg,
       composition: resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length),
@@ -854,7 +923,8 @@ export async function generateLookBookData(
     const keyMomentBody = keyMomentImages.length > 0
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
-    const kmForeground = keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[];
+    const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6);
+    kmForeground.forEach(u => trackImageUsage(u, 'key_moments'));
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
@@ -888,8 +958,9 @@ export async function generateLookBookData(
   const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls, 'visual_language');
-  if (vlBg) usedBackgroundUrls.push(vlBg);
-  const vlForeground = vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+  if (vlBg) { usedBackgroundUrls.push(vlBg); trackImageUsage(vlBg, 'visual_language'); }
+  const vlForeground = pickForegroundImages(vlImages, 'visual_language', 4, vlBg ? [vlBg] : []);
+  vlForeground.forEach(u => trackImageUsage(u, 'visual_language'));
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
@@ -911,15 +982,16 @@ export async function generateLookBookData(
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
     const themesBg = pickBackgroundImage(atmosphereImages, worldImages, usedBackgroundUrls, 'themes');
-    if (themesBg) usedBackgroundUrls.push(themesBg);
-    const themesForeground = atmosphereImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+    if (themesBg) { usedBackgroundUrls.push(themesBg); trackImageUsage(themesBg, 'themes'); }
+    const themesForeground = pickForegroundImages(atmosphereImages, 'themes', 4, themesBg ? [themesBg] : []);
+    themesForeground.forEach(u => trackImageUsage(u, 'themes'));
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
-      imageUrl: atmosphereImages[0]?.signedUrl || undefined,
+      imageUrl: themesForeground[0] || undefined,
       imageUrls: themesForeground,
       backgroundImageUrl: themesBg,
       composition: resolveComposition('themes', !!themesBg, themesForeground.length > 1, themesForeground.length),
@@ -934,8 +1006,9 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
     const seBg = pickBackgroundImage(seImages, keyMomentImages, usedBackgroundUrls, 'story_engine');
-    if (seBg) usedBackgroundUrls.push(seBg);
-    const seForeground = seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[];
+    if (seBg) { usedBackgroundUrls.push(seBg); trackImageUsage(seBg, 'story_engine'); }
+    const seForeground = pickForegroundImages(seImages, 'story_engine', 3, seBg ? [seBg] : []);
+    seForeground.forEach(u => trackImageUsage(u, 'story_engine'));
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
@@ -943,7 +1016,7 @@ export async function generateLookBookData(
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
       bullets: seCopy.bullets,
-      imageUrl: seImages[0]?.signedUrl || undefined,
+      imageUrl: seForeground[0] || undefined,
       imageUrls: seForeground,
       backgroundImageUrl: seBg,
       composition: resolveComposition('story_engine', !!seBg, seForeground.length > 1, seForeground.length),
@@ -963,7 +1036,7 @@ export async function generateLookBookData(
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
     const compBg = pickBackgroundImage([], [], usedBackgroundUrls, 'comparables');
-    if (compBg) usedBackgroundUrls.push(compBg);
+    if (compBg) { usedBackgroundUrls.push(compBg); trackImageUsage(compBg, 'comparables'); }
     slides.push({
       type: 'comparables',
       slide_id: makeSemanticSlideId('comparables'),
@@ -977,13 +1050,14 @@ export async function generateLookBookData(
   // ── OPTIONAL: POSTER DIRECTIONS ──
   const posterImages = canonImages.poster_directions.images;
   if (posterImages.length > 1) {
-    const posterForeground = posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+    const posterForeground = pickForegroundImages(posterImages, 'cover', 4);
+    posterForeground.forEach(u => trackImageUsage(u, 'poster_directions'));
     slides.push({
       type: 'key_moments' as any,
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
       title: 'Poster Directions',
       body: 'Key art explorations — the visual identity that anchors the marketing campaign and defines the audience\'s first impression.',
-      imageUrl: posterImages[0]?.signedUrl || undefined,
+      imageUrl: posterForeground[0] || undefined,
       imageUrls: posterForeground,
       composition: 'montage_grid',
       _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 4),
@@ -1120,6 +1194,44 @@ export async function generateLookBookData(
     } else {
       console.log('[LookBook] ✓ working-set: no overrides needed (pool selections matched)');
     }
+  }
+
+  // ── Final per-slide deduplication pass ──
+  // Ensures no slide has the same image URL twice (across bg, hero, and gallery)
+  for (const slide of slides) {
+    const usedOnSlide = new Set<string>();
+    // Background is highest priority — keep it
+    if (slide.backgroundImageUrl) usedOnSlide.add(slide.backgroundImageUrl);
+    // Hero: remove if duplicate of background
+    if (slide.imageUrl && usedOnSlide.has(slide.imageUrl)) {
+      // Cover/closing intentionally reuse bg as hero — allow
+      if (slide.type !== 'cover' && slide.type !== 'closing') {
+        slide.imageUrl = undefined;
+      }
+    } else if (slide.imageUrl) {
+      usedOnSlide.add(slide.imageUrl);
+    }
+    // Gallery: remove any duplicates
+    if (slide.imageUrls?.length) {
+      const deduped: string[] = [];
+      for (const url of slide.imageUrls) {
+        if (!usedOnSlide.has(url)) {
+          usedOnSlide.add(url);
+          deduped.push(url);
+        }
+      }
+      slide.imageUrls = deduped.length > 0 ? deduped : undefined;
+    }
+  }
+
+  // ── Deck reuse diagnostics ──
+  const reuseEntries = Array.from(deckImageUsage.entries())
+    .filter(([, v]) => v.count > 1)
+    .map(([url, v]) => `${v.usedOnSlides.join('+')} (×${v.count})`);
+  if (reuseEntries.length > 0) {
+    console.warn(`[LookBook] ⚠ image reuse detected: ${reuseEntries.join(' | ')}`);
+  } else {
+    console.log('[LookBook] ✓ no cross-slide image reuse');
   }
 
   // ── Selection diagnostics — log WHY each slide got its images ──
