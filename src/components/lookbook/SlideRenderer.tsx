@@ -1624,16 +1624,15 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
         <AccentRule color={colors.accent} width={64} centered />
         <h2 style={{ ...titleStyle, fontSize: 72, fontWeight: 700, color: colors.text, textAlign: 'center', marginBottom: 20, lineHeight: 0.95 }}>{slide.title}</h2>
         {slide.subtitle && <p style={{ fontSize: 22, lineHeight: 1.5, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif`, textAlign: 'center', maxWidth: 700, marginBottom: 48 }}>{slide.subtitle}</p>}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 40 }}>
-          {slide.credit && <span style={{ fontSize: 13, letterSpacing: '0.15em', color: colors.accent, opacity: 0.7 }}>{slide.credit}</span>}
-          {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.3em', color: colors.textMuted, opacity: 0.4, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-        </div>
-      </div>
-      {slide.companyLogoUrl && (
-        <div className="absolute bottom-10 right-14">
-          <img src={slide.companyLogoUrl} alt="" style={{ height: 20, objectFit: 'contain', opacity: 0.3, filter: 'brightness(2)' }} />
-        </div>
-      )}
+        <CinematicCreditBlock
+          title={slide.title}
+          companyName={slide.companyName}
+          credit={slide.credit}
+          companyLogoUrl={slide.companyLogoUrl}
+          colors={colors}
+          variant="full"
+          centered
+        />
     </div>
   );
 }
