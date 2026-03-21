@@ -128,19 +128,30 @@ export default function LookBookPage() {
     prevSlidesRef.current = lookBookData?.slides ?? null;
   }, [lookBookData]);
 
-  const handleGenerate = useCallback(async () => {
+  const handleGenerate = useCallback(async (explicitWorkingSet?: BuildWorkingSet | null) => {
     if (!projectId) return;
     setGenerating(true);
     try {
       // Invalidate all image caches before building
       invalidateImageCaches();
 
+      // Use explicit param first (from Auto Complete), then fall back to state
+      const effectiveWorkingSet = explicitWorkingSet !== undefined
+        ? explicitWorkingSet
+        : activeWorkingSet;
+
+      console.log('[LookBookPage] handleGenerate called', {
+        explicitWSProvided: explicitWorkingSet !== undefined,
+        effectiveWSEntries: effectiveWorkingSet?.entries?.length ?? 0,
+        effectiveWSSlots: effectiveWorkingSet?.bySlotKey?.size ?? 0,
+      });
+
       // Always re-resolve from DB — no stale snapshot reuse
       console.log('[LookBookPage] Building lookbook from fresh DB state...');
       const freshData = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
-        workingSet: activeWorkingSet,
+        workingSet: effectiveWorkingSet,
       });
 
       // Preserve valid user decisions from previous build (read from ref, not state)
@@ -383,10 +394,9 @@ export default function LookBookPage() {
       }
 
       // 7. Store working set and rebuild with overlay
-      setActiveWorkingSet(workingSet);
+      setActiveWorkingSet(workingSet);  // store for manual rebuilds
       invalidateImageCaches();
-      await new Promise(r => setTimeout(r, 300));
-      await handleGenerate();
+      await handleGenerate(workingSet);  // pass directly — no stale closure
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
     } finally {
@@ -428,7 +438,7 @@ export default function LookBookPage() {
               Rebuild Structure
             </Button>
           )}
-          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleGenerate} disabled={generating}>
+          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={() => handleGenerate()} disabled={generating}>
             {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
             Build Look Book
           </Button>
@@ -465,7 +475,7 @@ export default function LookBookPage() {
                 <p className="text-xs text-muted-foreground">Images have changed since your last build. Rebuild to preview the latest approved images.</p>
               </div>
             </div>
-            <Button size="sm" variant="outline" className="gap-1 text-xs h-7 shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10" onClick={handleGenerate} disabled={generating}>
+            <Button size="sm" variant="outline" className="gap-1 text-xs h-7 shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10" onClick={() => handleGenerate()} disabled={generating}>
               {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               Rebuild Now
             </Button>
@@ -583,7 +593,7 @@ export default function LookBookPage() {
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
                 <p className="text-sm text-foreground mb-1">No built lookbook yet.</p>
                 <p className="text-xs text-muted-foreground mb-4">Build the lookbook from the canonical workspace sections first.</p>
-                <Button size="sm" variant="outline" className="gap-1" onClick={handleGenerate} disabled={generating}>
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => handleGenerate()} disabled={generating}>
                   {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                   Build Look Book
                 </Button>
