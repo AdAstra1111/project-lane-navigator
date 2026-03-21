@@ -499,6 +499,9 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       );
       reportProgress(PipelineStage.GENERATION, `${execResult.totalSatisfied}/${execResult.results.length} requirements satisfied`, 100, requirements);
 
+      // Store requirement results for QA
+      reqResults = execResult.results;
+
       // Use generated working set
       workingSet = execResult.workingSet;
 
