@@ -4,7 +4,7 @@
  */
 import type { LookBookData, SlideContent, LookBookVisualIdentity } from '../types';
 import type { ProjectImage } from '@/lib/images/types';
-import type { SectionImageResult, ResolutionDiagnostics } from '../resolveCanonImages';
+import type { SectionImageResult, ResolutionDiagnostics, ResolvedCanonImages } from '../resolveCanonImages';
 import type { GapAnalysisResult } from '@/lib/images/lookbookGapAnalyzer';
 import type { OrchestrationResult, BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
 import type { PoolKey } from './lookbookSlotRegistry';
