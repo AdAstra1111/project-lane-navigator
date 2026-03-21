@@ -438,7 +438,7 @@ export default function LookBookPage() {
               Rebuild Structure
             </Button>
           )}
-          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleGenerate} disabled={generating}>
+          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={() => handleGenerate()} disabled={generating}>
             {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
             Build Look Book
           </Button>
