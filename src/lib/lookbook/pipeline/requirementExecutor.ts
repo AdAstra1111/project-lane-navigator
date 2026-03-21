@@ -401,6 +401,27 @@ export async function executeRequirements(
   };
 }
 
+// ── Shot-type compatibility mapping ──────────────────────────────────────────
+// Identity shot types map to their requirement equivalents for matching
+
+const SHOT_TYPE_COMPAT: Record<string, string[]> = {
+  identity_headshot: ['close_up', 'portrait'],
+  identity_profile: ['three_quarter', 'close_up', 'profile'],
+  identity_full_body: ['medium', 'full_body'],
+  close_up: ['identity_headshot', 'portrait'],
+  medium: ['identity_full_body'],
+  full_body: ['identity_full_body'],
+  three_quarter: ['identity_profile', 'profile'],
+  profile: ['identity_profile', 'three_quarter'],
+};
+
+function areShotTypesCompatible(actual: string | null, requested: string): boolean {
+  if (!actual) return false;
+  if (actual === requested) return true;
+  const compatList = SHOT_TYPE_COMPAT[actual];
+  return compatList ? compatList.includes(requested) : false;
+}
+
 // ── Internal types ───────────────────────────────────────────────────────────
 
 interface GenerationBatchRecord {
