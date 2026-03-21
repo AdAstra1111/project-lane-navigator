@@ -1280,14 +1280,22 @@ serve(async (req) => {
       const isIdentityShot = shotType?.startsWith("identity_");
       const isIdentityGeneration = identity_mode || (forced_shot_type && isIdentityShot);
 
-      // Step 1: Base prompt
+      // Step 1: Base prompt — prompt_override takes priority when provided
       let prompt: string;
+      let promptOverrideUsed = false;
       if (isIdentityGeneration && isIdentityShot && character_name) {
         prompt = buildIdentityPrompt(character_name, shotType as ShotType, ctx);
+      } else if (autoCompleteContext?.prompt_override) {
+        // Use the client-built prompt which includes slot-intent constraints,
+        // slide-type guardrails, and hard negatives from the requirement pipeline.
+        prompt = autoCompleteContext.prompt_override;
+        promptOverrideUsed = true;
+        console.log(`[Lookbook] Using prompt_override (len=${prompt.length}) for section=${section} shot=${shotType || 'auto'}`);
       } else {
         prompt = shotType
           ? buildPackPrompt(assetGroup, shotType, ctx, i)
           : buildSectionPrompt(section, ctx, i);
+        console.log(`[Lookbook] Fallback to buildPackPrompt (no override) for section=${section} shot=${shotType || 'auto'}`);
       }
 
       // ── VERTICAL COMPLIANCE: Inject strict aspect instruction into prompt ──
