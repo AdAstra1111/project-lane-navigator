@@ -23,8 +23,10 @@ import { toast } from 'sonner';
 export type WorkingSetSource = 'active' | 'candidate' | 'archived' | 'generated';
 
 export interface WorkingSetEntry {
-  /** Slide ID this image is for */
+  /** Slide ID this image is for (semantic, e.g. 'world:main') */
   slideId: string;
+  /** Explicit slide type — NEVER parsed from slideId */
+  slideType: string;
   /** Slot ID within the layout */
   slotId: string;
   /** The chosen image */
