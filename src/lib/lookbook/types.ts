@@ -91,6 +91,29 @@ export type SlideComposition =
   | 'editorial_panel'        // text-primary with supporting image panel
   | 'gradient_only';         // fallback when no imagery available
 
+/** Layout hint — art-direction variant within a composition mode */
+export type LayoutHint =
+  | 'hero_top_grid'          // hero image full-width top, support grid below
+  | 'asymmetric_split'       // hero left 60%, supports stacked right
+  | 'cinematic_stack'        // vertically stacked dramatic panels
+  | 'landscape_hero'         // full-bleed landscape with bottom glass panel
+  | 'environment_grid'       // world images in editorial grid
+  | 'portrait_dominant'      // large portrait center, text wrapping
+  | 'dual_character_split'   // two characters side by side
+  | 'text_overlay_bg'        // text overlay on atmospheric background
+  | 'minimal_text_center'    // minimal centered text, subtle bg
+  | 'default';               // section-default layout
+
+/** Image role within a slide */
+export type ImageRole = 'hero' | 'support' | 'background';
+
+/** Assigned image with role metadata */
+export interface RoledImage {
+  url: string;
+  role: ImageRole;
+  score: number;
+}
+
 export interface SlideContent {
   type: SlideType;
   /** Stable slide identifier — deterministic, survives regeneration */
@@ -139,6 +162,10 @@ export interface SlideContent {
   backgroundImageUrl?: string;
   /** Resolved cinematic composition mode */
   composition?: SlideComposition;
+  /** Art-direction layout hint — drives renderer variant selection */
+  layoutHint?: LayoutHint;
+  /** Images with assigned roles (hero/support/background) */
+  roledImages?: RoledImage[];
 
   // ── Layout family metadata ──
   /** Resolved layout family key for this slide (from auto-resolver) */

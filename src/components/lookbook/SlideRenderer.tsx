@@ -12,7 +12,7 @@
  * - Themes: text-led with subtle atmospheric support
  * - Closing: atmospheric bookend
  */}
-import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
+import type { SlideContent, LookBookVisualIdentity, DeckFormat, LayoutHint } from '@/lib/lookbook/types';
 import { getSlideDimensions } from '@/lib/lookbook/types';
 
 interface SlideRendererProps {
@@ -1229,6 +1229,74 @@ function KeyMomentsSlide({ slide, colors, titleStyle, baseStyle, fontBody, slide
     );
   }
 
+  const hint = slide.layoutHint || 'default';
+
+  // ── Asymmetric split: hero left 60%, supports stacked right ──
+  if (!isPortrait && hint === 'asymmetric_split' && imgCount >= 2) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        <EdgeAccent color={colors.accent} />
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '32px 72px 8px', flexShrink: 0 }}>
+            <SectionTag label={sectionLabel} color={colors.accent} />
+            <h2 style={{ ...titleStyle, fontSize: 38, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
+          </div>
+          <div style={{ flex: 1, display: 'flex', padding: '0 32px 32px', gap: 8, minHeight: 0 }}>
+            {/* Hero — 60% width */}
+            <div style={{ flex: 3, borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}` }}>
+              <img src={imgs[0]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
+            </div>
+            {/* Supports stacked — 40% */}
+            <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {imgs.slice(1, 4).map((url, i) => (
+                <div key={i} style={{ flex: 1, borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}` }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Hero top grid: full-width hero top, support grid below ──
+  if (!isPortrait && hint === 'hero_top_grid' && imgCount >= 3) {
+    return (
+      <div style={baseStyle} className="slide-content">
+        <EdgeAccent color={colors.accent} />
+        <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '24px 72px 8px', flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 20 }}>
+            <SectionTag label={sectionLabel} color={colors.accent} />
+            <h2 style={{ ...titleStyle, fontSize: 36, fontWeight: 600, color: colors.text }}>{slide.title}</h2>
+          </div>
+          {/* Hero — full width, 55% height */}
+          <div style={{ height: '55%', flexShrink: 0, padding: '0 32px 4px', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '100%', borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}` }}>
+              <img src={imgs[0]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
+            </div>
+          </div>
+          {/* Support grid below */}
+          <div style={{
+            flex: 1, padding: '4px 32px 24px',
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(imgs.length - 1, 4)}, 1fr)`,
+            gap: 8, minHeight: 0,
+          }}>
+            {imgs.slice(1, 5).map((url, i) => (
+              <div key={i} style={{ borderRadius: 6, overflow: 'hidden', border: `1px solid ${colors.accentMuted}` }}>
+                <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'saturate(0.85) contrast(1.08)' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <SlideNumber index={slideIndex} total={totalSlides} color={colors.textMuted} />
+      </div>
+    );
+  }
+
+  // ── Default grid layout (existing) ──
   return (
     <div style={baseStyle} className="slide-content">
       <EdgeAccent color={colors.accent} />

@@ -10,7 +10,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions, SlideComposition } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions, SlideComposition, LayoutHint } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
 import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
@@ -1034,22 +1034,116 @@ export async function generateLookBookData(
     return undefined;
   }
 
-  /** Determine cinematic composition mode */
+  // ── Visual Rhythm Engine ──
+  // Tracks composition patterns to prevent consecutive identical layouts.
+  // Alternates between dense (image-heavy) and minimal (text-heavy) slides.
+  const rhythmHistory: SlideComposition[] = [];
+
+  function getRhythmPenalty(composition: SlideComposition): number {
+    if (rhythmHistory.length === 0) return 0;
+    const last = rhythmHistory[rhythmHistory.length - 1];
+    // Strong penalty for exact repeat
+    if (last === composition) return -1;
+    // Mild penalty for similar density (two image-heavy or two text-heavy in a row)
+    const imageDense: SlideComposition[] = ['full_bleed_hero', 'montage_grid', 'split_cinematic'];
+    const textDense: SlideComposition[] = ['text_over_atmosphere', 'editorial_panel', 'gradient_only'];
+    if (imageDense.includes(last) && imageDense.includes(composition)) return -0.5;
+    if (textDense.includes(last) && textDense.includes(composition)) return -0.5;
+    return 0;
+  }
+
+  /** Resolve layout hint for a slide based on section type, image count, and rhythm */
+  function resolveLayoutHint(
+    slideType: string,
+    imageCount: number,
+    hasBackground: boolean,
+    hasHeroImage: boolean,
+  ): LayoutHint {
+    switch (slideType) {
+      case 'key_moments':
+        if (imageCount >= 4) return 'hero_top_grid';
+        if (imageCount >= 2) return 'asymmetric_split';
+        if (imageCount === 1) return 'cinematic_stack';
+        return 'default';
+      case 'world':
+        if (hasBackground && imageCount >= 2) return 'environment_grid';
+        if (hasBackground) return 'landscape_hero';
+        return 'default';
+      case 'characters':
+        return imageCount >= 2 ? 'dual_character_split' : 'portrait_dominant';
+      case 'themes':
+        return hasBackground ? 'text_overlay_bg' : 'minimal_text_center';
+      case 'creative_statement':
+        return hasBackground ? 'text_overlay_bg' : 'minimal_text_center';
+      case 'visual_language':
+        return imageCount >= 2 ? 'environment_grid' : 'default';
+      case 'story_engine':
+        return hasBackground ? 'text_overlay_bg' : 'default';
+      default:
+        return 'default';
+    }
+  }
+
+  /** Determine cinematic composition mode — now rhythm-aware */
   function resolveComposition(
     slideType: string,
     hasBackground: boolean,
     hasForegroundImages: boolean,
     imageCount: number,
   ): SlideComposition {
-    if (slideType === 'characters') return 'character_feature';
-    if (slideType === 'key_moments' && imageCount >= 2) return 'montage_grid';
-    if (slideType === 'cover' || slideType === 'closing') return 'full_bleed_hero';
-    if (slideType === 'creative_statement') return hasBackground ? 'text_over_atmosphere' : 'gradient_only';
-    if (slideType === 'comparables') return hasBackground ? 'text_over_atmosphere' : 'editorial_panel';
-    if (!hasBackground && !hasForegroundImages) return 'gradient_only';
-    if (hasBackground && hasForegroundImages) return 'split_cinematic';
-    if (hasBackground) return 'text_over_atmosphere';
-    return 'editorial_panel';
+    let primary: SlideComposition;
+
+    if (slideType === 'characters') primary = 'character_feature';
+    else if (slideType === 'key_moments' && imageCount >= 2) primary = 'montage_grid';
+    else if (slideType === 'cover' || slideType === 'closing') primary = 'full_bleed_hero';
+    else if (slideType === 'creative_statement') primary = hasBackground ? 'text_over_atmosphere' : 'gradient_only';
+    else if (slideType === 'comparables') primary = hasBackground ? 'text_over_atmosphere' : 'editorial_panel';
+    else if (!hasBackground && !hasForegroundImages) primary = 'gradient_only';
+    else if (hasBackground && hasForegroundImages) primary = 'split_cinematic';
+    else if (hasBackground) primary = 'text_over_atmosphere';
+    else primary = 'editorial_panel';
+
+    // Check rhythm — if exact repeat, try to find an alternative
+    const penalty = getRhythmPenalty(primary);
+    if (penalty < -0.5 && hasBackground && hasForegroundImages) {
+      // Flip between split_cinematic and montage_grid for variety
+      if (primary === 'split_cinematic') primary = 'montage_grid';
+      else if (primary === 'montage_grid' && imageCount >= 1) primary = 'split_cinematic';
+      // Flip between text_over_atmosphere and editorial_panel
+      else if (primary === 'text_over_atmosphere') primary = 'editorial_panel';
+      else if (primary === 'editorial_panel' && hasBackground) primary = 'text_over_atmosphere';
+    }
+
+    rhythmHistory.push(primary);
+    return primary;
+  }
+
+  /** Assign image roles: hero (top 1), support (next N), background (remainder) */
+  function assignImageRoles(
+    urls: string[],
+    slideType: string,
+    bgUrl?: string,
+  ): import('./types').RoledImage[] {
+    const roles: import('./types').RoledImage[] = [];
+
+    // Background image gets background role
+    if (bgUrl) {
+      const bgImg = urlToImage.get(bgUrl);
+      roles.push({ url: bgUrl, role: 'background', score: bgImg ? scoreImageForSlide(bgImg, slideType, false) : 0 });
+    }
+
+    // Foreground images: first = hero, rest = support
+    for (let i = 0; i < urls.length; i++) {
+      const img = urlToImage.get(urls[i]);
+      const score = img ? scoreImageForSlide(img, slideType, false) : 0;
+      roles.push({
+        url: urls[i],
+        role: i === 0 ? 'hero' : 'support',
+        score,
+      });
+    }
+
+    return roles;
   }
 
   // 5. Build identity
@@ -1154,6 +1248,7 @@ export async function generateLookBookData(
       credit: writerCredit,
       backgroundImageUrl: cvBg,
       composition: cvBg ? 'text_over_atmosphere' : 'gradient_only',
+      layoutHint: resolveLayoutHint('creative_statement', 0, !!cvBg, false),
     });
   }
 
@@ -1163,6 +1258,8 @@ export async function generateLookBookData(
     if (worldBg) { usedBackgroundUrls.push(worldBg); trackSelection(worldBg, 'world'); }
     const worldForeground = pickForegroundImages(worldImages, 'world', 4, worldBg ? [worldBg] : []);
     worldForeground.forEach(u => trackSelection(u, 'world'));
+    const worldComp = resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length);
+    const worldHint = resolveLayoutHint('world', worldForeground.length, !!worldBg, !!worldForeground[0]);
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -1173,7 +1270,9 @@ export async function generateLookBookData(
       imageUrl: worldForeground[0] || undefined,
       imageUrls: worldForeground,
       backgroundImageUrl: worldBg,
-      composition: resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length),
+      composition: worldComp,
+      layoutHint: worldHint,
+      roledImages: assignImageRoles(worldForeground, 'world', worldBg),
       _debug_image_ids: canonImages.world_locations.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.world_locations),
       _has_unresolved: canonImages.world_locations.unresolvedCount > 0,
@@ -1187,6 +1286,8 @@ export async function generateLookBookData(
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6);
     kmForeground.forEach(u => trackSelection(u, 'key_moments'));
+    const kmComp = resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length);
+    const kmHint = resolveLayoutHint('key_moments', kmForeground.length, false, !!kmForeground[0]);
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
@@ -1194,7 +1295,9 @@ export async function generateLookBookData(
       body: keyMomentBody,
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
       imageUrls: kmForeground,
-      composition: resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length),
+      composition: kmComp,
+      layoutHint: kmHint,
+      roledImages: assignImageRoles(kmForeground, 'key_moments'),
       _debug_image_ids: canonImages.key_moments.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.key_moments),
       _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
@@ -1232,6 +1335,8 @@ export async function generateLookBookData(
     imageUrls: vlForeground,
     backgroundImageUrl: vlBg,
     composition: resolveComposition('visual_language', !!vlBg, vlForeground.length > 1, vlForeground.length),
+    layoutHint: resolveLayoutHint('visual_language', vlForeground.length, !!vlBg, !!vlForeground[0]),
+    roledImages: assignImageRoles(vlForeground, 'visual_language', vlBg),
     bullets: vlCopy.bullets,
     _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
     _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
@@ -1257,6 +1362,8 @@ export async function generateLookBookData(
       imageUrls: themesForeground,
       backgroundImageUrl: themesBg,
       composition: resolveComposition('themes', !!themesBg, themesForeground.length > 1, themesForeground.length),
+      layoutHint: resolveLayoutHint('themes', themesForeground.length, !!themesBg, false),
+      roledImages: assignImageRoles(themesForeground, 'themes', themesBg),
       _debug_image_ids: canonImages.atmosphere_lighting.imageIds.slice(0, 4),
       _debug_provenance: toSlideProvenance(canonImages.atmosphere_lighting).slice(0, 4),
       _has_unresolved: themesUnresolved > 0,
@@ -1282,6 +1389,8 @@ export async function generateLookBookData(
       imageUrls: seForeground,
       backgroundImageUrl: seBg,
       composition: resolveComposition('story_engine', !!seBg, seForeground.length > 1, seForeground.length),
+      layoutHint: resolveLayoutHint('story_engine', seForeground.length, !!seBg, !!seForeground[0]),
+      roledImages: assignImageRoles(seForeground, 'story_engine', seBg),
       _debug_image_ids: seImages.map(i => i.id).slice(0, 3),
       _debug_provenance: seImages.map(img => ({
         imageId: img.id,
