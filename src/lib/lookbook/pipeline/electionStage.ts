@@ -56,11 +56,18 @@ export function trackSelection(ctx: ElectionContext, url: string, slideType: str
   }
 }
 
-function getScoringContext(ctx: ElectionContext, slotIntent?: SlotIntentContext): ScoringContext {
+function getScoringContext(ctx: ElectionContext, slideType: string, boundPrincipalIds?: Set<string>, hasSceneEvidence?: boolean): ScoringContext {
+  const intent = getSlotIntent(slideType);
   return {
     deckImageUsage: ctx.deckImageUsage,
     usedFingerprints: ctx.usedFingerprints,
-    slotIntent,
+    slotIntent: {
+      requiresEnvironmentDominance: intent.requiresEnvironmentDominance,
+      requiresPrincipalIdentity: intent.requiresPrincipalIdentity,
+      requiresSceneProvenance: intent.requiresSceneProvenance,
+      boundPrincipalIds,
+      hasSceneEvidence: hasSceneEvidence || false,
+    },
   };
 }
 
