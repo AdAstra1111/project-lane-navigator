@@ -140,6 +140,7 @@ export default function LookBookPage() {
       const freshData = await generateLookBookData(projectId, {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
+        workingSet: activeWorkingSet,
       });
 
       // Preserve valid user decisions from previous build (read from ref, not state)
