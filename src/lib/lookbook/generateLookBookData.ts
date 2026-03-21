@@ -546,6 +546,50 @@ export async function generateLookBookData(
     poster: canonImages.poster_directions.images,
   };
 
+  // ── Working Set Overlay: inject provisional images into pools ──
+  // These are candidate/generated images chosen by Auto Complete
+  // They participate in image selection but do NOT modify canon
+  const workingSet = branding.workingSet;
+  if (workingSet && workingSet.bySlotKey.size > 0) {
+    console.log(`[LookBook] Applying working set overlay (${workingSet.bySlotKey.size} entries)`);
+    
+    // Map slide types to section pool keys
+    const SLIDE_TO_POOL: Record<string, keyof typeof sectionPools> = {
+      cover: 'poster', closing: 'poster',
+      world: 'world',
+      themes: 'atmosphere', creative_statement: 'atmosphere',
+      visual_language: 'texture',
+      key_moments: 'keyMoments', story_engine: 'keyMoments',
+    };
+
+    for (const [, entry] of workingSet.bySlotKey) {
+      // Create a synthetic image with the signed URL
+      const syntheticImg: ProjectImage = {
+        ...entry.image,
+        signedUrl: entry.signedUrl,
+        // Mark as working-set source for diagnostics
+        _workingSetSource: entry.source as any,
+      } as any;
+
+      // Inject into the appropriate section pool
+      const poolKey = SLIDE_TO_POOL[entry.slideId.split(':')[0]] || 'atmosphere';
+      if (sectionPools[poolKey]) {
+        sectionPools[poolKey].push(syntheticImg);
+      }
+
+      // Also inject character images into the character maps
+      if (entry.image.subject && entry.image.entity_id) {
+        const charKey = entry.image.subject.toLowerCase();
+        if (!characterNameImageMap.has(charKey)) {
+          characterNameImageMap.set(charKey, entry.signedUrl);
+        }
+        if (!characterImageMap.has(entry.image.entity_id)) {
+          characterImageMap.set(entry.image.entity_id, entry.signedUrl);
+        }
+      }
+    }
+  }
+
   // Broad fallback pool — used ONLY when section pool is empty
   const allSectionImages = [
     ...sectionPools.world,
