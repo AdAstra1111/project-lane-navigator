@@ -34,6 +34,20 @@ export interface PromptContext {
   theme?: string;
 }
 
+// ── Cinematic Prestige Constants ─────────────────────────────────────────────
+
+/** Universal photoreal fidelity directives appended to ALL prompts */
+const FIDELITY_SUFFIX = 'Photorealistic. Shot on ARRI Alexa with anamorphic lens. Real-world textures, imperfect skin, film grain. Natural or motivated cinematic lighting. Must feel captured by a camera, not rendered.';
+
+/** Universal negative prompt additions for all templates */
+const FIDELITY_NEGATIVES = [
+  'illustration', 'painting', 'anime', 'concept art', 'digital painting',
+  'CGI render', 'Unreal Engine', '3D render', 'cartoon', 'sketch',
+  'airbrushed', 'plastic skin', 'waxy face', 'over-smoothed',
+  'stock photo', 'AI-generated look', 'glossy', 'symmetrical staging',
+  'flat lighting', 'video game screenshot',
+];
+
 // ── Template Registry ────────────────────────────────────────────────────────
 
 const TEMPLATES: Record<string, PromptTemplate> = {
