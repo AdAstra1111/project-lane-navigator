@@ -490,12 +490,13 @@ export async function generateLookBookData(
     canonImages.poster_directions.images[0]?.signedUrl ||
     '';
 
-  const worldImages = canonImages.world_locations.images;
+  // Initial pool aliases — will be reassigned after pool expansion
+  let worldImages = canonImages.world_locations.images;
   const worldImageUrl = worldImages[0]?.signedUrl || '';
-  const atmosphereImages = canonImages.atmosphere_lighting.images;
-  const textureImages = canonImages.texture_detail.images;
-  const motifImages = canonImages.symbolic_motifs.images;
-  const keyMomentImages = canonImages.key_moments.images;
+  let atmosphereImages = canonImages.atmosphere_lighting.images;
+  let textureImages = canonImages.texture_detail.images;
+  let motifImages = canonImages.symbolic_motifs.images;
+  let keyMomentImages = canonImages.key_moments.images;
 
   // Build character image maps — pick ONE best image per character (primary preferred)
   const charImages = canonImages.character_identity.images;
