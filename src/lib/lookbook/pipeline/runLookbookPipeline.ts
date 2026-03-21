@@ -499,10 +499,25 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     reportProgress(PipelineStage.QA, 'Running quality checks...', 95);
 
     const qa = runQAStage(lookBookData);
-    log(`QA: ${qa.totalSlides} slides, ${qa.totalImageRefs} images, ${qa.unresolvedSlides.length} unresolved, publishable=${qa.publishable}`);
 
-    if (qa.unresolvedSlides.length > 0) {
-      updateStage(PipelineStage.QA, s => warnStage(s, `${qa.unresolvedSlides.length} unresolved slides`));
+    // Run provenance validation and attach to QA
+    const provenanceReport = validateProvenance(finalSlides, narrativeEvidence, identityBindings);
+    qa.provenance = provenanceReport;
+    qa.identityBindingSummary = {
+      totalCharacters: identityBindings.metrics.totalCharacters,
+      boundCount: identityBindings.metrics.boundCount,
+      unboundPrincipals: identityBindings.metrics.unboundPrincipals,
+    };
+    qa.evidenceCoverageScore = narrativeEvidence.evidenceCoverage.score;
+
+    log(`QA: ${qa.totalSlides} slides, ${qa.totalImageRefs} images, ${qa.unresolvedSlides.length} unresolved, publishable=${qa.publishable}`);
+    log(`QA provenance: ${provenanceReport.passCount} pass, ${provenanceReport.warnCount} warn, ${provenanceReport.mismatchCount} mismatch`);
+    if (provenanceReport.identityMissCount > 0) {
+      log(`QA identity: ${provenanceReport.identityMissCount} slides missing principal identity binding`);
+    }
+
+    if (qa.unresolvedSlides.length > 0 || provenanceReport.warnCount > 0) {
+      updateStage(PipelineStage.QA, s => warnStage(s, `${qa.unresolvedSlides.length} unresolved, ${provenanceReport.warnCount} provenance warnings`));
     } else {
       updateStage(PipelineStage.QA, s => completeStage(s, 'all clear'));
     }
@@ -511,6 +526,8 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     return {
       data: lookBookData,
       qa,
+      narrativeEvidence,
+      identityBindings,
       stages,
       logs,
       durationMs: Date.now() - startTime,
