@@ -78,6 +78,8 @@ export interface ElectionContext {
   usedFingerprints: Map<string, number>;
   /** URL → ProjectImage lookup */
   urlToImage: Map<string, ProjectImage>;
+  /** Section pools by pool key */
+  sectionPools: Record<PoolKey, ProjectImage[]>;
   /** Used background URLs for dedup */
   usedBackgroundUrls: string[];
 }
