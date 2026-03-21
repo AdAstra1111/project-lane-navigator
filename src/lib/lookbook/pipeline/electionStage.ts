@@ -310,6 +310,8 @@ export function runElectionStage(
   }
   const hasSceneEvidence = (narrativeEvidence?.sceneEvidence?.length || 0) > 0;
 
+  console.log(`[Election:intel] boundPrincipals=${boundPrincipalIds.size} (${[...boundPrincipalIds].map(id => id.slice(0,8)).join(',')}) hasSceneEvidence=${hasSceneEvidence} sceneCount=${narrativeEvidence?.sceneEvidence?.length || 0}`);
+
   // 1. Poster hero — global election
   const posterHero = selectPosterHero(allUniqueImages);
   const coverImageUrl = posterHero?.url || '';
