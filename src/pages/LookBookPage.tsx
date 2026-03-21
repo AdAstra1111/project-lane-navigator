@@ -367,21 +367,25 @@ export default function LookBookPage() {
         }
       }
 
-      // 5. Auto-promote high-confidence images into active canon
-      const promoResult = await autoPromoteGeneratedImages(projectId, result.resolutions);
-      if (promoResult.promoted > 0) {
-        toast.success(`${promoResult.promoted} image${promoResult.promoted > 1 ? 's' : ''} auto-promoted to active canon`);
-      }
-      if (promoResult.skipped > 0) {
-        toast.info(`${promoResult.skipped} image${promoResult.skipped > 1 ? 's' : ''} left for manual review`);
+      // 5. Build working set (NO canon promotion — images stay as candidates)
+      let workingSet = await buildWorkingSetFromResolutions(result.resolutions);
+
+      // 6. Augment with recently generated candidates
+      if (result.generationsQueued > 0) {
+        workingSet = await augmentWorkingSetWithRecentGenerations(projectId, workingSet, result.resolutions);
       }
 
-      // 6. Invalidate caches and rebuild with all new + reused + promoted images
-      if (result.activeMatches > 0 || result.archiveReuses > 0 || result.generationsQueued > 0 || promoResult.promoted > 0) {
-        invalidateImageCaches();
-        await new Promise(r => setTimeout(r, 500));
-        await handleGenerate();
+      const wsSize = workingSet.bySlotKey.size;
+      const candidateCount = workingSet.entries.filter(e => e.source !== 'active').length;
+      if (wsSize > 0) {
+        toast.success(`Working set: ${wsSize} slots filled (${candidateCount} provisional — approve in Review Studio to make permanent)`);
       }
+
+      // 7. Store working set and rebuild with overlay
+      setActiveWorkingSet(workingSet);
+      invalidateImageCaches();
+      await new Promise(r => setTimeout(r, 300));
+      await handleGenerate();
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
     } finally {
