@@ -28,7 +28,36 @@ export enum PipelineStage {
   QA = 'QA',
 }
 
-export type PipelineMode = 'fresh_build' | 'reuse_recovery';
+export type PipelineMode = 'fresh_build' | 'reuse_recovery' | 'fresh_from_scratch';
+
+// ── Requirement Progress ─────────────────────────────────────────────────────
+
+export type RequirementStatus =
+  | 'pending'
+  | 'planning'
+  | 'generating'
+  | 'generated'
+  | 'scoring'
+  | 'selected'
+  | 'complete'
+  | 'blocked';
+
+export interface RequirementProgress {
+  /** Requirement/slot identifier (e.g. 'cover:background') */
+  id: string;
+  /** Human-readable label */
+  label: string;
+  /** Slide type */
+  slideType: string;
+  /** Current status */
+  status: RequirementStatus;
+  /** How many candidates generated for this requirement */
+  generatedCount: number;
+  /** How many selected */
+  selectedCount: number;
+  /** Blocking reason if status=blocked */
+  blockingReason?: string;
+}
 
 // ── Stage Status ─────────────────────────────────────────────────────────────
 
@@ -134,6 +163,8 @@ export interface PipelineProgress {
   message: string;
   percent?: number;
   logs: string[];
+  /** Per-requirement progress (populated during generation) */
+  requirements?: RequirementProgress[];
 }
 
 export type PipelineProgressCallback = (progress: PipelineProgress) => void;
@@ -165,4 +196,6 @@ export interface PipelineResult {
   stages: StageState[];
   logs: string[];
   durationMs: number;
+  /** Final requirement progress snapshot */
+  requirements?: RequirementProgress[];
 }

@@ -10,7 +10,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle, Sparkles,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle, Sparkles, Zap,
 } from 'lucide-react';
 import { useLookbookStaleness } from '@/hooks/useLookbookStaleness';
 import { Button } from '@/components/ui/button';
@@ -33,8 +33,9 @@ import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 import { runLookbookPipeline } from '@/lib/lookbook/pipeline/runLookbookPipeline';
-import type { PipelineMode } from '@/lib/lookbook/pipeline/types';
+import type { PipelineMode, PipelineProgress } from '@/lib/lookbook/pipeline/types';
 import { sectionKeyToEdgeFunctionSection, sectionKeyToAssetGroup } from '@/lib/lookbook/pipeline/lookbookSlotRegistry';
+import { LookbookPipelineProgress } from '@/components/lookbook/LookbookPipelineProgress';
 
 type LookbookMode = 'workspace' | 'viewer';
 
@@ -53,6 +54,7 @@ export default function LookBookPage() {
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
   const [rebuildHistoryEpoch, setRebuildHistoryEpoch] = useState(0);
+  const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress | null>(null);
   const consumedAutoBuildKeyRef = useRef<string | null>(null);
 
   // ── Staleness detection ──
@@ -137,6 +139,7 @@ export default function LookBookPage() {
   const handleGenerate = useCallback(async (mode: PipelineMode = 'fresh_build') => {
     if (!projectId) return;
     setGenerating(true);
+    setPipelineProgress(null);
     try {
       invalidateImageCaches();
 
@@ -146,6 +149,7 @@ export default function LookBookPage() {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
         previousSlides: prevSlidesRef.current,
+        onProgress: (p) => setPipelineProgress(p),
       });
 
       // Log provenance for debugging
@@ -183,6 +187,7 @@ export default function LookBookPage() {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {
       setGenerating(false);
+      setPipelineProgress(null);
     }
   }, [projectId, branding, invalidateImageCaches]);
 
@@ -304,7 +309,6 @@ export default function LookBookPage() {
 
   /**
    * Auto Complete LookBook — runs pipeline in reuse_recovery mode.
-   * All orchestration logic is inside the pipeline — NOT here.
    */
   const handleAutoComplete = useCallback(async () => {
     if (!projectId || !lookBookData) {
@@ -321,6 +325,23 @@ export default function LookBookPage() {
       setAutoCompleting(false);
     }
   }, [projectId, lookBookData, handleGenerate]);
+
+  /**
+   * Fresh from scratch — generates everything from zero.
+   */
+  const handleFreshFromScratch = useCallback(async () => {
+    if (!projectId) return;
+    setAutoCompleting(true);
+    try {
+      await handleGenerate('fresh_from_scratch');
+      toast.success('Fresh generation complete — review the deck in Viewer');
+      setViewMode('viewer');
+    } catch (e: any) {
+      toast.error(e.message || 'Fresh generation failed');
+    } finally {
+      setAutoCompleting(false);
+    }
+  }, [projectId, handleGenerate]);
 
   if (projectLoading || sectionsLoading) {
     return (
@@ -356,9 +377,13 @@ export default function LookBookPage() {
               Rebuild Structure
             </Button>
           )}
-          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={() => handleGenerate()} disabled={generating}>
-            {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
+          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={() => handleGenerate()} disabled={generating || autoCompleting}>
+            {generating && !autoCompleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
             Build Look Book
+          </Button>
+          <Button size="sm" variant="default" className="gap-1 text-xs h-7" onClick={handleFreshFromScratch} disabled={autoCompleting || generating}>
+            {autoCompleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            Auto Generate
           </Button>
           {lookBookData && (
             <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleAutoComplete} disabled={autoCompleting || generating}>
@@ -368,6 +393,13 @@ export default function LookBookPage() {
           )}
         </div>
       </div>
+
+      {/* ── Pipeline progress ── */}
+      {(generating || autoCompleting) && pipelineProgress && (
+        <div className="px-4 py-2 border-b border-border bg-card/30 shrink-0">
+          <LookbookPipelineProgress progress={pipelineProgress} />
+        </div>
+      )}
 
       {/* ── Main content area ── */}
       <div className="flex-1 min-h-0 flex flex-col">
