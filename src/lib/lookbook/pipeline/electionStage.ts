@@ -71,21 +71,6 @@ function getScoringContext(ctx: ElectionContext, slideType: string, boundPrincip
   };
 }
 
-/** Build SlotIntentContext for a given slide type */
-function buildSlotIntentContext(
-  slideType: string,
-  boundPrincipalIds: Set<string>,
-  hasSceneEvidence: boolean,
-): SlotIntentContext {
-  const intent = getSlotIntent(slideType);
-  return {
-    requiresEnvironmentDominance: intent.requiresEnvironmentDominance,
-    requiresPrincipalIdentity: intent.requiresPrincipalIdentity,
-    requiresSceneProvenance: intent.requiresSceneProvenance,
-    boundPrincipalIds,
-    hasSceneEvidence,
-  };
-}
 
 // ── Foreground election ──────────────────────────────────────────────────────
 
