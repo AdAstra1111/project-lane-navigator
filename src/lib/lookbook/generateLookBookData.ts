@@ -795,7 +795,7 @@ export async function generateLookBookData(
   // ── 6. VISUAL LANGUAGE ──
   const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
-  const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls);
+  const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls, 'visual_language');
   if (vlBg) usedBackgroundUrls.push(vlBg);
   const vlForeground = vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
   slides.push({
