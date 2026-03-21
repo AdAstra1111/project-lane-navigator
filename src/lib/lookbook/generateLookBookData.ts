@@ -969,6 +969,15 @@ export async function generateLookBookData(
     // Anti-pattern: craft/workshop imagery penalty on non-visual-language slides
     if (slideType !== 'visual_language' && isCraftScene(img)) {
       score -= 25;
+      // Extra penalty on world/environment slides — craft activity is slot-purpose violation
+      if (slideType === 'world' || slideType === 'creative_statement') {
+        score -= 20;
+      }
+    }
+
+    // Anti-pattern: character-centered composition in world/environment slot
+    if ((slideType === 'world' || slideType === 'creative_statement' || slideType === 'themes') && isCharacterCenteredInEnvironment(img)) {
+      score -= 15;
     }
 
     return score;
