@@ -3,6 +3,9 @@
  * Route: /projects/:id/lookbook
  * Canonical lookbook_sections are the authoritative runtime model.
  * Workspace is always accessible and is the default authoring mode.
+ * 
+ * PIPELINE: All builds (manual + auto-complete) go through runLookbookPipeline.
+ * This page does NOT contain orchestration logic — it calls the pipeline.
  */
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -16,7 +19,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
 import { LookbookSectionPanel } from '@/components/lookbook/LookbookSectionPanel';
-import { generateLookBookData, mergeUserDecisions } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
@@ -30,8 +32,9 @@ import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
-import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
-import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations, buildWorkingSetFromResolutions, augmentWorkingSetWithRecentGenerations, type BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
+import { runLookbookPipeline } from '@/lib/lookbook/pipeline/runLookbookPipeline';
+import type { PipelineMode } from '@/lib/lookbook/pipeline/types';
+import { sectionKeyToEdgeFunctionSection, sectionKeyToAssetGroup } from '@/lib/lookbook/pipeline/lookbookSlotRegistry';
 
 type LookbookMode = 'workspace' | 'viewer';
 
