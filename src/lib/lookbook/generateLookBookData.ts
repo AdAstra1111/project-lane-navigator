@@ -958,8 +958,9 @@ export async function generateLookBookData(
   const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls, 'visual_language');
-  if (vlBg) usedBackgroundUrls.push(vlBg);
-  const vlForeground = vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
+  if (vlBg) { usedBackgroundUrls.push(vlBg); trackImageUsage(vlBg, 'visual_language'); }
+  const vlForeground = pickForegroundImages(vlImages, 'visual_language', 4, vlBg ? [vlBg] : []);
+  vlForeground.forEach(u => trackImageUsage(u, 'visual_language'));
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
