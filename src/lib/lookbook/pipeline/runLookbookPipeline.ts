@@ -33,8 +33,10 @@ import type {
   PipelineResult,
   NarrativeContext,
   StageState,
+  RequirementProgress,
 } from './types';
 import { PipelineStage } from './types';
+import { SLOT_INTENT_REGISTRY } from './lookbookSlotIntent';
 import type { LookBookData, LookBookVisualIdentity, LookBookColorSystem } from '../types';
 
 // ── Stage helpers ────────────────────────────────────────────────────────────
