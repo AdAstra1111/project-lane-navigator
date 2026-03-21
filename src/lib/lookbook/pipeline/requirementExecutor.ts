@@ -145,7 +145,9 @@ export async function executeRequirements(
   log(`Identity anchors resolved: ${characterAnchors.size} characters with anchors`);
   for (const [name, anchors] of characterAnchors) {
     if (anchors.hasAnchors) {
-      log(`  ✓ ${name}: headshot=${!!anchors.headshot} fullBody=${!!anchors.fullBody}`);
+      log(`  ✓ ${name}: source=${anchors.source} headshot=${!!anchors.headshot} fullBody=${!!anchors.fullBody}${anchors.aiActorId ? ` actor=${anchors.aiActorId}` : ''}${anchors.additionalRefs?.length ? ` +${anchors.additionalRefs.length} refs` : ''}`);
+    } else if (anchors.source === 'actor_bound') {
+      log(`  ⚠ ${name}: actor-bound but no usable anchors (actor=${anchors.aiActorId})`);
     }
   }
 
