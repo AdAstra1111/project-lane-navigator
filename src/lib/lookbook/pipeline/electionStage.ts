@@ -4,14 +4,17 @@
  * Uses the CANONICAL scorer only (lookbookScorer.scoreImageForSlide).
  * No alternative scoring logic.
  *
- * INPUT: section pools, slide definitions
+ * INPUT: section pools, slide definitions, optional narrative intelligence
  * OUTPUT: ElectionResult (per-slide winners + poster hero)
  * SIDE EFFECTS: none (pure functions)
  */
 import type { ProjectImage } from '@/lib/images/types';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
-import { scoreImageForSlide, getImageFingerprint, type ScoringContext } from './lookbookScorer';
+import { scoreImageForSlide, getImageFingerprint, type ScoringContext, type SlotIntentContext } from './lookbookScorer';
 import { SLIDE_SECTION_AFFINITY, SLIDE_TO_POOL, type PoolKey } from './lookbookSlotRegistry';
+import { getSlotIntent } from './lookbookSlotIntent';
+import type { NarrativeEvidence } from './narrativeEvidence';
+import type { IdentityBindings } from './identityBindingStage';
 import type { ElectionContext, ElectionResult, SlideElection } from './types';
 
 /**
