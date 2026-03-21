@@ -12,22 +12,7 @@ import type { ProjectImage } from '@/lib/images/types';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
 import { scoreImageForSlide, getImageFingerprint, type ScoringContext } from './lookbookScorer';
 import { SLIDE_SECTION_AFFINITY, SLIDE_TO_POOL, type PoolKey } from './lookbookSlotRegistry';
-import type { ElectionResult, SlideElection } from './types';
-
-// ── Election Context (internal tracking) ─────────────────────────────────────
-
-export interface ElectionContext {
-  /** Deck-level URL usage tracker */
-  deckImageUsage: Map<string, { count: number; usedOnSlides: string[] }>;
-  /** Semantic fingerprint tracker */
-  usedFingerprints: Map<string, number>;
-  /** URL → ProjectImage lookup */
-  urlToImage: Map<string, ProjectImage>;
-  /** Section pools by pool key */
-  sectionPools: Record<PoolKey, ProjectImage[]>;
-  /** Used background URLs for dedup */
-  usedBackgroundUrls: string[];
-}
+import type { ElectionContext, ElectionResult, SlideElection } from './types';
 
 /**
  * Create a fresh election context from inventory results.
