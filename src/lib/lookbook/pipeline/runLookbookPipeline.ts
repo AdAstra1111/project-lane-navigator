@@ -308,7 +308,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       if (locations?.length) {
         // Check which locations have visual refs
         const locIds = locations.map((l: any) => l.id);
-        const { data: locImages } = await supabase
+        const { data: locImages } = await (supabase as any)
           .from('project_images')
           .select('canon_location_id')
           .eq('project_id', options.projectId)
