@@ -162,6 +162,10 @@ export interface SlideContent {
   backgroundImageUrl?: string;
   /** Resolved cinematic composition mode */
   composition?: SlideComposition;
+  /** Art-direction layout hint — drives renderer variant selection */
+  layoutHint?: LayoutHint;
+  /** Images with assigned roles (hero/support/background) */
+  roledImages?: RoledImage[];
 
   // ── Layout family metadata ──
   /** Resolved layout family key for this slide (from auto-resolver) */
