@@ -1498,7 +1498,7 @@ FRAMING RULES:
               aspect_compliant: aspectCompliant,
               aspect_drift: aspectDrift,
               vertical_drama_project: isVerticalDramaProject,
-              // ── AUTO-COMPLETE CONTEXT: requirement-origin metadata ──
+              // ── AUTO-COMPLETE CONTEXT: requirement-origin + actor attribution metadata ──
               ...(autoCompleteContext ? {
                 auto_complete_context: {
                   target_requirement_id: autoCompleteContext.target_requirement_id || null,
@@ -1509,6 +1509,11 @@ FRAMING RULES:
                   requirement_ids: autoCompleteContext.requirement_ids || [],
                   prompt_override_used: promptOverrideUsed,
                   prompt_override_length: promptOverrideUsed ? (autoCompleteContext.prompt_override?.length ?? 0) : 0,
+                  // ── ACTOR ATTRIBUTION: identity provenance for matching/QA ──
+                  resolved_character_names: autoCompleteContext.resolved_character_names || null,
+                  ai_actor_ids: autoCompleteContext.ai_actor_ids || null,
+                  ai_actor_version_ids: autoCompleteContext.ai_actor_version_ids || null,
+                  identity_sources: autoCompleteContext.identity_sources || null,
                 },
               } : {}),
             },

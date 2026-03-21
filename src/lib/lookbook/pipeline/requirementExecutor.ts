@@ -229,6 +229,9 @@ export async function executeRequirements(
         const allCharNames = resolveAllCharacterNamesFromReq(targetReq);
         const resolvedAnchors: Record<string, { headshot: string | null; fullBody: string | null }> = {};
         let identityCharCount = 0;
+        const resolvedActorIds: Record<string, string> = {};
+        const resolvedActorVersionIds: Record<string, string> = {};
+        const identitySources: Record<string, string> = {};
 
         for (const cn of allCharNames) {
           const key = cn.toLowerCase().trim();
@@ -239,6 +242,9 @@ export async function executeRequirements(
               fullBody: anchors.fullBody || null,
             };
             identityCharCount++;
+            if (anchors.aiActorId) resolvedActorIds[cn] = anchors.aiActorId;
+            if ((anchors as any).aiActorVersionId) resolvedActorVersionIds[cn] = (anchors as any).aiActorVersionId;
+            identitySources[cn] = anchors.source;
           }
         }
 
@@ -254,7 +260,7 @@ export async function executeRequirements(
               identity_mode_used: true,
               identity_character_count: 1,
             };
-            log(`[${section}] Identity LOCKED for "${name}" (headshot=${!!anch.headshot}, fullBody=${!!anch.fullBody})`);
+            log(`[${section}] Identity LOCKED for "${name}" (source=${identitySources[name] || 'unknown'} headshot=${!!anch.headshot}, fullBody=${!!anch.fullBody}${resolvedActorIds[name] ? ` actor=${resolvedActorIds[name]}` : ''})`);
           } else {
             identityPayload = {
               identity_mode: true,
@@ -264,7 +270,7 @@ export async function executeRequirements(
               identity_mode_used: true,
               identity_character_count: identityCharCount,
             };
-            log(`[${section}] Multi-character identity LOCKED for ${Object.keys(resolvedAnchors).join(', ')} (${identityCharCount} chars)`);
+            log(`[${section}] Multi-character identity LOCKED for ${Object.keys(resolvedAnchors).join(', ')} (${identityCharCount} chars, sources=${JSON.stringify(identitySources)})`);
           }
         } else if (allCharNames.length > 0) {
           identityPayload = {
@@ -293,6 +299,11 @@ export async function executeRequirements(
                 slide_type: targetReq.slideType,
                 pass,
                 requested_shot_type: targetReq.shotType,
+                // ── ACTOR ATTRIBUTION: persisted on generated rows ──
+                resolved_character_names: allCharNames,
+                ai_actor_ids: Object.keys(resolvedActorIds).length > 0 ? resolvedActorIds : undefined,
+                ai_actor_version_ids: Object.keys(resolvedActorVersionIds).length > 0 ? resolvedActorVersionIds : undefined,
+                identity_sources: Object.keys(identitySources).length > 0 ? identitySources : undefined,
               },
             },
           });
@@ -451,11 +462,44 @@ export async function executeRequirements(
       if (req.promptContext.characterName) {
         const reqCharLower = req.promptContext.characterName.toLowerCase();
 
+        // ── ACTOR-BOUND ATTRIBUTION MATCHING ──
+        // Check auto_complete_context for actor attribution (persisted on generated rows)
+        const actorCtxNames = autoCtx?.resolved_character_names;
+        const actorCtxIds = autoCtx?.ai_actor_ids as Record<string, string> | null;
+        const actorCtxSources = autoCtx?.identity_sources as Record<string, string> | null;
+
+        // Check if this candidate was generated with actor-bound identity for the required character
+        const reqAnchor = characterAnchors.get(reqCharLower);
+        const reqActorId = reqAnchor?.aiActorId;
+
+        if (reqActorId && actorCtxIds) {
+          // Both the requirement and candidate have actor attribution
+          const candidateActorForChar = Object.entries(actorCtxIds).find(
+            ([name]) => name.toLowerCase().includes(reqCharLower)
+          );
+          if (candidateActorForChar && candidateActorForChar[1] === reqActorId) {
+            score += 20; // Same actor bound — strong identity consistency
+          } else if (candidateActorForChar && candidateActorForChar[1] !== reqActorId) {
+            score -= 30; // Different actor — identity conflict
+            log(`[Match:actor-conflict] req=${req.id} required actor=${reqActorId} but candidate has actor=${candidateActorForChar[1]}`);
+          }
+        }
+
+        // Actor-bound source bonus
+        if (actorCtxSources) {
+          const charSource = Object.entries(actorCtxSources).find(
+            ([name]) => name.toLowerCase().includes(reqCharLower)
+          );
+          if (charSource?.[1] === 'actor_bound') score += 8;
+        }
+
         // Strong bonus: generated with identity lock for correct character
         if (gc?.identity_locked || gc?.identity_mode) {
           const resolvedNames = gc?.resolved_character_names;
           if (Array.isArray(resolvedNames) && resolvedNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
             score += 15; // Identity-locked + correct character
+          } else if (Array.isArray(actorCtxNames) && actorCtxNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
+            score += 15; // Actor-attributed character match
           } else if (img.subject && (img.subject as string).toLowerCase().includes(reqCharLower)) {
             score += 12; // Subject name match with identity lock
           }

@@ -14,6 +14,7 @@ import { scoreImageForSlide } from './lookbookScorer';
 import type { PoolKey } from './lookbookSlotRegistry';
 import { SLIDE_TO_POOL } from './lookbookSlotRegistry';
 import type { InventoryResult } from './types';
+import { resolveProjectCastIdentity } from '@/lib/aiCast/resolveActorIdentity';
 
 // ── Pool expansion helper ────────────────────────────────────────────────────
 
@@ -176,6 +177,25 @@ export async function runInventoryStage(input: InventoryInput): Promise<Inventor
       characterNameImageMap.set(key, img.signedUrl);
       charNameScoreMap.set(key, score);
     }
+  }
+
+  // 3b. Actor-aware character image fallback
+  // If any characters from the canon have actor bindings but no images in the inventory,
+  // resolve their actor reference URLs as character card images
+  try {
+    const actorIdentities = await resolveProjectCastIdentity(projectId);
+    for (const [charKey, anchors] of actorIdentities) {
+      if (!characterNameImageMap.has(charKey) && anchors.hasAnchors) {
+        // Use headshot as character card image, fallback to fullBody
+        const url = anchors.headshot || anchors.fullBody;
+        if (url) {
+          characterNameImageMap.set(charKey, url);
+          console.log(`[LookBook:inventory] Actor-bound character card: "${anchors.characterName}" source=${anchors.source}${anchors.aiActorId ? ` actor=${anchors.aiActorId}` : ''}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[LookBook:inventory] Actor identity fallback failed:', (e as Error).message);
   }
 
   // 4. Inject working set into pools
