@@ -5,6 +5,7 @@
  * 1. Searches active pool for a better match
  * 2. Searches archive/candidate pool for reusable images
  * 3. Queues generation for truly missing images
+ * 4. Auto-promotes high-confidence results into active canon
  * 
  * Does NOT duplicate resolveCanonImages logic.
  * Uses project_images as the single source of truth.
