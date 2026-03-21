@@ -1634,6 +1634,7 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
           variant="full"
           centered
         />
+      </div>
     </div>
   );
 }
