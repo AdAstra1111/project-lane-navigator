@@ -1547,7 +1547,7 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
           {slide.body && <p style={{ fontSize: 20, lineHeight: 1.65, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, maxWidth: 900 }}>{capText(slide.body, 400, true)}</p>}
           {slide.credit && (
             <div style={{ marginTop: 48, paddingTop: 20, borderTop: `1px solid ${colors.accentMuted}` }}>
-              <span style={{ fontSize: 12, letterSpacing: '0.2em', color: colors.accent, textTransform: 'uppercase', opacity: 0.7 }}>{slide.credit}</span>
+              <CinematicCreditBlock companyName={slide.companyName} credit={slide.credit} colors={colors} variant="reduced" scale={0.9} />
             </div>
           )}
         </div>
