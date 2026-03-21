@@ -567,14 +567,7 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
   // ── Landscape: left portrait image + right text ──
   return (
     <div style={baseStyle} className="slide-content">
-      {heroImg && (
-        <div className="absolute inset-0">
-          <img src={heroImg} alt="" className="w-full h-full" style={{
-            objectFit: 'cover', filter: 'saturate(0.2) blur(24px) contrast(0.9)',
-            opacity: 0.1, transform: 'scale(1.1)',
-          }} />
-        </div>
-      )}
+      {heroImg && <CinematicBackground src={heroImg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
       {!heroImg && <DecorativeGradientBg colors={colors} variant="radial" />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
         {/* Left: portrait image */}

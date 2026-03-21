@@ -1242,11 +1242,19 @@ export async function generateLookBookData(
 
   // ── 2. CREATIVE VISION (merged with Overview content) ──
   {
-    const cvPrimary = creativeStatement?.slice(0, 500)
+    const cvRaw = creativeStatement?.slice(0, 500)
       || normalizedCanon.premise
       || logline
       || synopsis.slice(0, 300)
       || '';
+    // Strip markdown headers/formatting so renderer shows clean prose
+    const cvPrimary = cvRaw
+      .replace(/^#{1,6}\s+.*$/gm, '')   // remove markdown headers
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // bold → plain
+      .replace(/\*([^*]+)\*/g, '$1')     // italic → plain
+      .replace(/^[-*]\s+/gm, '')         // bullet markers
+      .replace(/\n{3,}/g, '\n\n')        // collapse excess newlines
+      .trim();
     const cvBullets = [
       genre ? `Genre: ${genre}` : '',
       formatLabel ? `Format: ${formatLabel}` : '',
