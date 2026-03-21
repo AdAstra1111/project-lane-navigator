@@ -28,6 +28,7 @@ import type { RequirementProgress, PipelineProgressCallback } from './types';
 import { PipelineStage } from './types';
 import { buildConstraintPromptSuffix } from './slideTypeConstraints';
 import { validateCandidateForSlidePurpose, isEditorialSlide } from './slotPurposeValidator';
+import { resolveProjectCastIdentity, type ActorIdentityAnchors } from '@/lib/aiCast/resolveActorIdentity';
 
 // ── Execution Result ─────────────────────────────────────────────────────────
 
