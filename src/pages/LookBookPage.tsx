@@ -366,10 +366,18 @@ export default function LookBookPage() {
         }
       }
 
-      // 5. Invalidate caches and rebuild with all new + reused images
-      if (result.activeMatches > 0 || result.archiveReuses > 0 || result.generationsQueued > 0) {
+      // 5. Auto-promote high-confidence images into active canon
+      const promoResult = await autoPromoteGeneratedImages(projectId, result.resolutions);
+      if (promoResult.promoted > 0) {
+        toast.success(`${promoResult.promoted} image${promoResult.promoted > 1 ? 's' : ''} auto-promoted to active canon`);
+      }
+      if (promoResult.skipped > 0) {
+        toast.info(`${promoResult.skipped} image${promoResult.skipped > 1 ? 's' : ''} left for manual review`);
+      }
+
+      // 6. Invalidate caches and rebuild with all new + reused + promoted images
+      if (result.activeMatches > 0 || result.archiveReuses > 0 || result.generationsQueued > 0 || promoResult.promoted > 0) {
         invalidateImageCaches();
-        // Small delay to let cache invalidation propagate
         await new Promise(r => setTimeout(r, 500));
         await handleGenerate();
       }
