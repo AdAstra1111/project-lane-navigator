@@ -737,7 +737,7 @@ export async function generateLookBookData(
 
   // ── 3. WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
-    const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls);
+    const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'world');
     if (worldBg) usedBackgroundUrls.push(worldBg);
     const worldForeground = worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
