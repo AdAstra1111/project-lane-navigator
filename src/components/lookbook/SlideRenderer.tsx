@@ -1294,18 +1294,13 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
     );
   }
 
-  // ── Landscape story engine ──
-  const pad = '72px 96px 72px 100px';
+  // ── Landscape story engine — cinematic background ──
+  const seBg = slide.backgroundImageUrl || slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      {slide.imageUrl && (
-        <div className="absolute inset-0">
-          <img src={slide.imageUrl} alt="" className="w-full h-full object-cover" style={{ opacity: 0.08, filter: 'saturate(0.3) blur(4px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f5 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-        </div>
-      )}
-      <EdgeAccent color={colors.accent} />
-      <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="heavy" overlayDirection="left-heavy" />}
+      {!seBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Story Engine" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
