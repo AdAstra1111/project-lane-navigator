@@ -4,13 +4,19 @@
  * Executes generation per requirement, tracks satisfaction, and produces
  * a working set of generated candidates for election.
  *
- * This replaces gap-driven generation for fresh_from_scratch mode.
+ * Selection truth order:
+ * 1. Hard slot-purpose validity (slotPurposeValidator)
+ * 2. Identity correctness
+ * 3. Requirement-origin / target_requirement_id
+ * 4. Shot / orientation / provenance / timing / other heuristics
  *
  * Controls:
  * - Hard identity lock enforcement for character generation
  * - Slide-type visual guardrails injected into every prompt
+ * - Slot-purpose rejection BEFORE final winner admission
  * - Scene diversity scoring to prevent visual repetition
  * - Deterministic requirement-origin matching when metadata exists
+ * - Deck-level overuse penalty for repeated room/setup across editorial slides
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from '@/lib/images/types';
@@ -21,6 +27,7 @@ import type { LookBookRequirement, RequirementPass, RequirementResult, Requireme
 import type { RequirementProgress, PipelineProgressCallback } from './types';
 import { PipelineStage } from './types';
 import { buildConstraintPromptSuffix } from './slideTypeConstraints';
+import { validateCandidateForSlidePurpose, isEditorialSlide } from './slotPurposeValidator';
 
 // ── Execution Result ─────────────────────────────────────────────────────────
 
@@ -37,24 +44,23 @@ export interface RequirementExecutionResult {
 // ── Identity Anchor Cache ────────────────────────────────────────────────────
 
 interface CharacterAnchorSet {
-  headshot?: string; // storage_path
-  fullBody?: string; // storage_path
+  headshot?: string;
+  fullBody?: string;
   hasAnchors: boolean;
 }
 
 /**
  * Resolve identity anchors for all characters in a project.
- * Returns a map of characterName(lowercase) → anchor paths.
  */
 async function resolveCharacterAnchors(projectId: string): Promise<Map<string, CharacterAnchorSet>> {
   const map = new Map<string, CharacterAnchorSet>();
 
   try {
+    // Query both character and character_identity asset groups
     const { data: anchorImages } = await (supabase as any)
       .from('project_images')
-      .select('subject, shot_type, storage_path, is_primary, generation_config, curation_state')
+      .select('subject, shot_type, storage_path, is_primary, generation_config, curation_state, asset_group')
       .eq('project_id', projectId)
-      .eq('asset_group', 'character')
       .eq('is_primary', true)
       .in('shot_type', ['identity_headshot', 'identity_full_body'])
       .in('curation_state', ['active', 'approved', 'locked']);
@@ -90,20 +96,19 @@ const PASS_ORDER: RequirementPass[] = ['character', 'world', 'key_moments', 'atm
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Max images per single edge function call */
 const BATCH_SIZE = 4;
-/** Max generation calls per section to prevent runaway loops */
 const MAX_CALLS_PER_SECTION = 5;
-/** Max consecutive failures before aborting a section */
 const MAX_CONSECUTIVE_FAILURES = 2;
+/** Max times the same scene signature can appear across editorial slides */
+const EDITORIAL_FAMILY_CAP = 1;
+
+// ── Slides that can contain named principal characters ──
+const CHARACTER_BEARING_SLIDES = new Set([
+  'characters', 'cover', 'poster_directions', 'key_moments', 'story_engine',
+]);
 
 // ── Executor ─────────────────────────────────────────────────────────────────
 
-/**
- * Execute all requirements in pass order.
- * Each pass generates images for its requirements in batched loops until
- * demand is met or failure thresholds are reached.
- */
 export async function executeRequirements(
   projectId: string,
   requirementSet: RequirementSet,
@@ -121,7 +126,6 @@ export async function executeRequirements(
   let totalGenerated = 0;
   let totalFailed = 0;
 
-  // Build progress entries for UI
   const progressReqs: RequirementProgress[] = requirementSet.requirements.map(r => ({
     id: r.id,
     label: r.label,
@@ -142,11 +146,9 @@ export async function executeRequirements(
     });
   };
 
-  // Track all generation call metadata for matching
   const generationBatches: GenerationBatchRecord[] = [];
 
   // ── RESOLVE CHARACTER IDENTITY ANCHORS ──
-  // This MUST happen before any generation to enforce identity lock
   log('Resolving character identity anchors...');
   const characterAnchors = await resolveCharacterAnchors(projectId);
   log(`Identity anchors resolved: ${characterAnchors.size} characters with anchors`);
@@ -156,6 +158,12 @@ export async function executeRequirements(
     }
   }
 
+  // ── DECK-LEVEL DIVERSITY TRACKING ──
+  // Track scene signatures across ALL slides for deck-wide overuse detection
+  const deckSignatureUsage = new Map<string, { count: number; slides: string[] }>();
+  // Track per-slide signatures for within-slide diversity
+  const perSlideSignatures = new Map<string, Map<string, number>>();
+
   // Process each pass in order
   for (const pass of PASS_ORDER) {
     const passReqs = requirementSet.byPass[pass];
@@ -163,14 +171,12 @@ export async function executeRequirements(
 
     log(`── PASS: ${pass.toUpperCase()} (${passReqs.length} requirements) ──`);
 
-    // Mark requirements as planning
     for (const req of passReqs) {
       const pIdx = progressReqs.findIndex(p => p.id === req.id);
       if (pIdx >= 0) progressReqs[pIdx].status = 'planning';
     }
     reportReqs(PipelineStage.GENERATION, `Planning ${pass} pass...`, 30);
 
-    // Group requirements by section for batched generation
     const bySection = new Map<string, LookBookRequirement[]>();
     for (const req of passReqs) {
       const existing = bySection.get(req.section) || [];
@@ -179,7 +185,6 @@ export async function executeRequirements(
     }
 
     for (const [section, sectionReqs] of bySection) {
-      // Mark as generating
       for (const req of sectionReqs) {
         const pIdx = progressReqs.findIndex(p => p.id === req.id);
         if (pIdx >= 0) progressReqs[pIdx].status = 'generating';
@@ -191,8 +196,6 @@ export async function executeRequirements(
       let consecutiveFailures = 0;
       let callCount = 0;
 
-      // ── BATCHED GENERATION LOOP ──
-      // Loop until we have enough images or hit failure thresholds
       while (
         totalGeneratedForSection < totalNeeded &&
         callCount < MAX_CALLS_PER_SECTION &&
@@ -202,7 +205,6 @@ export async function executeRequirements(
         const count = Math.min(remaining, BATCH_SIZE);
         callCount++;
 
-        // Rotate through requirements for prompt diversity
         const reqIndex = (callCount - 1) % sectionReqs.length;
         const targetReq = sectionReqs[reqIndex];
 
@@ -217,13 +219,11 @@ export async function executeRequirements(
         let { prompt } = buildPromptFromTemplate(template, promptCtx);
 
         // ── SLIDE-TYPE VISUAL GUARDRAILS ──
-        // Inject positive/negative constraints based on slide editorial purpose
         const constraintSuffix = buildConstraintPromptSuffix(targetReq.slideType);
         if (constraintSuffix) {
           prompt = `${prompt} ${constraintSuffix}`;
         }
 
-        // ── Append hard negatives from requirement ──
         if (targetReq.hardNegatives.length > 0) {
           prompt = `${prompt} NEGATIVE: ${targetReq.hardNegatives.join(', ')}.`;
         }
@@ -231,10 +231,16 @@ export async function executeRequirements(
         log(`[${section}] batch ${callCount}: generating ${count} (${totalGeneratedForSection}/${totalNeeded} done, req=${targetReq.id})`);
 
         // ── IDENTITY LOCK ENFORCEMENT ──
-        // Resolve identity anchors for character requirements
+        // Applies to character requirements AND character-bearing slides with named characters
         let identityPayload: Record<string, unknown> = {};
-        if (targetReq.subjectType === 'character' && targetReq.promptContext.characterName) {
-          const charNameKey = targetReq.promptContext.characterName.toLowerCase().trim();
+        const charName = targetReq.promptContext.characterName;
+        const shouldLockIdentity = charName && (
+          targetReq.subjectType === 'character' ||
+          CHARACTER_BEARING_SLIDES.has(targetReq.slideType)
+        );
+
+        if (shouldLockIdentity && charName) {
+          const charNameKey = charName.toLowerCase().trim();
           const anchors = characterAnchors.get(charNameKey);
 
           if (anchors?.hasAnchors) {
@@ -246,9 +252,9 @@ export async function executeRequirements(
               },
               identity_notes: targetReq.promptContext.characterTraits || null,
             };
-            log(`[${section}] Identity LOCKED for "${targetReq.promptContext.characterName}" (headshot=${!!anchors.headshot}, fullBody=${!!anchors.fullBody})`);
+            log(`[${section}] Identity LOCKED for "${charName}" (headshot=${!!anchors.headshot}, fullBody=${!!anchors.fullBody})`);
           } else {
-            log(`[${section}] No identity anchors for "${targetReq.promptContext.characterName}" — generating without lock`);
+            log(`[${section}] No identity anchors for "${charName}" — generating without lock`);
           }
         }
 
@@ -261,7 +267,6 @@ export async function executeRequirements(
               asset_group: targetReq.assetGroup,
               pack_mode: true,
               forced_shot_type: targetReq.shotType,
-              // Identity lock fields (empty object if not character)
               ...identityPayload,
               auto_complete_context: {
                 prompt_override: prompt,
@@ -290,12 +295,11 @@ export async function executeRequirements(
           totalFailed += (count - successCount);
 
           if (successCount > 0) {
-            consecutiveFailures = 0; // Reset on success
+            consecutiveFailures = 0;
           } else {
             consecutiveFailures++;
           }
 
-          // Record batch metadata for matching
           generationBatches.push({
             section,
             pass,
@@ -321,7 +325,6 @@ export async function executeRequirements(
         log(`[${section}] WARNING: under-generated ${totalGeneratedForSection}/${totalNeeded} (${callCount} calls, ${consecutiveFailures} failures)`);
       }
 
-      // Update per-requirement progress
       const perReqShare = sectionReqs.length > 0 ? Math.ceil(totalGeneratedForSection / sectionReqs.length) : 0;
       for (const req of sectionReqs) {
         const pIdx = progressReqs.findIndex(p => p.id === req.id);
@@ -337,7 +340,6 @@ export async function executeRequirements(
   }
 
   // ── Harvest generated candidates ──
-  // Use 15-minute window to account for multi-pass generation time
   log('Harvesting recently generated candidates...');
   const harvestWindowMs = 15 * 60 * 1000;
   const harvestCutoff = new Date(Date.now() - harvestWindowMs).toISOString();
@@ -352,7 +354,6 @@ export async function executeRequirements(
 
   const candidates = (recentCandidates || []) as ProjectImage[];
 
-  // Hydrate signed URLs
   await Promise.all(candidates.map(async (img) => {
     if (!img.signedUrl && img.storage_path) {
       try {
@@ -367,48 +368,97 @@ export async function executeRequirements(
 
   log(`Harvested ${candidates.length} candidate images`);
 
-  // ── Track selected scene signatures for diversity control ──
-  const selectedSignatures = new Map<string, number>(); // slideType → signature count
-
-  // ── Match candidates to requirements with strengthened scoring ──
+  // ── REQUIREMENT MATCHING + SELECTION ──
   for (const req of requirementSet.requirements) {
-    const gc_field = 'generation_config';
+    log(`[ReqSelect] ── req=${req.id} slide=${req.slideType} pass=${req.pass} ──`);
 
-    // ── DETERMINISTIC REQUIREMENT-ORIGIN MATCHING ──
-    // If any candidates have our exact target_requirement_id, ONLY use those
-    const directMatches = candidates.filter(c => {
+    // ── Step 1: Find direct requirement-origin pool ──
+    const directPool = candidates.filter(c => {
       if (!c.signedUrl) return false;
-      const gc = (c as any)[gc_field] as Record<string, unknown> | null;
+      const gc = (c as any).generation_config as Record<string, unknown> | null;
       const autoCtx = gc?.auto_complete_context as Record<string, unknown> | null;
       return autoCtx?.target_requirement_id === req.id;
     });
 
-    const useDirectOnly = directMatches.length > 0;
-    const pool = useDirectOnly ? directMatches : candidates.filter(c => {
+    // ── Step 2: Apply HARD SLOT-PURPOSE VALIDATION to direct pool ──
+    let validDirectPool: ProjectImage[] = [];
+    let rejectedDirectCount = 0;
+    for (const img of directPool) {
+      const validation = validateCandidateForSlidePurpose(img, req.slideType);
+      if (validation.allowed) {
+        validDirectPool.push(img);
+      } else {
+        rejectedDirectCount++;
+        log(`[Match:reject] req=${req.id} candidate=${(img as any).id || 'unknown'} reason=slot-purpose-invalid: ${validation.reasons.join('; ')}`);
+      }
+    }
+
+    if (rejectedDirectCount > 0) {
+      log(`[ReqSelect] req=${req.id} directPool=${directPool.length} rejectedForPurpose=${rejectedDirectCount} validAfterGuardrails=${validDirectPool.length}`);
+    }
+
+    // ── Step 3: Determine pool — use valid direct matches first, then fallback ──
+    const useDirectOnly = validDirectPool.length > 0;
+    const pool = useDirectOnly ? validDirectPool : candidates.filter(c => {
       if (!c.signedUrl) return false;
-      // Asset group filter — but allow through if no asset_group on image
       if ((c as any).asset_group && (c as any).asset_group !== req.assetGroup) return false;
-      return true;
+      // Apply slot-purpose validation to fallback pool too
+      const validation = validateCandidateForSlidePurpose(c, req.slideType);
+      return validation.allowed;
     });
 
     if (useDirectOnly) {
-      log(`[Match] ${req.id}: using ${directMatches.length} direct requirement-origin matches (deterministic)`);
+      log(`[ReqSelect] req=${req.id} using ${validDirectPool.length} direct requirement-origin matches (deterministic, slot-validated)`);
+    } else {
+      log(`[ReqSelect] req=${req.id} using fallback pool (${pool.length} candidates after slot-purpose filter)`);
     }
 
+    // ── Step 4: Score candidates ──
     const scored = pool.map(img => {
       let score = 0;
-
-      // ── Requirement-origin matching (strongest signal) ──
       const gc = (img as any).generation_config as Record<string, unknown> | null;
       const autoCtx = gc?.auto_complete_context as Record<string, unknown> | null;
+
+      // Slot-purpose penalty (soft adjustments for allowed-but-imperfect)
+      const purposeValidation = validateCandidateForSlidePurpose(img, req.slideType);
+      score += purposeValidation.penalty;
+
+      // ── Requirement-origin matching ──
       if (autoCtx?.target_requirement_id === req.id) {
-        score += 25; // Direct requirement match
+        score += 25;
       } else if (!useDirectOnly) {
-        // Only apply weaker matching when no direct matches exist
-        if (autoCtx?.slide_type === req.slideType) {
-          score += 12; // Same slide type
-        } else if (autoCtx?.pass === req.pass) {
-          score += 6; // Same pass
+        if (autoCtx?.slide_type === req.slideType) score += 12;
+        else if (autoCtx?.pass === req.pass) score += 6;
+      }
+
+      // ── Identity consistency bonus/penalty ──
+      if (req.promptContext.characterName) {
+        const reqCharLower = req.promptContext.characterName.toLowerCase();
+
+        // Bonus: generated with identity lock for correct character
+        if (gc?.identity_locked && gc?.identity_mode) {
+          const resolvedNames = gc?.resolved_character_names;
+          if (Array.isArray(resolvedNames) && resolvedNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
+            score += 12; // Strong identity consistency bonus
+          } else if (img.subject && (img.subject as string).toLowerCase().includes(reqCharLower)) {
+            score += 10; // Subject name match with identity lock
+          }
+        }
+
+        // Character name match (general)
+        if (img.subject && (img.subject as string).toLowerCase().includes(reqCharLower)) {
+          score += 15;
+        }
+
+        // Identity drift penalty: requirement is for specific character but candidate is
+        // a different named character or generic unnamed
+        if (img.subject && !(img.subject as string).toLowerCase().includes(reqCharLower)) {
+          const subjectLower = (img.subject as string).toLowerCase();
+          // If subject has a different name, heavy penalty
+          if (subjectLower.length > 2 && !subjectLower.includes('character') && !subjectLower.includes('unknown')) {
+            score -= 20; // Wrong character identity
+            log(`[Match:identity-drift] req=${req.id} candidate subject="${img.subject}" doesn't match required "${req.promptContext.characterName}"`);
+          }
         }
       }
 
@@ -417,7 +467,7 @@ export async function executeRequirements(
       if (req.orientation === 'any' || orient === req.orientation) score += 10;
       else if (orient === 'square') score += 3;
 
-      // ── Shot type match (with compatibility normalization) ──
+      // ── Shot type match ──
       if (img.shot_type === req.shotType) score += 8;
       else if (areShotTypesCompatible(img.shot_type, req.shotType)) score += 6;
       else if (autoCtx?.requested_shot_type === req.shotType) score += 5;
@@ -425,42 +475,43 @@ export async function executeRequirements(
       // ── Entity/provenance match ──
       if (img.entity_id || img.location_ref || img.moment_ref) score += 6;
 
-      // ── Character name match ──
-      if (req.promptContext.characterName && img.subject) {
-        if ((img.subject as string).toLowerCase().includes(req.promptContext.characterName.toLowerCase())) {
-          score += 15;
-        }
-      }
-
-      // ── Batch metadata match (fallback for when generation_config isn't populated) ──
+      // ── Batch metadata match (fallback) ──
       if (!useDirectOnly) {
         const batchMatch = generationBatches.find(b =>
-          b.targetRequirementId === req.id &&
-          b.section === req.section
+          b.targetRequirementId === req.id && b.section === req.section
         );
         if (batchMatch && batchMatch.successCount > 0) {
           const imgCreated = (img as any).created_at;
-          if (imgCreated && batchMatch.generatedAt && Math.abs(new Date(imgCreated).getTime() - new Date(batchMatch.generatedAt).getTime()) < 30000) {
+          if (imgCreated && batchMatch.generatedAt &&
+            Math.abs(new Date(imgCreated).getTime() - new Date(batchMatch.generatedAt).getTime()) < 30000) {
             score += 8;
           }
         }
       }
 
-      // ── SCENE DIVERSITY PENALTY ──
-      // Penalize images that look like already-selected compositions for this slide
+      // ── SCENE DIVERSITY PENALTY (per-slide) ──
       const sig = computeSceneSignature(img);
       const slideKey = req.slideType;
-      const existingCount = selectedSignatures.get(`${slideKey}:${sig}`) || 0;
-      if (existingCount > 0) {
-        score -= 10 * existingCount; // Progressive penalty for repeated scenes
+      const slideSigs = perSlideSignatures.get(slideKey) || new Map<string, number>();
+      const sigCount = slideSigs.get(sig) || 0;
+      if (sigCount > 0) {
+        score -= 10 * sigCount;
       }
-      // Extra penalty for same character + same location + same composition
+
+      // ── DECK-LEVEL OVERUSE PENALTY (editorial slides) ──
+      if (isEditorialSlide(req.slideType)) {
+        const deckUsage = deckSignatureUsage.get(sig);
+        if (deckUsage && deckUsage.count >= EDITORIAL_FAMILY_CAP) {
+          score -= 15; // Already used this scene family on another editorial slide
+          log(`[Match:diversity] req=${req.id} sig="${sig}" already used on ${deckUsage.slides.join(',')} — deck overuse penalty`);
+        }
+      }
+
+      // Character+location duplicate penalty
       if (req.promptContext.characterName && img.subject && img.location_ref) {
         const dupKey = `${slideKey}:${(img.subject as string).toLowerCase()}:${img.location_ref}:${img.shot_type}`;
-        const dupCount = selectedSignatures.get(dupKey) || 0;
-        if (dupCount > 0) {
-          score -= 15;
-        }
+        const dupCount = slideSigs.get(dupKey) || 0;
+        if (dupCount > 0) score -= 15;
       }
 
       return { img, score, sig };
@@ -472,16 +523,31 @@ export async function executeRequirements(
     const satisfiedCount = winners.length;
 
     // Record selected signatures for diversity tracking
+    if (!perSlideSignatures.has(req.slideType)) {
+      perSlideSignatures.set(req.slideType, new Map());
+    }
+    const slideSigs = perSlideSignatures.get(req.slideType)!;
     for (const w of winners) {
-      const slideKey = req.slideType;
-      const sigKey = `${slideKey}:${w.sig}`;
-      selectedSignatures.set(sigKey, (selectedSignatures.get(sigKey) || 0) + 1);
-      // Also track character+location combos
+      slideSigs.set(w.sig, (slideSigs.get(w.sig) || 0) + 1);
+      // Update deck-level tracking
+      const deckEntry = deckSignatureUsage.get(w.sig) || { count: 0, slides: [] };
+      deckEntry.count++;
+      if (!deckEntry.slides.includes(req.slideType)) deckEntry.slides.push(req.slideType);
+      deckSignatureUsage.set(w.sig, deckEntry);
+      // Character+location tracking
       if (req.promptContext.characterName && w.img.subject && w.img.location_ref) {
-        const dupKey = `${slideKey}:${(w.img.subject as string).toLowerCase()}:${w.img.location_ref}:${w.img.shot_type}`;
-        selectedSignatures.set(dupKey, (selectedSignatures.get(dupKey) || 0) + 1);
+        const dupKey = `${req.slideType}:${(w.img.subject as string).toLowerCase()}:${w.img.location_ref}:${w.img.shot_type}`;
+        slideSigs.set(dupKey, (slideSigs.get(dupKey) || 0) + 1);
       }
     }
+
+    // Log selection decision
+    const topRejected = scored.slice(req.preferred, req.preferred + 3);
+    log(`[ReqSelect] req=${req.id} directPool=${directPool.length} validAfterGuardrails=${validDirectPool.length} ` +
+      `fallbackPool=${useDirectOnly ? 0 : pool.length} selected=${winners.length}/${req.preferred} ` +
+      `identityLocked=${!!Object.keys(identityPayloadForReq(req, characterAnchors)).length} ` +
+      `topScores=[${winners.map(w => w.score).join(',')}] ` +
+      `nextRejected=[${topRejected.map(r => r.score).join(',')}]`);
 
     // Determine satisfaction
     let status: SatisfactionStatus;
@@ -504,7 +570,6 @@ export async function executeRequirements(
       blockingReason,
     });
 
-    // Update progress
     const pIdx = progressReqs.findIndex(p => p.id === req.id);
     if (pIdx >= 0) {
       progressReqs[pIdx].selectedCount = winners.length;
@@ -513,7 +578,7 @@ export async function executeRequirements(
       if (blockingReason) progressReqs[pIdx].blockingReason = blockingReason;
     }
 
-    // Add to working set
+    // Add to working set — normalize character slide slot ids for richer assembly
     for (let i = 0; i < winners.length; i++) {
       const { img, score } = winners[i];
       allEntries.push({
@@ -557,24 +622,39 @@ export async function executeRequirements(
   };
 }
 
-// ── Scene Diversity ──────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Compute a lightweight scene signature for diversity control.
- * Uses location_ref, subject, shot_type, and composition hints.
- */
+/** Check if a requirement would get identity payload */
+function identityPayloadForReq(
+  req: LookBookRequirement,
+  anchors: Map<string, CharacterAnchorSet>,
+): Record<string, unknown> {
+  const charName = req.promptContext.characterName;
+  if (!charName) return {};
+  if (req.subjectType !== 'character' && !CHARACTER_BEARING_SLIDES.has(req.slideType)) return {};
+  const key = charName.toLowerCase().trim();
+  const a = anchors.get(key);
+  if (!a?.hasAnchors) return {};
+  return { identity_mode: true };
+}
+
+
 function computeSceneSignature(img: ProjectImage): string {
   const parts: string[] = [];
   if (img.location_ref) parts.push(`loc:${img.location_ref}`);
   if (img.subject) parts.push(`subj:${(img.subject as string).toLowerCase()}`);
   if (img.shot_type) parts.push(`shot:${img.shot_type}`);
-  // If no distinguishing metadata, use a generic signature
-  if (parts.length === 0) return 'generic';
+  // Use generation prompt hints for better signature when metadata is sparse
+  const gc = (img as any).generation_config as Record<string, unknown> | null;
+  const autoCtx = gc?.auto_complete_context as Record<string, unknown> | null;
+  if (!img.location_ref && autoCtx?.slide_type) {
+    parts.push(`stype:${autoCtx.slide_type}`);
+  }
+  if (parts.length === 0) return `generic_${(img as any).id || Math.random().toString(36).slice(2, 8)}`;
   return parts.join('|');
 }
 
 // ── Shot-type compatibility mapping ──────────────────────────────────────────
-// Identity shot types map to their requirement equivalents for matching
 
 const SHOT_TYPE_COMPAT: Record<string, string[]> = {
   identity_headshot: ['close_up', 'portrait'],
