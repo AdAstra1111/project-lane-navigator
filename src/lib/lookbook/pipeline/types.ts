@@ -160,6 +160,10 @@ export interface PipelineOptions {
 export interface PipelineResult {
   data: LookBookData;
   qa: QAResult;
+  /** Narrative evidence from extraction stage */
+  narrativeEvidence?: NarrativeEvidence;
+  /** Identity bindings from binding stage */
+  identityBindings?: IdentityBindings;
   stages: StageState[];
   logs: string[];
   durationMs: number;
