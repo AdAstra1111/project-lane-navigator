@@ -1050,48 +1050,70 @@ export async function generateLookBookData(
   }
 
   // ── Working Set Deterministic Overrides — apply after all pool-based selection ──
-  // If a working-set entry targets a slide's background slot and the slide has no
-  // background image (or a weaker one), inject it directly.
+  // Overrides can FILL empty slots AND REPLACE weaker pool-selected images.
+  // A working-set entry wins over an existing selection when it has a positive score,
+  // meaning the orchestrator already evaluated it as a strong match for this slot.
   if (workingSetDirectOverrides.size > 0) {
+    const overrideDiag: string[] = [];
+
     for (const slide of slides) {
-      // Check for background override
+      const ws = (key: string) => workingSetDirectOverrides.get(key);
+      const ensureWS = () => { slide._workingSetSources = slide._workingSetSources || {}; };
+
+      // ── Background slot ──
       const bgKey = `${slide.type}:background`;
-      const bgOverride = workingSetDirectOverrides.get(bgKey);
-      if (bgOverride && !slide.backgroundImageUrl) {
-        slide.backgroundImageUrl = bgOverride.url;
-        slide._workingSetSources = slide._workingSetSources || {};
-        (slide._workingSetSources as any).background = bgOverride.source;
-        // Recompute composition since we now have a background
-        slide.composition = resolveComposition(
-          slide.type, true,
-          (slide.imageUrls?.length || 0) > 0,
-          (slide.imageUrls?.length || 0),
-        );
+      const bgOverride = ws(bgKey);
+      if (bgOverride) {
+        const currentBg = slide.backgroundImageUrl;
+        // Apply if empty OR if the override is a different (presumably better) image
+        if (!currentBg || (currentBg !== bgOverride.url)) {
+          const action = currentBg ? 'replaced' : 'filled';
+          slide.backgroundImageUrl = bgOverride.url;
+          ensureWS();
+          (slide._workingSetSources as any).background = bgOverride.source;
+          slide.composition = resolveComposition(
+            slide.type, true,
+            (slide.imageUrls?.length || 0) > 0,
+            (slide.imageUrls?.length || 0),
+          );
+          overrideDiag.push(`${slide.type}:bg ${action} (${bgOverride.source})`);
+        }
       }
 
-      // Check for hero/primary override
+      // ── Hero / primary slot ──
       const heroKey = `${slide.type}:hero`;
-      const heroOverride = workingSetDirectOverrides.get(heroKey);
-      if (heroOverride && !slide.imageUrl) {
-        slide.imageUrl = heroOverride.url;
-        slide._workingSetSources = slide._workingSetSources || {};
-        (slide._workingSetSources as any).hero = heroOverride.source;
+      const heroOverride = ws(heroKey);
+      if (heroOverride) {
+        const currentHero = slide.imageUrl;
+        if (!currentHero || (currentHero !== heroOverride.url)) {
+          const action = currentHero ? 'replaced' : 'filled';
+          slide.imageUrl = heroOverride.url;
+          ensureWS();
+          (slide._workingSetSources as any).hero = heroOverride.source;
+          overrideDiag.push(`${slide.type}:hero ${action} (${heroOverride.source})`);
+        }
       }
 
-      // Check for any foreground slot overrides
+      // ── Foreground / gallery slots ──
       for (const [key, override] of workingSetDirectOverrides) {
         if (key.startsWith(`${slide.type}:`) && !key.endsWith(':background') && !key.endsWith(':hero')) {
           if (!slide.imageUrls?.includes(override.url)) {
             slide.imageUrls = slide.imageUrls || [];
             slide.imageUrls.push(override.url);
-            slide._workingSetSources = slide._workingSetSources || {};
+            ensureWS();
             const slotName = key.split(':')[1] || 'slot';
             (slide._workingSetSources as any)[slotName] = override.source;
+            overrideDiag.push(`${slide.type}:${slotName} added (${override.source})`);
           }
         }
       }
     }
-    console.log('[LookBook] ✓ working-set deterministic overrides applied');
+
+    if (overrideDiag.length > 0) {
+      console.log(`[LookBook] ✓ working-set overrides: ${overrideDiag.join(' | ')}`);
+    } else {
+      console.log('[LookBook] ✓ working-set: no overrides needed (pool selections matched)');
+    }
   }
 
   // ── Selection diagnostics — log WHY each slide got its images ──
