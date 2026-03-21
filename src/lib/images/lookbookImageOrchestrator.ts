@@ -385,6 +385,7 @@ export async function buildWorkingSetFromResolutions(
 
     entries.push({
       slideId: res.gap.slideId,
+      slideType: res.gap.slideType,
       slotId: res.gap.slotId,
       image: img,
       source: res.resolvedSource || 'candidate',
