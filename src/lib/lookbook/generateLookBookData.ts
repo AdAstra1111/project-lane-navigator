@@ -485,10 +485,94 @@ export async function generateLookBookData(
   );
   console.log(`[LookBook] ✓ images resolved (strictDeckMode=${isVD})`);
 
-  const coverImageUrl =
-    canonImages.poster_directions.images.find(i => i.role === 'poster_primary')?.signedUrl ||
-    canonImages.poster_directions.images[0]?.signedUrl ||
-    '';
+  /**
+   * selectPosterHero — Deterministic hero image election for the cover slide.
+   * Searches ALL available pools, not just poster_directions.
+   * Scores specifically for poster-worthiness: emotional impact, composition quality,
+   * iconic potential. Returns the single best hero image URL.
+   */
+  function selectPosterHero(allImages: ProjectImage[]): { url: string; id: string; score: number } | null {
+    const candidates = allImages.filter(img => img.signedUrl);
+    if (candidates.length === 0) return null;
+
+    const scored = candidates.map(img => {
+      let score = 0;
+
+      // Role-based scoring — poster images are purpose-built
+      if (img.role === 'poster_primary') score += 30;
+      if (img.role === 'poster_variant') score += 15;
+      if (img.role === 'lookbook_cover') score += 20;
+
+      // Shot type scoring — prefer emotionally compelling compositions
+      const st = img.shot_type || '';
+      if (['close_up', 'emotional_variant'].includes(st)) score += 12; // face / emotional impact
+      if (['tableau', 'wide'].includes(st)) score += 8; // cinematic scope
+      if (['medium', 'full_body'].includes(st)) score += 6;
+      if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(st)) score -= 20; // not poster material
+
+      // Narrative truth — images with story binding are more iconic
+      if (img.entity_id || img.subject_ref) score += 10;
+      if (img.moment_ref) score += 8;
+
+      // Landscape bonus for full-bleed hero coverage
+      const orient = classifyOrientation(img.width, img.height);
+      if (orient === 'landscape') score += 6;
+
+      // Freshness — prefer recently created/approved
+      const ageDays = (Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24);
+      if (ageDays < 1) score += 8;
+      else if (ageDays < 3) score += 5;
+      else if (ageDays < 7) score += 2;
+
+      // Primary status — mild boost
+      if (img.is_primary) score += 3;
+
+      // Anti-pattern: craft/workshop imagery is never a good poster hero
+      const prompt = (img.prompt_used || '').toLowerCase();
+      if (prompt.includes('pottery') || prompt.includes('ceramic') || prompt.includes('workshop') ||
+          prompt.includes('kiln') || prompt.includes('craftsman')) {
+        score -= 30;
+      }
+
+      return { img, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    // Election diagnostics
+    const top3 = scored.slice(0, 3).map(s => ({
+      id: s.img.id.slice(0, 8),
+      score: s.score,
+      role: s.img.role,
+      shot: s.img.shot_type || 'none',
+      orient: classifyOrientation(s.img.width, s.img.height),
+    }));
+    console.log(`[LookBook:posterHero] election: top3=${JSON.stringify(top3)} pool=${candidates.length}`);
+
+    const winner = scored[0];
+    return { url: winner.img.signedUrl!, id: winner.img.id, score: winner.score };
+  }
+
+  // Gather ALL available images for poster hero election
+  const allAvailableImages: ProjectImage[] = [
+    ...canonImages.poster_directions.images,
+    ...canonImages.world_locations.images,
+    ...canonImages.atmosphere_lighting.images,
+    ...canonImages.key_moments.images,
+    ...canonImages.character_identity.images,
+    ...canonImages.symbolic_motifs.images,
+    ...canonImages.texture_detail.images,
+  ];
+  // Deduplicate by image id
+  const seenIds = new Set<string>();
+  const uniqueImages = allAvailableImages.filter(img => {
+    if (seenIds.has(img.id)) return false;
+    seenIds.add(img.id);
+    return true;
+  });
+
+  const posterHero = selectPosterHero(uniqueImages);
+  const coverImageUrl = posterHero?.url || '';
 
   // Initial pool aliases — will be reassigned after pool expansion
   let worldImages = canonImages.world_locations.images;
