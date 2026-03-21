@@ -718,25 +718,27 @@ function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIn
     );
   }
 
-  // ── Landscape overview ──
-  const pad = '72px 96px 72px 100px';
+  // ── Landscape overview — cinematic background ──
+  const hasBg = !!slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {hasBg && <CinematicBackground src={slide.backgroundImageUrl!} colors={colors} overlayStrength="heavy" overlayDirection="left-heavy" />}
+      {!hasBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Project Overview" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 56, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
         <div style={{ display: 'flex', gap: 64, flex: 1 }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: hasBg ? 700 : undefined }}>
             {slide.body && <p style={{ fontSize: 28, lineHeight: 1.45, fontWeight: 500, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 28 }}>{slide.body}</p>}
             {slide.bodySecondary && <p style={{ fontSize: 17, lineHeight: 1.7, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
           </div>
           {slide.bullets && slide.bullets.length > 0 && (
             <div style={{
-              width: 360, flexShrink: 0, background: colors.bgSecondary,
+              width: 360, flexShrink: 0, background: `${colors.bgSecondary}cc`,
               border: `1px solid ${colors.accentMuted}`, borderRadius: 8,
               padding: '40px 36px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 28,
+              backdropFilter: hasBg ? 'blur(8px)' : undefined,
             }}>
               {slide.bullets.map((b, i) => {
                 const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
