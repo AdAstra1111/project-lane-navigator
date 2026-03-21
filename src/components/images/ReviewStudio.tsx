@@ -166,7 +166,9 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
       toast.success(`${suggestedApproval.safe.length} images approved — rebuild LookBook to see changes`, {
         action: {
           label: 'Build LookBook',
-          onClick: () => navigate(`/projects/${projectId}/lookbook`),
+          onClick: () => navigate(`/projects/${projectId}/lookbook`, {
+            state: { mode: 'viewer', autoBuild: true, buildKey: `review-studio-bulk-${Date.now()}` },
+          }),
         },
       });
     } finally {
@@ -209,7 +211,9 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
     toast.success('Image approved — rebuild LookBook to see changes', {
       action: {
         label: 'Build LookBook',
-        onClick: () => navigate(`/projects/${projectId}/lookbook`),
+        onClick: () => navigate(`/projects/${projectId}/lookbook`, {
+          state: { mode: 'viewer', autoBuild: true, buildKey: `review-studio-single-${img.id}-${Date.now()}` },
+        }),
       },
     });
   }, [approveIntoCanon, navigate, projectId]);
@@ -259,7 +263,9 @@ export function ReviewStudio({ projectId }: ReviewStudioProps) {
             size="sm"
             variant="outline"
             className="h-7 text-xs gap-1.5 ml-2"
-            onClick={() => navigate(`/projects/${projectId}/lookbook`)}
+            onClick={() => navigate(`/projects/${projectId}/lookbook`, {
+              state: { mode: 'viewer', autoBuild: true, buildKey: `review-studio-toolbar-${Date.now()}` },
+            })}
           >
             <BookOpen className="h-3 w-3" />
             Build LookBook
