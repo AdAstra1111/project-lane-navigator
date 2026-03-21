@@ -272,13 +272,20 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
     const narrativeRaw = await extractNarrative(options.projectId);
     const { isVD, effectiveLane, ...narrative } = narrativeRaw;
-    log(`Narrative: "${narrative.projectTitle}" (${narrative.genre}, ${narrative.formatLabel})`);
-    updateStage(PipelineStage.NARRATIVE_EXTRACTION, s => completeStage(s, narrative.projectTitle));
+
+    // Build structured narrative evidence (canonical output of this stage)
+    const narrativeEvidence = buildNarrativeEvidence(narrative, {
+      isVerticalDrama: isVD,
+      effectiveLane,
+    });
+
+    log(`Narrative: "${narrative.projectTitle}" (${narrative.genre}, ${narrative.formatLabel}) coverage=${(narrativeEvidence.evidenceCoverage.score * 100).toFixed(0)}%`);
+    updateStage(PipelineStage.NARRATIVE_EXTRACTION, s => completeStage(s, `${narrative.projectTitle} (${(narrativeEvidence.evidenceCoverage.score * 100).toFixed(0)}% coverage)`));
     reportProgress(PipelineStage.NARRATIVE_EXTRACTION, 'Narrative extracted', 100);
 
     // ── STAGE: SLOT_PLANNING ──
     updateStage(PipelineStage.SLOT_PLANNING, startStage);
-    log('Slot planning: using canonical slide definitions');
+    log('Slot planning: using canonical slide definitions with slot intent registry');
     updateStage(PipelineStage.SLOT_PLANNING, s => completeStage(s, 'canonical slots'));
     reportProgress(PipelineStage.SLOT_PLANNING, 'Planning image slots...', 100);
 
