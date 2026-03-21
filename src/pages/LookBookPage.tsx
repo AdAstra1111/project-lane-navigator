@@ -7,7 +7,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle,
+  Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle, Sparkles,
 } from 'lucide-react';
 import { useLookbookStaleness } from '@/hooks/useLookbookStaleness';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,8 @@ import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
+import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
+import { orchestrateGapResolution, summarizeOrchestration } from '@/lib/images/lookbookImageOrchestrator';
 
 type LookbookMode = 'workspace' | 'viewer';
 
@@ -43,6 +45,7 @@ export default function LookBookPage() {
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [autoCompleting, setAutoCompleting] = useState(false);
   const [populatingSection, setPopulatingSection] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
@@ -317,6 +320,57 @@ export default function LookBookPage() {
     setLookBookData(null); // Force rebuild on next viewer open
   }, [regenerateClean]);
 
+  /**
+   * Auto Complete LookBook — Analyze gaps, orchestrate resolution, rebuild.
+   */
+  const handleAutoComplete = useCallback(async () => {
+    if (!projectId || !lookBookData) {
+      toast.error('Build the LookBook first, then auto-complete');
+      return;
+    }
+    setAutoCompleting(true);
+    try {
+      // 1. Analyze gaps
+      const gapAnalysis = analyzeLookBookGaps(lookBookData);
+      if (gapAnalysis.gaps.length === 0) {
+        toast.success('LookBook is already complete — no gaps found');
+        return;
+      }
+
+      // 2. Get project context for prompts
+      const { data: proj } = await supabase
+        .from('projects')
+        .select('title, genres, tone, format')
+        .eq('id', projectId)
+        .maybeSingle();
+      const projectTitle = (proj as any)?.title || '';
+      const genre = Array.isArray((proj as any)?.genres) ? (proj as any).genres.join(', ') : '';
+      const tone = (proj as any)?.tone || '';
+
+      // 3. Orchestrate resolution
+      const result = await orchestrateGapResolution(projectId, gapAnalysis, {
+        projectTitle,
+        genre,
+        tone,
+      });
+
+      const summary = summarizeOrchestration(result);
+      toast.success(`Auto-complete: ${summary}`);
+
+      // 4. If anything was resolved or queued, rebuild
+      if (result.activeMatches > 0 || result.archiveReuses > 0) {
+        invalidateImageCaches();
+        await handleGenerate();
+      } else if (result.generationsQueued > 0) {
+        toast.info(`${result.generationsQueued} images need generation — use section Auto Populate to create them`);
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Auto-complete failed');
+    } finally {
+      setAutoCompleting(false);
+    }
+  }, [projectId, lookBookData, invalidateImageCaches, handleGenerate]);
+
   if (projectLoading || sectionsLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -355,6 +409,12 @@ export default function LookBookPage() {
             {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
             Build Look Book
           </Button>
+          {lookBookData && (
+            <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleAutoComplete} disabled={autoCompleting || generating}>
+              {autoCompleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              Auto Complete
+            </Button>
+          )}
         </div>
       </div>
 

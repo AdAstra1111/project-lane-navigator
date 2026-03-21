@@ -3,6 +3,9 @@
  * Reusable across identity generation, cinematic reference generation, state variants, etc.
  *
  * Identity is LOCKED when both primary identity_headshot and primary identity_full_body exist.
+ * 
+ * Supports optional AI Actor binding: if an ai_actor_id is associated with the character,
+ * the resolver includes actor reference assets for downstream generation consistency.
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from './types';
@@ -16,6 +19,9 @@ export interface IdentityLockState {
   /** Signed URLs for injection into generation */
   headshotUrl: string | null;
   fullBodyUrl: string | null;
+  /** AI Actor binding (optional) */
+  aiActorId: string | null;
+  aiActorAssetUrls: string[];
 }
 
 /**
@@ -59,6 +65,35 @@ export async function resolveCharacterIdentity(
     fullBodyUrl = data?.signedUrl || null;
   }
 
+  // Resolve AI Actor binding if available
+  let aiActorId: string | null = null;
+  let aiActorAssetUrls: string[] = [];
+
+  const { data: dnaRow } = await (supabase as any)
+    .from('character_visual_dna')
+    .select('identity_signature')
+    .eq('project_id', projectId)
+    .eq('character_name', characterName)
+    .eq('is_current', true)
+    .maybeSingle();
+
+  if (dnaRow?.identity_signature) {
+    const sig = typeof dnaRow.identity_signature === 'string'
+      ? JSON.parse(dnaRow.identity_signature)
+      : dnaRow.identity_signature;
+    aiActorId = sig?.ai_actor_id || null;
+  }
+
+  // If actor bound, fetch reference assets
+  if (aiActorId) {
+    const { data: actorAssets } = await (supabase as any)
+      .from('ai_actor_assets')
+      .select('public_url')
+      .eq('actor_version_id', aiActorId)
+      .limit(5);
+    aiActorAssetUrls = (actorAssets || []).map((a: any) => a.public_url).filter(Boolean);
+  }
+
   return {
     locked: !!headshot && !!fullBody,
     headshot,
@@ -66,6 +101,8 @@ export async function resolveCharacterIdentity(
     profile,
     headshotUrl,
     fullBodyUrl,
+    aiActorId,
+    aiActorAssetUrls,
   };
 }
 
