@@ -901,7 +901,7 @@ export async function generateLookBookData(
   }
 
   // ── 8. CLOSING ──
-  const closingBg = coverImageUrl || pickBackgroundImage(worldImages, allSectionImages);
+  const closingBg = coverImageUrl || pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'closing');
   slides.push({
     type: 'closing',
     slide_id: makeSemanticSlideId('closing'),
