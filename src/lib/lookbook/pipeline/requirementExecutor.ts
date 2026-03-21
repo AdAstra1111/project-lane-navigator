@@ -31,22 +31,21 @@ export interface RequirementExecutionResult {
 
 const PASS_ORDER: RequirementPass[] = ['character', 'world', 'key_moments', 'atmosphere', 'poster'];
 
-// ── Subject → Edge Function section ──────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────────
 
-const SUBJECT_TO_SECTION: Record<string, string> = {
-  character: 'character',
-  world: 'world',
-  atmosphere: 'visual_language',
-  moment: 'key_moment',
-  texture: 'visual_language',
-  poster: 'key_moment',
-};
+/** Max images per single edge function call */
+const BATCH_SIZE = 4;
+/** Max generation calls per section to prevent runaway loops */
+const MAX_CALLS_PER_SECTION = 5;
+/** Max consecutive failures before aborting a section */
+const MAX_CONSECUTIVE_FAILURES = 2;
 
 // ── Executor ─────────────────────────────────────────────────────────────────
 
 /**
  * Execute all requirements in pass order.
- * Each pass generates images for its requirements, then checks satisfaction.
+ * Each pass generates images for its requirements in batched loops until
+ * demand is met or failure thresholds are reached.
  */
 export async function executeRequirements(
   projectId: string,
@@ -86,6 +85,9 @@ export async function executeRequirements(
     });
   };
 
+  // Track all generation call metadata for matching
+  const generationBatches: GenerationBatchRecord[] = [];
+
   // Process each pass in order
   for (const pass of PASS_ORDER) {
     const passReqs = requirementSet.byPass[pass];
@@ -116,79 +118,113 @@ export async function executeRequirements(
       }
       reportReqs(PipelineStage.GENERATION, `Generating ${pass}: ${section}...`, 50);
 
-      // Build generation request
       const totalNeeded = sectionReqs.reduce((sum, r) => sum + r.preferred, 0);
-      const count = Math.min(totalNeeded, 4); // Edge function max per call
+      let totalGeneratedForSection = 0;
+      let consecutiveFailures = 0;
+      let callCount = 0;
 
-      // Build prompt from first requirement's context (they share section)
-      const firstReq = sectionReqs[0];
-      const promptCtx: PromptContext = {
-        projectTitle: narrativeContext.projectTitle,
-        genre: narrativeContext.genre,
-        tone: narrativeContext.tone,
-        ...firstReq.promptContext,
-      };
+      // ── BATCHED GENERATION LOOP ──
+      // Loop until we have enough images or hit failure thresholds
+      while (
+        totalGeneratedForSection < totalNeeded &&
+        callCount < MAX_CALLS_PER_SECTION &&
+        consecutiveFailures < MAX_CONSECUTIVE_FAILURES
+      ) {
+        const remaining = totalNeeded - totalGeneratedForSection;
+        const count = Math.min(remaining, BATCH_SIZE);
+        callCount++;
 
-      const template = resolvePromptTemplate(firstReq.subjectType as any, firstReq.shotType);
-      const { prompt } = buildPromptFromTemplate(template, promptCtx);
+        // Rotate through requirements for prompt diversity
+        const reqIndex = (callCount - 1) % sectionReqs.length;
+        const targetReq = sectionReqs[reqIndex];
 
-      log(`Generating ${count} ${section} images (prompt: ${prompt.slice(0, 80)}...)`);
+        const promptCtx: PromptContext = {
+          projectTitle: narrativeContext.projectTitle,
+          genre: narrativeContext.genre,
+          tone: narrativeContext.tone,
+          ...targetReq.promptContext,
+        };
 
-      try {
-        const { data, error } = await (supabase as any).functions.invoke('generate-lookbook-image', {
-          body: {
-            project_id: projectId,
-            section,
-            count,
-            asset_group: firstReq.assetGroup,
-            pack_mode: true,
-            forced_shot_type: firstReq.shotType,
-            auto_complete_context: {
-              prompt_override: prompt,
-              requirement_ids: sectionReqs.map(r => r.id),
-              orientations: sectionReqs.map(r => r.orientation),
+        const template = resolvePromptTemplate(targetReq.subjectType as any, targetReq.shotType);
+        const { prompt } = buildPromptFromTemplate(template, promptCtx);
+
+        log(`[${section}] batch ${callCount}: generating ${count} (${totalGeneratedForSection}/${totalNeeded} done, req=${targetReq.id})`);
+
+        try {
+          const { data, error } = await (supabase as any).functions.invoke('generate-lookbook-image', {
+            body: {
+              project_id: projectId,
+              section,
+              count,
+              asset_group: targetReq.assetGroup,
+              pack_mode: true,
+              forced_shot_type: targetReq.shotType,
+              auto_complete_context: {
+                prompt_override: prompt,
+                requirement_ids: sectionReqs.map(r => r.id),
+                target_requirement_id: targetReq.id,
+                orientations: sectionReqs.map(r => r.orientation),
+                batch_index: callCount,
+                slide_type: targetReq.slideType,
+                pass,
+                requested_shot_type: targetReq.shotType,
+              },
             },
-          },
-        });
+          });
 
-        if (error) {
-          log(`Generation FAILED for ${section}: ${error.message || error}`);
+          if (error) {
+            log(`[${section}] batch ${callCount} FAILED: ${error.message || error}`);
+            totalFailed += count;
+            consecutiveFailures++;
+            continue;
+          }
+
+          const genResults = data?.results || [];
+          const successCount = genResults.filter((r: any) => r.status === 'ready').length;
+          totalGenerated += successCount;
+          totalGeneratedForSection += successCount;
+          totalFailed += (count - successCount);
+
+          if (successCount > 0) {
+            consecutiveFailures = 0; // Reset on success
+          } else {
+            consecutiveFailures++;
+          }
+
+          // Record batch metadata for matching
+          generationBatches.push({
+            section,
+            pass,
+            batchIndex: callCount,
+            targetRequirementId: targetReq.id,
+            slideType: targetReq.slideType,
+            shotType: targetReq.shotType,
+            subjectType: targetReq.subjectType,
+            characterName: targetReq.promptContext.characterName,
+            generatedAt: new Date().toISOString(),
+            successCount,
+          });
+
+          log(`[${section}] batch ${callCount}: ${successCount}/${count} ok (total ${totalGeneratedForSection}/${totalNeeded})`);
+        } catch (e: any) {
+          log(`[${section}] batch ${callCount} ERROR: ${e.message}`);
           totalFailed += count;
-          for (const req of sectionReqs) {
-            const pIdx = progressReqs.findIndex(p => p.id === req.id);
-            if (pIdx >= 0) {
-              progressReqs[pIdx].status = 'blocked';
-              progressReqs[pIdx].blockingReason = `Generation failed: ${error.message || 'unknown'}`;
-            }
-          }
-          continue;
+          consecutiveFailures++;
         }
+      }
 
-        const genResults = data?.results || [];
-        const successCount = genResults.filter((r: any) => r.status === 'ready').length;
-        totalGenerated += successCount;
-        totalFailed += (count - successCount);
+      if (totalGeneratedForSection < totalNeeded) {
+        log(`[${section}] WARNING: under-generated ${totalGeneratedForSection}/${totalNeeded} (${callCount} calls, ${consecutiveFailures} failures)`);
+      }
 
-        log(`${section}: ${successCount}/${count} generated successfully`);
-
-        // Update progress
-        for (const req of sectionReqs) {
-          const pIdx = progressReqs.findIndex(p => p.id === req.id);
-          if (pIdx >= 0) {
-            progressReqs[pIdx].generatedCount = successCount > 0 ? Math.ceil(successCount / sectionReqs.length) : 0;
-            progressReqs[pIdx].status = successCount > 0 ? 'generated' : 'blocked';
-            if (successCount === 0) progressReqs[pIdx].blockingReason = 'No images generated';
-          }
-        }
-      } catch (e: any) {
-        log(`Generation ERROR for ${section}: ${e.message}`);
-        totalFailed += count;
-        for (const req of sectionReqs) {
-          const pIdx = progressReqs.findIndex(p => p.id === req.id);
-          if (pIdx >= 0) {
-            progressReqs[pIdx].status = 'blocked';
-            progressReqs[pIdx].blockingReason = e.message;
-          }
+      // Update per-requirement progress
+      const perReqShare = sectionReqs.length > 0 ? Math.ceil(totalGeneratedForSection / sectionReqs.length) : 0;
+      for (const req of sectionReqs) {
+        const pIdx = progressReqs.findIndex(p => p.id === req.id);
+        if (pIdx >= 0) {
+          progressReqs[pIdx].generatedCount = perReqShare;
+          progressReqs[pIdx].status = totalGeneratedForSection > 0 ? 'generated' : 'blocked';
+          if (totalGeneratedForSection === 0) progressReqs[pIdx].blockingReason = 'No images generated';
         }
       }
     }
@@ -206,7 +242,7 @@ export async function executeRequirements(
     .eq('curation_state', 'candidate')
     .gte('created_at', fiveMinAgo)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(200);
 
   const candidates = (recentCandidates || []) as ProjectImage[];
 
@@ -223,28 +259,63 @@ export async function executeRequirements(
     }
   }));
 
-  // Match candidates to requirements and assess satisfaction
+  log(`Harvested ${candidates.length} candidate images`);
+
+  // ── Match candidates to requirements with strengthened scoring ──
   for (const req of requirementSet.requirements) {
     const matching = candidates.filter(c => {
-      if ((c as any).asset_group && (c as any).asset_group !== req.assetGroup) return false;
       if (!c.signedUrl) return false;
+      // Asset group filter — but allow through if no asset_group on image
+      if ((c as any).asset_group && (c as any).asset_group !== req.assetGroup) return false;
       return true;
     });
 
-    // Score and rank matches for this requirement
     const scored = matching.map(img => {
       let score = 0;
+
+      // ── Requirement-origin matching (strongest signal) ──
+      const gc = (img as any).generation_config as Record<string, unknown> | null;
+      const autoCtx = gc?.auto_complete_context as Record<string, unknown> | null;
+      if (autoCtx?.target_requirement_id === req.id) {
+        score += 25; // Direct requirement match
+      } else if (autoCtx?.slide_type === req.slideType) {
+        score += 12; // Same slide type
+      } else if (autoCtx?.pass === req.pass) {
+        score += 6; // Same pass
+      }
+
+      // ── Orientation match ──
       const orient = classifyOrientation(img.width, img.height);
       if (req.orientation === 'any' || orient === req.orientation) score += 10;
       else if (orient === 'square') score += 3;
+
+      // ── Shot type match ──
       if (img.shot_type === req.shotType) score += 8;
+      else if (autoCtx?.requested_shot_type === req.shotType) score += 5;
+
+      // ── Entity/provenance match ──
       if (img.entity_id || img.location_ref || img.moment_ref) score += 6;
-      // Character name match
+
+      // ── Character name match ──
       if (req.promptContext.characterName && img.subject) {
         if ((img.subject as string).toLowerCase().includes(req.promptContext.characterName.toLowerCase())) {
           score += 15;
         }
       }
+
+      // ── Batch metadata match (fallback for when generation_config isn't populated) ──
+      const batchMatch = generationBatches.find(b =>
+        b.targetRequirementId === req.id &&
+        b.section === req.section
+      );
+      if (batchMatch && batchMatch.successCount > 0) {
+        // Images from the batch targeting this requirement get a mild boost
+        const imgCreated = (img as any).created_at;
+        if (imgCreated && batchMatch.generatedAt && Math.abs(new Date(imgCreated).getTime() - new Date(batchMatch.generatedAt).getTime()) < 30000) {
+          score += 8;
+        }
+      }
+
       return { img, score };
     });
     scored.sort((a, b) => b.score - a.score);
@@ -289,7 +360,7 @@ export async function executeRequirements(
       allEntries.push({
         slideId: `${req.slideType}:main`,
         slideType: req.slideType,
-        slotId: `req_${i}`,
+        slotId: `req_${req.id}_${i}`,
         image: img,
         source: 'generated',
         score,
@@ -325,4 +396,19 @@ export async function executeRequirements(
     totalPartial,
     totalBlocked,
   };
+}
+
+// ── Internal types ───────────────────────────────────────────────────────────
+
+interface GenerationBatchRecord {
+  section: string;
+  pass: string;
+  batchIndex: number;
+  targetRequirementId: string;
+  slideType: string;
+  shotType: string;
+  subjectType: string;
+  characterName?: string;
+  generatedAt: string;
+  successCount: number;
 }
