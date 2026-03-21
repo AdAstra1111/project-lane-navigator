@@ -923,7 +923,8 @@ export async function generateLookBookData(
     const keyMomentBody = keyMomentImages.length > 0
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
-    const kmForeground = keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[];
+    const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6);
+    kmForeground.forEach(u => trackImageUsage(u, 'key_moments'));
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
