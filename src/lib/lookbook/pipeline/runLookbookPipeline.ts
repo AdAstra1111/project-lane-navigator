@@ -215,7 +215,7 @@ function buildPreliminaryDeckForGapAnalysis(
   });
 
   return {
-    projectId: narrative.projectTitle, // placeholder
+    projectId: options.projectId,
     projectTitle: narrative.projectTitle,
     identity,
     slides,

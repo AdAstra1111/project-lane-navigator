@@ -267,6 +267,7 @@ const SLIDE_ELECTION_SPECS: SlideElectionSpec[] = [
   { slideType: 'themes', slideId: 'themes:main', primaryPoolKey: 'atmosphere', fallbackPoolKeys: ['world'], maxForeground: 4, needsBackground: true },
   { slideType: 'story_engine', slideId: 'story_engine:main', primaryPoolKey: 'keyMoments', fallbackPoolKeys: ['motifs'], maxForeground: 3, needsBackground: true },
   { slideType: 'comparables', slideId: 'comparables:main', primaryPoolKey: 'atmosphere', fallbackPoolKeys: [], maxForeground: 0, needsBackground: true },
+  { slideType: 'poster_directions', slideId: 'key_moments:poster_directions', primaryPoolKey: 'poster', fallbackPoolKeys: [], maxForeground: 4, needsBackground: false },
   { slideType: 'closing', slideId: 'closing:main', primaryPoolKey: 'poster', fallbackPoolKeys: ['world'], maxForeground: 0, needsBackground: true },
 ];
 
