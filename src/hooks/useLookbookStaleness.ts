@@ -1,7 +1,7 @@
 /**
  * useLookbookStaleness — Detects when project_images have changed
  * since the last LookBook build, without any schema changes.
- * Uses a local epoch timestamp compared against latest image updated_at.
+ * Uses a local epoch timestamp compared against latest image created_at.
  */
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -38,14 +38,14 @@ export function useLookbookStaleness(
     try {
       const { data } = await (supabase as any)
         .from('project_images')
-        .select('updated_at')
+        .select('created_at')
         .eq('project_id', projectId)
         .in('curation_state', ['active', 'candidate'])
-        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (data?.updated_at) {
-        setLatestImageTime(data.updated_at);
+      if (data?.created_at) {
+        setLatestImageTime(data.created_at);
       }
     } catch {
       // silent — non-critical

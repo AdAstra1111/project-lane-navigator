@@ -5,7 +5,7 @@
  * Workspace is always accessible and is the default authoring mode.
  */
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Loader2, BookOpen, RefreshCw, AlertTriangle, Wrench, AlertCircle,
 } from 'lucide-react';
@@ -36,6 +36,7 @@ type LookbookMode = 'workspace' | 'viewer';
 export default function LookBookPage() {
   const { id: projectId } = useParams<{ id: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
@@ -46,6 +47,7 @@ export default function LookBookPage() {
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
   const [rebuildHistoryEpoch, setRebuildHistoryEpoch] = useState(0);
+  const consumedAutoBuildKeyRef = useRef<string | null>(null);
 
   // ── Staleness detection ──
   const staleness = useLookbookStaleness(projectId, lookbookBuildEpoch);
@@ -170,6 +172,22 @@ export default function LookBookPage() {
       setGenerating(false);
     }
   }, [projectId, branding, invalidateImageCaches]);
+
+  useEffect(() => {
+    const routeState = location.state as { mode?: LookbookMode; autoBuild?: boolean; buildKey?: string } | null;
+    if (!routeState) return;
+
+    if (routeState.mode === 'viewer' && viewMode !== 'viewer') {
+      setViewMode('viewer');
+    }
+
+    if (routeState.autoBuild && routeState.buildKey && consumedAutoBuildKeyRef.current !== routeState.buildKey && !generating) {
+      consumedAutoBuildKeyRef.current = routeState.buildKey;
+      handleGenerate().finally(() => {
+        navigate(location.pathname, { replace: true });
+      });
+    }
+  }, [location.state, location.pathname, viewMode, generating, handleGenerate, navigate]);
 
   // Auto-rebuild when switching to viewer — always fetch fresh data
   // This ensures approved/synced images are reflected immediately
