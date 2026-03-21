@@ -12,7 +12,6 @@ import type { SlideContent, SlideComposition, LayoutHint, LookBookVisualIdentity
 import { resolveLookbookLayoutFamily, summarizeOrientations } from '../lookbookLayoutFamilies';
 import { matchImagesToSlots, type ImageCandidate } from '../lookbookSlotMatcher';
 import type { ElectionResult, SlideElection, ElectionContext, NarrativeContext } from './types';
-import type { NarrativeContext } from './types';
 import type { SectionImageResult } from '../resolveCanonImages';
 import { normalizeCanonText } from '../normalizeCanonText';
 
