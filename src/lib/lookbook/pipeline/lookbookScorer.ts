@@ -221,24 +221,30 @@ export function scoreImageForSlide(
   if (slotIntent) {
     // World/environment slides: penalize character-centric images when environment dominance required
     if (slotIntent.requiresEnvironmentDominance) {
-      // Bonus for images with location bindings
-      if (img.location_ref) score += 8;
-      // Penalty for character-centric shots in environment slots
+      if (img.location_ref) {
+        score += 8;
+        console.log(`[Scorer:intent] ${slideType} +8 env-location for ${img.id.slice(0,8)} (loc=${img.location_ref})`);
+      }
       if (img.entity_id && !img.location_ref && (img.shot_type === 'close_up' || img.shot_type === 'medium')) {
         score -= 12;
+        console.log(`[Scorer:intent] ${slideType} -12 char-in-env for ${img.id.slice(0,8)} (entity=${img.entity_id?.slice(0,8)}, shot=${img.shot_type})`);
       }
     }
 
     // Character slides: bonus when image matches a bound principal
     if (slotIntent.requiresPrincipalIdentity && slotIntent.boundPrincipalIds) {
       if (img.entity_id && slotIntent.boundPrincipalIds.has(img.entity_id)) {
-        score += 10; // identity-bound principal match
+        score += 10;
+        console.log(`[Scorer:intent] ${slideType} +10 principal-match for ${img.id.slice(0,8)} (entity=${img.entity_id?.slice(0,8)})`);
       }
     }
 
     // Scene slides: bonus when scene evidence exists and image has moment anchor
     if (slotIntent.requiresSceneProvenance && slotIntent.hasSceneEvidence) {
-      if (img.moment_ref) score += 8; // narrative-anchored scene image
+      if (img.moment_ref) {
+        score += 8;
+        console.log(`[Scorer:intent] ${slideType} +8 scene-anchor for ${img.id.slice(0,8)} (moment=${img.moment_ref})`);
+      }
     }
   }
 
