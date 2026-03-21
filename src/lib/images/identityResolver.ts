@@ -19,6 +19,9 @@ export interface IdentityLockState {
   /** Signed URLs for injection into generation */
   headshotUrl: string | null;
   fullBodyUrl: string | null;
+  /** AI Actor binding (optional) */
+  aiActorId: string | null;
+  aiActorAssetUrls: string[];
 }
 
 /**
