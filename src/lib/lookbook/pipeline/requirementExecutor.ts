@@ -102,9 +102,10 @@ const MAX_CONSECUTIVE_FAILURES = 2;
 /** Max times the same scene signature can appear across editorial slides */
 const EDITORIAL_FAMILY_CAP = 1;
 
-// ── Slides that can contain named principal characters ──
+// ── ANY slide that can contain named principal characters ──
 const CHARACTER_BEARING_SLIDES = new Set([
   'characters', 'cover', 'poster_directions', 'key_moments', 'story_engine',
+  'creative_statement', 'themes', 'closing',
 ]);
 
 // ── Executor ─────────────────────────────────────────────────────────────────
@@ -230,32 +231,55 @@ export async function executeRequirements(
 
         log(`[${section}] batch ${callCount}: generating ${count} (${totalGeneratedForSection}/${totalNeeded} done, req=${targetReq.id})`);
 
-        // ── IDENTITY LOCK ENFORCEMENT ──
-        // Applies to character requirements AND character-bearing slides with named characters
+        // ── GLOBAL IDENTITY LOCK ENFORCEMENT ──
+        // Applies to ANY requirement that references known characters
         let identityPayload: Record<string, unknown> = {};
-        const charName = targetReq.promptContext.characterName;
-        const shouldLockIdentity = charName && (
-          targetReq.subjectType === 'character' ||
-          CHARACTER_BEARING_SLIDES.has(targetReq.slideType)
-        );
+        const allCharNames = resolveAllCharacterNamesFromReq(targetReq);
+        const resolvedAnchors: Record<string, { headshot: string | null; fullBody: string | null }> = {};
+        let identityCharCount = 0;
 
-        if (shouldLockIdentity && charName) {
-          const charNameKey = charName.toLowerCase().trim();
-          const anchors = characterAnchors.get(charNameKey);
-
+        for (const cn of allCharNames) {
+          const key = cn.toLowerCase().trim();
+          const anchors = characterAnchors.get(key);
           if (anchors?.hasAnchors) {
+            resolvedAnchors[cn] = {
+              headshot: anchors.headshot || null,
+              fullBody: anchors.fullBody || null,
+            };
+            identityCharCount++;
+          }
+        }
+
+        if (identityCharCount > 0) {
+          // Single vs multi-character payload
+          if (identityCharCount === 1) {
+            const [name, anch] = Object.entries(resolvedAnchors)[0];
             identityPayload = {
               identity_mode: true,
-              identity_anchor_paths: {
-                headshot: anchors.headshot || null,
-                fullBody: anchors.fullBody || null,
-              },
+              identity_locked: true,
+              identity_anchor_paths: anch,
               identity_notes: targetReq.promptContext.characterTraits || null,
+              identity_mode_used: true,
+              identity_character_count: 1,
             };
-            log(`[${section}] Identity LOCKED for "${charName}" (headshot=${!!anchors.headshot}, fullBody=${!!anchors.fullBody})`);
+            log(`[${section}] Identity LOCKED for "${name}" (headshot=${!!anch.headshot}, fullBody=${!!anch.fullBody})`);
           } else {
-            log(`[${section}] No identity anchors for "${charName}" — generating without lock`);
+            identityPayload = {
+              identity_mode: true,
+              identity_locked: true,
+              identity_anchor_paths: resolvedAnchors,
+              identity_notes: `Maintain exact facial identity consistency for all characters based on provided references. ${targetReq.promptContext.characterTraits || ''}`.trim(),
+              identity_mode_used: true,
+              identity_character_count: identityCharCount,
+            };
+            log(`[${section}] Multi-character identity LOCKED for ${Object.keys(resolvedAnchors).join(', ')} (${identityCharCount} chars)`);
           }
+        } else if (allCharNames.length > 0) {
+          identityPayload = {
+            identity_mode_used: false,
+            identity_character_count: 0,
+          };
+          log(`[${section}] No identity anchors for characters [${allCharNames.join(', ')}] — generating without lock`);
         }
 
         try {
@@ -435,14 +459,19 @@ export async function executeRequirements(
       if (req.promptContext.characterName) {
         const reqCharLower = req.promptContext.characterName.toLowerCase();
 
-        // Bonus: generated with identity lock for correct character
-        if (gc?.identity_locked && gc?.identity_mode) {
+        // Strong bonus: generated with identity lock for correct character
+        if (gc?.identity_locked || gc?.identity_mode) {
           const resolvedNames = gc?.resolved_character_names;
           if (Array.isArray(resolvedNames) && resolvedNames.some((n: string) => n.toLowerCase().includes(reqCharLower))) {
-            score += 12; // Strong identity consistency bonus
+            score += 15; // Identity-locked + correct character
           } else if (img.subject && (img.subject as string).toLowerCase().includes(reqCharLower)) {
-            score += 10; // Subject name match with identity lock
+            score += 12; // Subject name match with identity lock
           }
+        }
+
+        // identity_mode_used bonus (from our generation metadata)
+        if (gc?.identity_mode_used === true) {
+          score += 5;
         }
 
         // Character name match (general)
@@ -450,13 +479,18 @@ export async function executeRequirements(
           score += 15;
         }
 
-        // Identity drift penalty: requirement is for specific character but candidate is
-        // a different named character or generic unnamed
+        // ── IDENTITY DRIFT PENALTY (STRONG) ──
+        // Candidate has NO identity metadata at all for a character requirement
+        if (!gc?.identity_mode && !gc?.identity_locked && !gc?.identity_mode_used) {
+          score -= 20; // No identity context = strong penalty
+          log(`[Match:no-identity] req=${req.id} candidate has no identity metadata for character "${req.promptContext.characterName}"`);
+        }
+
+        // Candidate is for WRONG character
         if (img.subject && !(img.subject as string).toLowerCase().includes(reqCharLower)) {
           const subjectLower = (img.subject as string).toLowerCase();
-          // If subject has a different name, heavy penalty
           if (subjectLower.length > 2 && !subjectLower.includes('character') && !subjectLower.includes('unknown')) {
-            score -= 20; // Wrong character identity
+            score -= 25; // Wrong character identity — heavy penalty
             log(`[Match:identity-drift] req=${req.id} candidate subject="${img.subject}" doesn't match required "${req.promptContext.characterName}"`);
           }
         }
@@ -559,7 +593,18 @@ export async function executeRequirements(
       blockingReason = `${satisfiedCount}/${req.minRequired} minimum met`;
     } else {
       status = 'blocked';
-      blockingReason = 'No matching images generated';
+      // Provide specific blocking reason for character requirements
+      if (req.subjectType === 'character' && req.promptContext.characterName) {
+        const key = req.promptContext.characterName.toLowerCase().trim();
+        const anchors = characterAnchors.get(key);
+        if (anchors?.hasAnchors) {
+          blockingReason = `Identity anchors present for "${req.promptContext.characterName}" but no compliant generations matched`;
+        } else {
+          blockingReason = `No identity anchors and no matching images for "${req.promptContext.characterName}"`;
+        }
+      } else {
+        blockingReason = 'No matching images generated';
+      }
     }
 
     results.push({
@@ -624,18 +669,39 @@ export async function executeRequirements(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Extract ALL character names referenced by a requirement.
+ * Checks characterName, characters array, and prompt context hints.
+ */
+function resolveAllCharacterNamesFromReq(req: LookBookRequirement): string[] {
+  const names: string[] = [];
+  if (req.promptContext.characterName) {
+    names.push(req.promptContext.characterName);
+  }
+  // Support comma-separated characters field
+  if (req.promptContext.characters) {
+    for (const n of req.promptContext.characters.split(',')) {
+      const trimmed = n.trim();
+      if (trimmed && !names.some(x => x.toLowerCase() === trimmed.toLowerCase())) {
+        names.push(trimmed);
+      }
+    }
+  }
+  return names;
+}
+
 /** Check if a requirement would get identity payload */
 function identityPayloadForReq(
   req: LookBookRequirement,
   anchors: Map<string, CharacterAnchorSet>,
 ): Record<string, unknown> {
-  const charName = req.promptContext.characterName;
-  if (!charName) return {};
-  if (req.subjectType !== 'character' && !CHARACTER_BEARING_SLIDES.has(req.slideType)) return {};
-  const key = charName.toLowerCase().trim();
-  const a = anchors.get(key);
-  if (!a?.hasAnchors) return {};
-  return { identity_mode: true };
+  const allNames = resolveAllCharacterNamesFromReq(req);
+  if (allNames.length === 0) return {};
+  for (const n of allNames) {
+    const a = anchors.get(n.toLowerCase().trim());
+    if (a?.hasAnchors) return { identity_mode: true };
+  }
+  return {};
 }
 
 

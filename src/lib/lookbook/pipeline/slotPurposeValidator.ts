@@ -172,23 +172,45 @@ function validateThemes(img: ProjectImage): SlotPurposeValidation {
 }
 
 function validateKeyMoments(img: ProjectImage): SlotPurposeValidation {
-  // Key moments accept narrative scenes — only penalize pure environment-only
+  // Key moments = dramatic action scenes with characters
   const reasons: string[] = [];
   let penalty = 0;
   if (isTextureOrComposition(img) && !isNarrativeScene(img)) {
-    penalty = -5;
-    reasons.push('Pure texture reference penalized for key_moments (needs narrative content)');
+    penalty = -10;
+    reasons.push('Pure texture reference penalized for key_moments (needs narrative action)');
+  }
+  if (isEnvironmentDominant(img) && !isCharacterCentric(img) && !isNarrativeScene(img)) {
+    penalty = -8;
+    reasons.push('Empty environment penalized for key_moments (needs character presence)');
+  }
+  // Penalize static/relational compositions — key_moments wants ACTION
+  const gc = (img as any).generation_config as Record<string, unknown> | null;
+  const prompt = String(gc?.prompt || gc?.prompt_override || '').toLowerCase();
+  if (prompt.includes('power dynamic') || prompt.includes('relational tension') || prompt.includes('who controls')) {
+    penalty -= 5;
+    reasons.push('Relational/power-dynamic composition penalized for key_moments (prefers action scenes)');
   }
   return { allowed: true, reasons, penalty };
 }
 
 function validateStoryEngine(img: ProjectImage): SlotPurposeValidation {
-  // Same as key moments — accepts narrative
+  // Story engine = relational tension, power dynamics, interpersonal stakes
   const reasons: string[] = [];
   let penalty = 0;
   if (isTextureOrComposition(img) && !isNarrativeScene(img)) {
-    penalty = -5;
+    penalty = -10;
     reasons.push('Pure texture reference penalized for story_engine');
+  }
+  if (isEnvironmentDominant(img) && !isCharacterCentric(img)) {
+    penalty = -8;
+    reasons.push('Empty environment penalized for story_engine (needs character presence)');
+  }
+  // Penalize pure action — story_engine wants relational tension not fight choreography
+  const gc = (img as any).generation_config as Record<string, unknown> | null;
+  const prompt = String(gc?.prompt || gc?.prompt_override || '').toLowerCase();
+  if (prompt.includes('confrontation') || prompt.includes('chase') || prompt.includes('fight')) {
+    penalty -= 3;
+    reasons.push('Action/confrontation mildly penalized for story_engine (prefers relational tension)');
   }
   return { allowed: true, reasons, penalty };
 }

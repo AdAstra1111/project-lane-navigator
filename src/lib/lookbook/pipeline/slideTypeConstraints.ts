@@ -47,12 +47,15 @@ const CONSTRAINT_REGISTRY: Record<string, SlideTypeConstraints> = {
   },
   key_moments: {
     positives: [
-      'Full narrative scene with dramatic staging',
-      'Characters in context, motivated action',
-      'Cinematic mise-en-scène with clear dramatic intent',
+      'Full narrative scene with dramatic staging and motivated action',
+      'Characters in context, cinematic mise-en-scène with clear dramatic intent',
+      'Dynamic composition with visible conflict, movement, or confrontation',
+      'Distinct unique location and dramatic blocking per moment',
     ],
     negatives: [
       'empty landscape without characters', 'abstract texture',
+      'static posing', 'abstract composition', 'symbolic imagery without characters',
+      'relational power dynamic without action', 'group tableau without dramatic tension',
     ],
   },
   characters: {
@@ -74,6 +77,7 @@ const CONSTRAINT_REGISTRY: Record<string, SlideTypeConstraints> = {
     negatives: [
       'main character focus', 'story moment', 'dialogue scene',
       'protagonist centered', 'narrative confrontation',
+      'character performing action', 'craft activity',
     ],
   },
   themes: {
@@ -85,15 +89,20 @@ const CONSTRAINT_REGISTRY: Record<string, SlideTypeConstraints> = {
     negatives: [
       'literal narrative scene', 'character dialogue',
       'action sequence', 'craft activity',
+      'repeated room or workspace', 'trade performance',
     ],
   },
   story_engine: {
     positives: [
-      'Dramatic narrative moment with emotional tension',
-      'Character-in-context storytelling composition',
+      'Relational tension composition showing power dynamics between characters',
+      'Structured group composition revealing who controls whom',
+      'Emotional pressure visible through body language and spatial relationships',
+      'Interpersonal stakes visible in character blocking and framing',
     ],
     negatives: [
       'empty environment', 'texture study',
+      'action beats with physical confrontation', 'chase or fight choreography',
+      'environmental landscape without characters', 'symbolic abstract visuals',
     ],
   },
   comparables: {

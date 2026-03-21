@@ -339,6 +339,22 @@ function buildPromptContextForSlide(
   }
   if (slideType === 'key_moments' || slideType === 'story_engine') {
     ctx.momentDescription = narrative.synopsis?.slice(0, 200) || narrative.logline || '';
+    // Pass principal character names so identity can be resolved at generation time
+    const principals = (evidence?.characters || []).filter(c => c.importance === 'principal');
+    if (principals.length > 0) {
+      ctx.characters = principals.map(c => c.name).join(', ');
+      ctx.characterName = principals[0].name; // Primary protagonist
+      ctx.characterTraits = principals.map(c => `${c.name}: ${c.traits || c.role || ''}`).join('; ');
+    }
+  }
+  if (slideType === 'cover' || slideType === 'poster_directions') {
+    // Cover/poster typically features the protagonist
+    const principals = (evidence?.characters || []).filter(c => c.importance === 'principal');
+    if (principals.length > 0) {
+      ctx.characterName = principals[0].name;
+      ctx.characters = principals.map(c => c.name).join(', ');
+      ctx.characterTraits = principals.map(c => `${c.name}: ${c.traits || c.role || ''}`).join('; ');
+    }
   }
   if (slideType === 'themes') {
     ctx.theme = narrative.toneStyle || '';
