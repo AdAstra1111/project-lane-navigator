@@ -1106,12 +1106,8 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   if (isPortrait) {
     return (
       <div style={baseStyle} className="slide-content">
-        {seBg && (
-          <div className="absolute inset-0">
-            <img src={seBg} alt="" className="w-full h-full" style={{ objectFit: 'cover', opacity: 0.05, filter: 'saturate(0.3) blur(8px)' }} />
-            <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f5 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-          </div>
-        )}
+        {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="heavy" overlayDirection="even" />}
+        {!seBg && <DecorativeGradientBg colors={colors} variant="diagonal" />}
         <EdgeAccent color={colors.accent} />
         <div style={{ position: 'relative', zIndex: 1, padding: '56px 56px 48px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Story Engine" color={colors.accent} />
@@ -1394,8 +1390,8 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
       <div style={baseStyle} className="slide-content">
         {slide.backgroundImageUrl && (
           <div className="absolute inset-0">
-            <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.2) blur(20px) contrast(0.8)', opacity: 0.25, transform: 'scale(1.1)' }} />
-            <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}cc 0%, ${colors.bg}ee 60%, ${colors.bg} 100%)` }} />
+            <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.3) blur(14px) contrast(0.9)', opacity: 0.3, transform: 'scale(1.06)' }} />
+            <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}bb 0%, ${colors.bg}dd 55%, ${colors.bg}f0 100%)` }} />
           </div>
         )}
         {!slide.backgroundImageUrl && <DecorativeGradientBg colors={colors} variant="radial" />}
