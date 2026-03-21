@@ -277,7 +277,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     // Fetch character identity anchors (images that are identity-locked or primary)
     const characterIdentityMap = new Map<string, boolean>();
     try {
-      const { data: charImages } = await supabase
+      const { data: charImages } = await (supabase as any)
         .from('project_images')
         .select('entity_id, subject, is_primary, generation_config')
         .eq('project_id', options.projectId)
