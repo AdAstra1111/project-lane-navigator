@@ -818,7 +818,7 @@ export async function generateLookBookData(
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
-    const themesBg = pickBackgroundImage(atmosphereImages, worldImages, usedBackgroundUrls);
+    const themesBg = pickBackgroundImage(atmosphereImages, worldImages, usedBackgroundUrls, 'themes');
     if (themesBg) usedBackgroundUrls.push(themesBg);
     const themesForeground = atmosphereImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
