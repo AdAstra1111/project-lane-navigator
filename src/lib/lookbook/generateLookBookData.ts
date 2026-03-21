@@ -878,6 +878,18 @@ export async function generateLookBookData(
     }));
     scored.sort((a, b) => b.score - a.score);
 
+    // Election diagnostics for background
+    if (scored.length > 0) {
+      const top3 = scored.slice(0, 3).map(s => ({
+        id: s.img.id.slice(0, 8),
+        score: s.score,
+        primary: !!s.img.is_primary,
+        orient: classifyOrientation(s.img.width, s.img.height),
+        age: `${Math.floor((Date.now() - new Date(s.img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24))}d`,
+      }));
+      console.log(`[LookBook:election] ${slideType} bg: candidates=${scored.length} top3=${JSON.stringify(top3)}`);
+    }
+
     // Pick best landscape first, then any
     const bestLandscape = scored.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
     if (bestLandscape) return bestLandscape.img.signedUrl!;
