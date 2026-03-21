@@ -291,8 +291,9 @@ export async function executeRequirements(
       if (req.orientation === 'any' || orient === req.orientation) score += 10;
       else if (orient === 'square') score += 3;
 
-      // ── Shot type match ──
+      // ── Shot type match (with compatibility normalization) ──
       if (img.shot_type === req.shotType) score += 8;
+      else if (areShotTypesCompatible(img.shot_type, req.shotType)) score += 6;
       else if (autoCtx?.requested_shot_type === req.shotType) score += 5;
 
       // ── Entity/provenance match ──
@@ -398,6 +399,27 @@ export async function executeRequirements(
     totalPartial,
     totalBlocked,
   };
+}
+
+// ── Shot-type compatibility mapping ──────────────────────────────────────────
+// Identity shot types map to their requirement equivalents for matching
+
+const SHOT_TYPE_COMPAT: Record<string, string[]> = {
+  identity_headshot: ['close_up', 'portrait'],
+  identity_profile: ['three_quarter', 'close_up', 'profile'],
+  identity_full_body: ['medium', 'full_body'],
+  close_up: ['identity_headshot', 'portrait'],
+  medium: ['identity_full_body'],
+  full_body: ['identity_full_body'],
+  three_quarter: ['identity_profile', 'profile'],
+  profile: ['identity_profile', 'three_quarter'],
+};
+
+function areShotTypesCompatible(actual: string | null, requested: string): boolean {
+  if (!actual) return false;
+  if (actual === requested) return true;
+  const compatList = SHOT_TYPE_COMPAT[actual];
+  return compatList ? compatList.includes(requested) : false;
 }
 
 // ── Internal types ───────────────────────────────────────────────────────────

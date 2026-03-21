@@ -1024,6 +1024,8 @@ serve(async (req) => {
       identity_traits_block = null,
       identity_signature_block = null,
       forced_shot_type = null,
+      // ── AUTO-COMPLETE CONTEXT: requirement-origin metadata from pipeline ──
+      auto_complete_context: autoCompleteContext = null,
       // ── VERTICAL COMPLIANCE: explicit aspect ratio from client ──
       width: requestedWidth = null,
       height: requestedHeight = null,
@@ -1053,6 +1055,16 @@ serve(async (req) => {
       identity_traits_block?: string | null;
       identity_signature_block?: string | null;
       forced_shot_type?: string | null;
+      auto_complete_context?: {
+        target_requirement_id?: string;
+        requirement_ids?: string[];
+        slide_type?: string;
+        pass?: string;
+        requested_shot_type?: string;
+        batch_index?: number;
+        prompt_override?: string;
+        orientations?: string[];
+      } | null;
       width?: number | null;
       height?: number | null;
       aspect_ratio?: string | null;
@@ -1477,6 +1489,17 @@ FRAMING RULES:
               aspect_compliant: aspectCompliant,
               aspect_drift: aspectDrift,
               vertical_drama_project: isVerticalDramaProject,
+              // ── AUTO-COMPLETE CONTEXT: requirement-origin metadata ──
+              ...(autoCompleteContext ? {
+                auto_complete_context: {
+                  target_requirement_id: autoCompleteContext.target_requirement_id || null,
+                  slide_type: autoCompleteContext.slide_type || null,
+                  pass: autoCompleteContext.pass || null,
+                  requested_shot_type: autoCompleteContext.requested_shot_type || null,
+                  batch_index: autoCompleteContext.batch_index ?? null,
+                  requirement_ids: autoCompleteContext.requirement_ids || [],
+                },
+              } : {}),
             },
             asset_group: assetGroup,
             subject: character_name || location_name || null,
