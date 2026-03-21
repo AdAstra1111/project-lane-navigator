@@ -309,7 +309,6 @@ export default function LookBookPage() {
 
   /**
    * Auto Complete LookBook — runs pipeline in reuse_recovery mode.
-   * All orchestration logic is inside the pipeline — NOT here.
    */
   const handleAutoComplete = useCallback(async () => {
     if (!projectId || !lookBookData) {
@@ -326,6 +325,23 @@ export default function LookBookPage() {
       setAutoCompleting(false);
     }
   }, [projectId, lookBookData, handleGenerate]);
+
+  /**
+   * Fresh from scratch — generates everything from zero.
+   */
+  const handleFreshFromScratch = useCallback(async () => {
+    if (!projectId) return;
+    setAutoCompleting(true);
+    try {
+      await handleGenerate('fresh_from_scratch');
+      toast.success('Fresh generation complete — review the deck in Viewer');
+      setViewMode('viewer');
+    } catch (e: any) {
+      toast.error(e.message || 'Fresh generation failed');
+    } finally {
+      setAutoCompleting(false);
+    }
+  }, [projectId, handleGenerate]);
 
   if (projectLoading || sectionsLoading) {
     return (
