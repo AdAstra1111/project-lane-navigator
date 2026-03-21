@@ -1413,8 +1413,8 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
     <div style={baseStyle} className="slide-content">
       {slide.backgroundImageUrl && (
         <div className="absolute inset-0">
-          <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.2) blur(20px) contrast(0.8)', opacity: 0.25, transform: 'scale(1.1)' }} />
-          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}cc 0%, ${colors.bg}ee 60%, ${colors.bg} 100%)` }} />
+          <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.35) blur(12px) contrast(0.9)', opacity: 0.35, transform: 'scale(1.05)' }} />
+          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}aa 0%, ${colors.bg}cc 50%, ${colors.bg}ee 100%)` }} />
         </div>
       )}
       {!slide.backgroundImageUrl && <DecorativeGradientBg colors={colors} variant="radial" />}
