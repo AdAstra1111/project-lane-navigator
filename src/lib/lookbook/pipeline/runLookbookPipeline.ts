@@ -429,7 +429,9 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     log(`Identity bindings: ${identityBindings.metrics.boundCount}/${identityBindings.metrics.totalCharacters} bound, ${identityBindings.metrics.unboundPrincipals} unbound principals`);
 
     // ── STAGE: GAP_ANALYSIS + RESOLUTION + GENERATION ──
-    if (options.mode === 'reuse_recovery' && !workingSet) {
+    const needsGeneration = options.mode === 'fresh_from_scratch' || (options.mode === 'reuse_recovery' && !workingSet);
+
+    if (needsGeneration) {
       updateStage(PipelineStage.GAP_ANALYSIS, startStage);
       reportProgress(PipelineStage.GAP_ANALYSIS, 'Analyzing gaps...', 30);
 
@@ -438,17 +440,71 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
         options.projectId, narrative, inventory, identity, isVD, options.companyName || 'Paradox House',
       );
       const gapAnalysis = analyzeLookBookGaps(prelimDeck);
-      log(`Gap analysis: ${gapAnalysis.gaps.length} gaps (pipeline-native)`);
+
+      // For fresh_from_scratch: if gap analysis found few gaps (because inventory is empty),
+      // synthesize requirements from slot intent registry for all slide types
+      let effectiveGaps = gapAnalysis.gaps;
+      if (options.mode === 'fresh_from_scratch' && effectiveGaps.length < 3) {
+        log('fresh_from_scratch: synthesizing requirements from slot intent registry');
+        const syntheticGaps: typeof effectiveGaps = [];
+        const slideTypes = ['cover', 'creative_statement', 'world', 'key_moments', 'visual_language', 'themes', 'story_engine', 'closing'];
+        const SLIDE_SUBJECT_MAP: Record<string, string> = {
+          cover: 'poster', creative_statement: 'atmosphere', world: 'world',
+          key_moments: 'moment', visual_language: 'texture', themes: 'atmosphere',
+          story_engine: 'moment', closing: 'poster',
+        };
+        for (const slideType of slideTypes) {
+          const intent = SLOT_INTENT_REGISTRY[slideType];
+          if (!intent) continue;
+          const existingForSlide = effectiveGaps.filter(g => g.slideType === slideType);
+          if (existingForSlide.length >= intent.minImages) continue;
+          const needed = Math.max(1, intent.minImages) - existingForSlide.length;
+          for (let i = 0; i < needed; i++) {
+            syntheticGaps.push({
+              slideId: `${slideType}:synthetic_${i}`,
+              slideType,
+              slotId: `bg_${i}`,
+              shotType: slideType === 'cover' || slideType === 'closing' ? 'hero' : 'wide',
+              orientation: 'landscape' as any,
+              subjectType: (SLIDE_SUBJECT_MAP[slideType] || 'atmosphere') as any,
+              severity: 'missing' as any,
+              reason: `Fresh-from-scratch requirement for ${slideType}`,
+              priority: 10,
+              canReuse: false,
+              needsGeneration: true,
+            });
+          }
+        }
+        effectiveGaps = [...effectiveGaps, ...syntheticGaps];
+      }
+
+      // Build requirement progress entries
+      for (const gap of effectiveGaps) {
+        requirements.push({
+          id: `${gap.slideId}:${gap.slotId}`,
+          label: `${gap.slideType} — ${gap.slotId}`,
+          slideType: gap.slideType,
+          status: 'pending',
+          generatedCount: 0,
+          selectedCount: 0,
+        });
+      }
+
+      log(`Gap analysis: ${effectiveGaps.length} gaps (pipeline-native, mode=${options.mode})`);
       updateStage(PipelineStage.GAP_ANALYSIS, s =>
-        gapAnalysis.gaps.length > 0
-          ? warnStage(s, `${gapAnalysis.gaps.length} gaps`)
+        effectiveGaps.length > 0
+          ? warnStage(s, `${effectiveGaps.length} gaps`)
           : completeStage(s, 'no gaps'),
       );
-      reportProgress(PipelineStage.GAP_ANALYSIS, `${gapAnalysis.gaps.length} gaps found`, 100);
+      reportProgress(PipelineStage.GAP_ANALYSIS, `${effectiveGaps.length} gaps found`, 100, requirements);
 
-      if (gapAnalysis.gaps.length > 0) {
+      if (effectiveGaps.length > 0) {
+        // Update requirements to planning
+        for (const req of requirements) req.status = 'planning';
+        reportProgress(PipelineStage.RESOLUTION, 'Planning generation...', 35, requirements);
+
         updateStage(PipelineStage.RESOLUTION, startStage);
-        reportProgress(PipelineStage.RESOLUTION, 'Resolving gaps...', 40);
+        reportProgress(PipelineStage.RESOLUTION, 'Resolving gaps...', 40, requirements);
 
         const promptContext = {
           projectTitle: narrative.projectTitle,
@@ -456,21 +512,46 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
           tone: narrative.tone,
         };
 
-        const orchResult = await orchestrateGapResolution(options.projectId, gapAnalysis, promptContext);
+        // For fresh_from_scratch: force all gaps to need generation (skip reuse search)
+        const gapAnalysisForOrch = options.mode === 'fresh_from_scratch'
+          ? { ...gapAnalysis, gaps: effectiveGaps.map(g => ({ ...g, canReuse: false, needsGeneration: true })) }
+          : { ...gapAnalysis, gaps: effectiveGaps };
+
+        const orchResult = await orchestrateGapResolution(options.projectId, gapAnalysisForOrch, promptContext);
         const summary = summarizeOrchestration(orchResult);
         log(`Resolution: ${summary}`);
         updateStage(PipelineStage.RESOLUTION, s => completeStage(s, summary));
 
+        // Update requirements to generating
+        for (const req of requirements) req.status = 'generating';
+        reportProgress(PipelineStage.RESOLUTION, summary, 100, requirements);
+
         if (orchResult.generationsQueued > 0) {
           updateStage(PipelineStage.GENERATION, startStage);
-          reportProgress(PipelineStage.GENERATION, `Generating ${orchResult.generationsQueued} images...`, 50);
+          reportProgress(PipelineStage.GENERATION, `Generating ${orchResult.generationsQueued} images...`, 50, requirements);
           const genResult = await executeGapGenerations(options.projectId, orchResult.resolutions, promptContext);
+
+          // Update requirement counts
+          const genBySlide = new Map<string, number>();
+          for (const res of orchResult.resolutions) {
+            if (res.method === 'generation_queued') {
+              const prev = genBySlide.get(res.gap.slideType) || 0;
+              genBySlide.set(res.gap.slideType, prev + 1);
+            }
+          }
+          for (const req of requirements) {
+            req.generatedCount = genBySlide.get(req.slideType) || 0;
+            req.status = req.generatedCount > 0 ? 'generated' : 'blocked';
+            if (req.status === 'blocked') req.blockingReason = 'Generation returned no results';
+          }
+
           log(`Generation: ${genResult.generated} succeeded, ${genResult.failed} failed`);
           updateStage(PipelineStage.GENERATION, s =>
             genResult.failed > 0
               ? warnStage(s, `${genResult.generated} ok, ${genResult.failed} failed`)
               : completeStage(s, `${genResult.generated} generated`),
           );
+          reportProgress(PipelineStage.GENERATION, `${genResult.generated} generated`, 100, requirements);
         } else {
           updateStage(PipelineStage.GENERATION, s => completeStage(s, 'none needed'));
         }
@@ -482,6 +563,17 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
           );
         }
         log(`Working set: ${workingSet.bySlotKey.size} slots filled`);
+
+        // Update requirements to selected
+        for (const req of requirements) {
+          if (req.status === 'generated' || req.status === 'blocked') {
+            const hasSelection = workingSet.bySlotKey.has(req.id) ||
+              [...workingSet.bySlotKey.keys()].some(k => k.startsWith(req.slideType));
+            req.status = hasSelection ? 'selected' : (req.status === 'blocked' ? 'blocked' : 'complete');
+            if (hasSelection) req.selectedCount = 1;
+          }
+        }
+        reportProgress(PipelineStage.GENERATION, 'Generation complete', 100, requirements);
       } else {
         updateStage(PipelineStage.RESOLUTION, s => completeStage(s, 'no gaps'));
         updateStage(PipelineStage.GENERATION, s => completeStage(s, 'no gaps'));
