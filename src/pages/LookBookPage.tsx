@@ -191,7 +191,7 @@ export default function LookBookPage() {
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding, invalidateImageCaches]);
+  }, [projectId, branding, invalidateImageCaches, activeWorkingSet]);
 
   useEffect(() => {
     const routeState = location.state as { mode?: LookbookMode; autoBuild?: boolean; buildKey?: string } | null;
