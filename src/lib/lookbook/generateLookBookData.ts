@@ -1016,7 +1016,7 @@ export async function generateLookBookData(
       body: seCopy.body,
       bodySecondary: seCopy.bodySecondary || undefined,
       bullets: seCopy.bullets,
-      imageUrl: seImages[0]?.signedUrl || undefined,
+      imageUrl: seForeground[0] || undefined,
       imageUrls: seForeground,
       backgroundImageUrl: seBg,
       composition: resolveComposition('story_engine', !!seBg, seForeground.length > 1, seForeground.length),
