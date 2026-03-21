@@ -958,16 +958,13 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
    ═══════════════════════════════════════════════════════════════════════ */
 function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const heroImg = slide.backgroundImageUrl || slide.imageUrl;
+  const hasStrongImage = !!heroImg;
 
   if (isPortrait) {
     return (
       <div style={baseStyle} className="slide-content">
-        {heroImg && (
-          <div className="absolute inset-0">
-            <img src={heroImg} alt="" className="w-full h-full" style={{ objectFit: 'cover', opacity: 0.08, filter: 'saturate(0.3) blur(8px)' }} />
-            <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${colors.bg}e8 0%, ${colors.bg}cc 35%, ${colors.bg}f5 100%)` }} />
-          </div>
-        )}
+        {hasStrongImage && <CinematicBackground src={heroImg!} colors={colors} overlayStrength="medium" overlayDirection="center-vignette" />}
+        {!hasStrongImage && <DecorativeGradientBg colors={colors} variant="radial" />}
         <EdgeAccent color={colors.accent} />
         <div style={{ position: 'relative', zIndex: 1, padding: '64px 56px 56px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Themes & Tone" color={colors.accent} />
