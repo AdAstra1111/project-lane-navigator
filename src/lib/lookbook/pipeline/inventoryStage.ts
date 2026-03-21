@@ -179,6 +179,25 @@ export async function runInventoryStage(input: InventoryInput): Promise<Inventor
     }
   }
 
+  // 3b. Actor-aware character image fallback
+  // If any characters from the canon have actor bindings but no images in the inventory,
+  // resolve their actor reference URLs as character card images
+  try {
+    const actorIdentities = await resolveProjectCastIdentity(projectId);
+    for (const [charKey, anchors] of actorIdentities) {
+      if (!characterNameImageMap.has(charKey) && anchors.hasAnchors) {
+        // Use headshot as character card image, fallback to fullBody
+        const url = anchors.headshot || anchors.fullBody;
+        if (url) {
+          characterNameImageMap.set(charKey, url);
+          console.log(`[LookBook:inventory] Actor-bound character card: "${anchors.characterName}" source=${anchors.source}${anchors.aiActorId ? ` actor=${anchors.aiActorId}` : ''}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[LookBook:inventory] Actor identity fallback failed:', (e as Error).message);
+  }
+
   // 4. Inject working set into pools
   if (workingSet && workingSet.bySlotKey.size > 0) {
     injectWorkingSet(sectionPools, workingSet, characterImageMap, characterNameImageMap);
