@@ -80,9 +80,11 @@ export function pickForegroundImages(
   maxCount: number,
   ctx: ElectionContext,
   excludeUrls: string[] = [],
+  boundPrincipalIds?: Set<string>,
+  hasSceneEvidence?: boolean,
 ): string[] {
   const seen = new Set(excludeUrls);
-  const scoringCtx = getScoringContext(ctx, slideType);
+  const scoringCtx = getScoringContext(ctx, slideType, boundPrincipalIds, hasSceneEvidence);
   const scored = pool
     .filter(img => img.signedUrl && !seen.has(img.signedUrl!))
     .map(img => ({ img, score: scoreImageForSlide(img, slideType, true, scoringCtx) }))
