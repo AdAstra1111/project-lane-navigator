@@ -116,6 +116,16 @@ export interface QAResult {
   reuseWarnings: string[];
   fingerprintWarnings: string[];
   publishable: boolean;
+  /** Provenance validation report */
+  provenance?: ProvenanceReport;
+  /** Identity binding summary */
+  identityBindingSummary?: {
+    totalCharacters: number;
+    boundCount: number;
+    unboundPrincipals: number;
+  };
+  /** Narrative evidence coverage score (0–1) */
+  evidenceCoverageScore?: number;
 }
 
 // ── Pipeline Progress Callback ───────────────────────────────────────────────
