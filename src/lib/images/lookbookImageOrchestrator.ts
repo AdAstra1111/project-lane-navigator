@@ -222,3 +222,86 @@ export function summarizeOrchestration(result: OrchestrationResult): string {
   if (result.unresolvable > 0) parts.push(`${result.unresolvable} unresolvable`);
   return parts.join(', ') || 'No gaps to resolve';
 }
+
+// ── Subject → Edge Function section mapping ──────────────────────────────────
+
+const SUBJECT_TO_SECTION: Record<string, string> = {
+  character: 'character_identity',
+  world: 'world_locations',
+  atmosphere: 'atmosphere_lighting',
+  moment: 'key_moments',
+  texture: 'texture_detail',
+  poster: 'poster_directions',
+  generic: 'atmosphere_lighting',
+};
+
+// ── Closed-Loop Generation Executor ──────────────────────────────────────────
+
+/**
+ * Execute actual image generation for all generation_queued resolutions.
+ * Calls the generate-lookbook-image edge function for each gap, writes results
+ * as candidates into project_images. Returns count of successfully generated images.
+ */
+export async function executeGapGenerations(
+  projectId: string,
+  resolutions: GapResolution[],
+  context: PromptContext,
+): Promise<{ generated: number; failed: number }> {
+  const queued = resolutions.filter(r => r.method === 'generation_queued');
+  if (queued.length === 0) return { generated: 0, failed: 0 };
+
+  let generated = 0;
+  let failed = 0;
+
+  // Group by section to batch where possible
+  const bySection = new Map<string, GapResolution[]>();
+  for (const res of queued) {
+    const section = SUBJECT_TO_SECTION[res.gap.subjectType] || 'atmosphere_lighting';
+    const existing = bySection.get(section) || [];
+    existing.push(res);
+    bySection.set(section, existing);
+  }
+
+  for (const [section, sectionResolutions] of bySection) {
+    try {
+      // Generate one image per gap in this section
+      const count = sectionResolutions.length;
+      const assetGroup = SUBJECT_TO_ASSET_GROUP[sectionResolutions[0].gap.subjectType] || 'visual_language';
+
+      toast.info(`Generating ${count} ${section} image${count > 1 ? 's' : ''}…`);
+
+      const { data, error } = await (supabase as any).functions.invoke('generate-lookbook-image', {
+        body: {
+          project_id: projectId,
+          section,
+          count: Math.min(count, 4), // Cap at 4 per batch
+          asset_group: assetGroup,
+          pack_mode: true,
+          // Pass first gap's shot type as hint
+          forced_shot_type: sectionResolutions[0].gap.shotType,
+          auto_complete_context: {
+            prompt_override: sectionResolutions[0].generationPrompt,
+            slot_ids: sectionResolutions.map(r => r.gap.slotId),
+            orientations: sectionResolutions.map(r => r.gap.orientation),
+          },
+        },
+      });
+
+      if (error) {
+        console.error(`[AutoComplete] Generation failed for ${section}:`, error);
+        failed += count;
+        continue;
+      }
+
+      const results = data?.results || [];
+      const successCount = results.filter((r: any) => r.status === 'ready').length;
+      generated += successCount;
+      failed += (count - successCount);
+    } catch (e: any) {
+      console.error(`[AutoComplete] Generation error for ${section}:`, e);
+      failed += sectionResolutions.length;
+    }
+  }
+
+  return { generated, failed };
+}
