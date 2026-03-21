@@ -514,8 +514,8 @@ export async function generateLookBookData(
     if (!img.subject || !img.signedUrl) continue;
     const key = img.subject.toLowerCase();
     let score = 0;
-    // Primary status (strongest signal)
-    if (img.is_primary) score += 20;
+    // Primary status — reduced from 20 to 5 so newer approved images can compete
+    if (img.is_primary) score += 5;
     // Identity-locked generation (trust these more)
     const gc = img.generation_config as Record<string, unknown> | null;
     if (gc?.identity_locked) score += 10;
@@ -525,8 +525,11 @@ export async function generateLookBookData(
     if (PREFERRED_CARD_SHOTS.includes(img.shot_type || '')) score += 3;
     // Portrait orientation bonus (better for character cards)
     if (classifyOrientation(img.width, img.height) === 'portrait') score += 2;
-    // Recency
-    score += Math.max(0, 2 - Math.floor((Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24)));
+    // Freshness boost — recently approved images can displace stale primaries
+    const charAgeDays = (Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24);
+    if (charAgeDays < 1) score += 8;
+    else if (charAgeDays < 3) score += 5;
+    else if (charAgeDays < 7) score += 2;
 
     const prev = charNameScoreMap.get(key) ?? -1;
     if (score > prev) {
@@ -720,14 +723,23 @@ export async function generateLookBookData(
     const hasNarrative = !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
     const isLandscape = classifyOrientation(img.width, img.height) === 'landscape';
 
-    // Narrative truth bonus (highest priority)
-    if (hasNarrative) score += 20;
+    // Narrative truth bonus (highest priority — raised)
+    if (hasNarrative) score += 25;
 
-    // Primary bonus
-    if (img.is_primary) score += 10;
+    // Primary bonus — REDUCED from 10 to 3 so newer approved images can compete
+    if (img.is_primary) score += 3;
 
     // Landscape bonus for background slots
     if (isLandscape) score += 8;
+
+    // Freshness boost — recently approved/created images get meaningful advantage
+    // This ensures newly approved images can displace stale incumbents
+    const ageMs = Date.now() - new Date(img.created_at || 0).getTime();
+    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    if (ageDays < 1) score += 12;       // approved today — strong boost
+    else if (ageDays < 3) score += 8;   // approved in last 3 days
+    else if (ageDays < 7) score += 4;   // approved this week
+    // older images get no freshness boost
 
     // Section-specific scoring
     const shotType = img.shot_type || '';
@@ -736,14 +748,12 @@ export async function generateLookBookData(
         if (['wide', 'atmospheric', 'establishing'].includes(shotType)) score += 15;
         if (img.asset_group === 'world') score += 12;
         if (img.location_ref) score += 10;
-        // Penalize texture/craft detail on world slides
         if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(shotType)) score -= 15;
         if (img.asset_group === 'visual_language' && !img.location_ref) score -= 10;
         break;
       case 'themes':
         if (['atmospheric', 'time_variant', 'lighting_ref'].includes(shotType)) score += 15;
         if (img.asset_group === 'visual_language') score += 8;
-        // Penalize literal craft/object detail
         if (['texture_ref', 'detail'].includes(shotType) && !img.location_ref) score -= 8;
         break;
       case 'visual_language':
@@ -753,7 +763,6 @@ export async function generateLookBookData(
         if (['tableau', 'medium', 'close_up', 'wide'].includes(shotType)) score += 15;
         if (img.asset_group === 'key_moment') score += 12;
         if (img.moment_ref) score += 10;
-        // Penalize texture/craft on key moments
         if (['texture_ref', 'detail', 'composition_ref', 'color_ref'].includes(shotType)) score -= 15;
         break;
       case 'story_engine':
@@ -764,7 +773,6 @@ export async function generateLookBookData(
       case 'cover':
         if (img.role === 'poster_primary') score += 20;
         if (img.role === 'poster_variant') score += 10;
-        // Penalize texture/craft on cover
         if (['texture_ref', 'detail', 'composition_ref'].includes(shotType)) score -= 20;
         break;
       case 'closing':
@@ -777,10 +785,6 @@ export async function generateLookBookData(
         if (['texture_ref', 'detail'].includes(shotType)) score -= 12;
         break;
     }
-
-    // Recency tiebreaker (small bonus for newer images)
-    const age = Date.now() - new Date(img.created_at || 0).getTime();
-    score += Math.max(0, 3 - Math.floor(age / (1000 * 60 * 60 * 24))); // +3 for today, +2 for yesterday, etc.
 
     // Deck-level reuse penalty — strongly prefer unique images
     if (applyReusePenalty && img.signedUrl) {
@@ -801,7 +805,7 @@ export async function generateLookBookData(
   }
 
   /** Pick the best N foreground images from a pool, with deck-level dedup.
-   *  Returns unique URLs only, scored and sorted. */
+   *  Returns unique URLs only, scored and sorted. Logs election diagnostics. */
   function pickForegroundImages(
     pool: ProjectImage[],
     slideType: string,
@@ -815,12 +819,29 @@ export async function generateLookBookData(
       .sort((a, b) => b.score - a.score);
 
     const result: string[] = [];
-    for (const { img } of scored) {
-      if (result.length >= maxCount) break;
-      if (seen.has(img.signedUrl!)) continue;
+    const winners: Array<{ id: string; score: number; primary: boolean; age: string }> = [];
+    const losers: Array<{ id: string; score: number; primary: boolean; reason: string }> = [];
+
+    for (const { img, score } of scored) {
+      if (result.length >= maxCount) {
+        losers.push({ id: img.id.slice(0, 8), score, primary: !!img.is_primary, reason: 'capacity' });
+        continue;
+      }
+      if (seen.has(img.signedUrl!)) {
+        losers.push({ id: img.id.slice(0, 8), score, primary: !!img.is_primary, reason: 'duplicate' });
+        continue;
+      }
       seen.add(img.signedUrl!);
       result.push(img.signedUrl!);
+      const ageDays = Math.floor((Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24));
+      winners.push({ id: img.id.slice(0, 8), score, primary: !!img.is_primary, age: `${ageDays}d` });
     }
+
+    // Election diagnostics — shows why each image won or lost
+    if (winners.length > 0 || losers.length > 0) {
+      console.log(`[LookBook:election] ${slideType} fg: winners=${JSON.stringify(winners)} | top-losers=${JSON.stringify(losers.slice(0, 3))}`);
+    }
+
     return result;
   }
 
@@ -859,6 +880,18 @@ export async function generateLookBookData(
       score: scoreImageForSlide(img, slideType),
     }));
     scored.sort((a, b) => b.score - a.score);
+
+    // Election diagnostics for background
+    if (scored.length > 0) {
+      const top3 = scored.slice(0, 3).map(s => ({
+        id: s.img.id.slice(0, 8),
+        score: s.score,
+        primary: !!s.img.is_primary,
+        orient: classifyOrientation(s.img.width, s.img.height),
+        age: `${Math.floor((Date.now() - new Date(s.img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24))}d`,
+      }));
+      console.log(`[LookBook:election] ${slideType} bg: candidates=${scored.length} top3=${JSON.stringify(top3)}`);
+    }
 
     // Pick best landscape first, then any
     const bestLandscape = scored.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
