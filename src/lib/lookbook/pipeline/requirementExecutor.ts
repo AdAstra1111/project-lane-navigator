@@ -648,18 +648,39 @@ export async function executeRequirements(
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Extract ALL character names referenced by a requirement.
+ * Checks characterName, characters array, and prompt context hints.
+ */
+function resolveAllCharacterNamesFromReq(req: LookBookRequirement): string[] {
+  const names: string[] = [];
+  if (req.promptContext.characterName) {
+    names.push(req.promptContext.characterName);
+  }
+  // Support comma-separated characters field
+  if (req.promptContext.characters) {
+    for (const n of req.promptContext.characters.split(',')) {
+      const trimmed = n.trim();
+      if (trimmed && !names.some(x => x.toLowerCase() === trimmed.toLowerCase())) {
+        names.push(trimmed);
+      }
+    }
+  }
+  return names;
+}
+
 /** Check if a requirement would get identity payload */
 function identityPayloadForReq(
   req: LookBookRequirement,
   anchors: Map<string, CharacterAnchorSet>,
 ): Record<string, unknown> {
-  const charName = req.promptContext.characterName;
-  if (!charName) return {};
-  if (req.subjectType !== 'character' && !CHARACTER_BEARING_SLIDES.has(req.slideType)) return {};
-  const key = charName.toLowerCase().trim();
-  const a = anchors.get(key);
-  if (!a?.hasAnchors) return {};
-  return { identity_mode: true };
+  const allNames = resolveAllCharacterNamesFromReq(req);
+  if (allNames.length === 0) return {};
+  for (const n of allNames) {
+    const a = anchors.get(n.toLowerCase().trim());
+    if (a?.hasAnchors) return { identity_mode: true };
+  }
+  return {};
 }
 
 
