@@ -192,6 +192,10 @@ export interface LookBookData {
   writerCredit: string;
   companyName: string;
   companyLogoUrl: string | null;
+  /** Unique build fingerprint — changes on every rebuild, proves fresh data */
+  buildId?: string;
+  /** Total resolved image references in this build */
+  totalImageRefs?: number;
 }
 
 /** Slide dimensions — landscape (default) */
