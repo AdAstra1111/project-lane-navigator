@@ -242,7 +242,7 @@ export async function executeRequirements(
     .select('*')
     .eq('project_id', projectId)
     .eq('curation_state', 'candidate')
-    .gte('created_at', fiveMinAgo)
+    .gte('created_at', harvestCutoff)
     .order('created_at', { ascending: false })
     .limit(200);
 
