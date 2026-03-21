@@ -102,9 +102,10 @@ const MAX_CONSECUTIVE_FAILURES = 2;
 /** Max times the same scene signature can appear across editorial slides */
 const EDITORIAL_FAMILY_CAP = 1;
 
-// ── Slides that can contain named principal characters ──
+// ── ANY slide that can contain named principal characters ──
 const CHARACTER_BEARING_SLIDES = new Set([
   'characters', 'cover', 'poster_directions', 'key_moments', 'story_engine',
+  'creative_statement', 'themes', 'closing',
 ]);
 
 // ── Executor ─────────────────────────────────────────────────────────────────
