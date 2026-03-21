@@ -266,21 +266,9 @@ export default function LookBookPage() {
       const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
         body: {
           project_id: projectId,
-          section: sectionKey === 'character_identity' ? 'character'
-            : sectionKey === 'world_locations' ? 'world'
-            : sectionKey === 'atmosphere_lighting' ? 'visual_language'
-            : sectionKey === 'texture_detail' ? 'visual_language'
-            : sectionKey === 'symbolic_motifs' ? 'key_moment'
-            : sectionKey === 'key_moments' ? 'key_moment'
-            : 'world',
+          section: sectionKeyToEdgeFunctionSection(sectionKey),
           count: 4,
-          asset_group: sectionKey === 'character_identity' ? 'character'
-            : sectionKey === 'world_locations' ? 'world'
-            : sectionKey === 'atmosphere_lighting' ? 'visual_language'
-            : sectionKey === 'texture_detail' ? 'visual_language'
-            : sectionKey === 'symbolic_motifs' ? 'key_moment'
-            : sectionKey === 'key_moments' ? 'key_moment'
-            : 'poster',
+          asset_group: sectionKeyToAssetGroup(sectionKey),
           pack_mode: true,
         },
       });
@@ -290,7 +278,6 @@ export default function LookBookPage() {
       if (successCount > 0) {
         toast.success(`Generated ${successCount} images for ${sectionKey.replace(/_/g, ' ')}`);
         await updateSectionStatus(sectionKey, { section_status: 'partially_populated' });
-        // Invalidate stale lookbook data so next build picks up new images
         invalidateImageCaches();
         setLookBookData(null);
       } else {
@@ -306,17 +293,18 @@ export default function LookBookPage() {
   const handleResetSection = useCallback(async (sectionKey: CanonicalSectionKey) => {
     const result = await resetSection(sectionKey);
     if (result && result.archivedCount > 0) {
-      setLookBookData(null); // Force rebuild on next viewer open
+      setLookBookData(null);
     }
   }, [resetSection]);
 
   const handleRegenerateClean = useCallback(async (sectionKey: CanonicalSectionKey) => {
     await regenerateClean(sectionKey);
-    setLookBookData(null); // Force rebuild on next viewer open
+    setLookBookData(null);
   }, [regenerateClean]);
 
   /**
-   * Auto Complete LookBook — Analyze gaps, orchestrate resolution, rebuild.
+   * Auto Complete LookBook — runs pipeline in reuse_recovery mode.
+   * All orchestration logic is inside the pipeline — NOT here.
    */
   const handleAutoComplete = useCallback(async () => {
     if (!projectId || !lookBookData) {
@@ -325,66 +313,14 @@ export default function LookBookPage() {
     }
     setAutoCompleting(true);
     try {
-      // 1. Analyze gaps
-      const gapAnalysis = analyzeLookBookGaps(lookBookData);
-      if (gapAnalysis.gaps.length === 0) {
-        toast.success('LookBook is already complete — no gaps found');
-        return;
-      }
-
-      // 2. Get project context for prompts
-      const { data: proj } = await supabase
-        .from('projects')
-        .select('title, genres, tone, format')
-        .eq('id', projectId)
-        .maybeSingle();
-      const projectTitle = (proj as any)?.title || '';
-      const genre = Array.isArray((proj as any)?.genres) ? (proj as any).genres.join(', ') : '';
-      const tone = (proj as any)?.tone || '';
-
-      // 3. Orchestrate resolution (retrieve / reuse)
-      const promptContext = { projectTitle, genre, tone };
-      const result = await orchestrateGapResolution(projectId, gapAnalysis, promptContext);
-
-      const summary = summarizeOrchestration(result);
-      toast.success(`Auto-complete analysis: ${summary}`);
-
-      // 4. Execute generation for all queued gaps (closed-loop)
-      if (result.generationsQueued > 0) {
-        toast.info(`Generating ${result.generationsQueued} missing images…`);
-        const genResult = await executeGapGenerations(projectId, result.resolutions, promptContext);
-        if (genResult.generated > 0) {
-          toast.success(`Generated ${genResult.generated} new image${genResult.generated > 1 ? 's' : ''}`);
-        }
-        if (genResult.failed > 0) {
-          toast.warning(`${genResult.failed} generation${genResult.failed > 1 ? 's' : ''} failed — can retry`);
-        }
-      }
-
-      // 5. Build working set (NO canon promotion — images stay as candidates)
-      let workingSet = await buildWorkingSetFromResolutions(result.resolutions);
-
-      // 6. Augment with recently generated candidates
-      if (result.generationsQueued > 0) {
-        workingSet = await augmentWorkingSetWithRecentGenerations(projectId, workingSet, result.resolutions);
-      }
-
-      const wsSize = workingSet.bySlotKey.size;
-      const candidateCount = workingSet.entries.filter(e => e.source !== 'active').length;
-      if (wsSize > 0) {
-        toast.success(`Working set: ${wsSize} slots filled (${candidateCount} provisional — approve in Review Studio to make permanent)`);
-      }
-
-      // 7. Store working set and rebuild with overlay
-      setActiveWorkingSet(workingSet);  // store for manual rebuilds
-      invalidateImageCaches();
-      await handleGenerate(workingSet);  // pass directly — no stale closure
+      await handleGenerate('reuse_recovery');
+      toast.success('Auto-complete finished — review the deck in Viewer');
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
     } finally {
       setAutoCompleting(false);
     }
-  }, [projectId, lookBookData, invalidateImageCaches, handleGenerate]);
+  }, [projectId, lookBookData, handleGenerate]);
 
   if (projectLoading || sectionsLoading) {
     return (
