@@ -549,11 +549,16 @@ export async function generateLookBookData(
   // ── Working Set Overlay: inject provisional images into pools ──
   // These are candidate/generated images chosen by Auto Complete
   // They participate in image selection but do NOT modify canon
+  //
+  // DETERMINISTIC OVERRIDE: working-set entries also populate a direct
+  // per-slide-type URL map so they bypass pool competition for their target slide.
   const workingSet = branding.workingSet;
+  const workingSetDirectOverrides = new Map<string, { url: string; source: import('@/lib/images/lookbookImageOrchestrator').WorkingSetSource; imageId: string }>();
+
   if (workingSet && workingSet.bySlotKey.size > 0) {
     console.log(`[LookBook] Applying working set overlay (${workingSet.bySlotKey.size} entries)`);
     
-    // Map slide types to section pool keys
+    // Map slide types to section pool keys — uses EXPLICIT slideType, never parsed slideId
     const SLIDE_TO_POOL: Record<string, keyof typeof sectionPools> = {
       cover: 'poster', closing: 'poster',
       world: 'world',
@@ -571,10 +576,23 @@ export async function generateLookBookData(
         _workingSetSource: entry.source as any,
       } as any;
 
-      // Inject into the appropriate section pool
-      const poolKey = SLIDE_TO_POOL[entry.slideId.split(':')[0]] || 'atmosphere';
+      // Use EXPLICIT slideType — never parse slideId
+      const slideType = entry.slideType || entry.slideId.split(':')[0]; // slideType is primary, split is legacy fallback only
+      const poolKey = SLIDE_TO_POOL[slideType] || 'atmosphere';
       if (sectionPools[poolKey]) {
         sectionPools[poolKey].push(syntheticImg);
+      }
+
+      // DETERMINISTIC OVERRIDE: register this URL for direct slide injection
+      // This ensures the working-set image is used even if it would lose pool competition
+      const overrideKey = `${slideType}:${entry.slotId}`;
+      const existingOverride = workingSetDirectOverrides.get(overrideKey);
+      if (!existingOverride || entry.score > 0) {
+        workingSetDirectOverrides.set(overrideKey, {
+          url: entry.signedUrl,
+          source: entry.source,
+          imageId: entry.image.id,
+        });
       }
 
       // Also inject character images into the character maps
@@ -588,6 +606,8 @@ export async function generateLookBookData(
         }
       }
     }
+
+    console.log(`[LookBook] Working set: ${workingSetDirectOverrides.size} deterministic overrides registered`);
   }
 
   // Broad fallback pool — used ONLY when section pool is empty
