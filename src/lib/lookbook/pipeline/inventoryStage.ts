@@ -168,7 +168,6 @@ export async function runInventoryStage(input: InventoryInput): Promise<Inventor
     if (gc?.identity_locked) score += 10;
     if (img.entity_id) score += 5;
     if (PREFERRED_CARD_SHOTS.includes(img.shot_type || '')) score += 3;
-    const { classifyOrientation } = await import('@/lib/images/orientationUtils');
     if (classifyOrientation(img.width, img.height) === 'portrait') score += 2;
     const charAgeDays = (Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24);
     if (charAgeDays < 1) score += 8;
