@@ -502,7 +502,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.ELECTION, startStage);
     reportProgress(PipelineStage.ELECTION, 'Electing winners...', 70);
 
-    const electionResult = runElectionStage(inventory.sectionPools, inventory.allUniqueImages);
+    const electionResult = runElectionStage(inventory.sectionPools, inventory.allUniqueImages, narrativeEvidence, identityBindings);
 
     log(`Election: poster=${electionResult.posterHero ? 'yes' : 'none'}, slides=${electionResult.slideElections.size}`);
     updateStage(PipelineStage.ELECTION, s => completeStage(s, `${electionResult.slideElections.size} slides elected`));
