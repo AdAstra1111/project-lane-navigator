@@ -54,6 +54,7 @@ export default function LookBookPage() {
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
   const [rebuildHistoryEpoch, setRebuildHistoryEpoch] = useState(0);
+  const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress | null>(null);
   const consumedAutoBuildKeyRef = useRef<string | null>(null);
 
   // ── Staleness detection ──
