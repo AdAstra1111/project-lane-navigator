@@ -3,6 +3,9 @@
  * Route: /projects/:id/lookbook
  * Canonical lookbook_sections are the authoritative runtime model.
  * Workspace is always accessible and is the default authoring mode.
+ * 
+ * PIPELINE: All builds (manual + auto-complete) go through runLookbookPipeline.
+ * This page does NOT contain orchestration logic — it calls the pipeline.
  */
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
@@ -16,7 +19,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FramingStrategyPanel } from '@/components/framing/FramingStrategyPanel';
 import { LookBookViewer } from '@/components/lookbook/LookBookViewer';
 import { LookbookSectionPanel } from '@/components/lookbook/LookbookSectionPanel';
-import { generateLookBookData, mergeUserDecisions } from '@/lib/lookbook/generateLookBookData';
 import { useProjectBranding } from '@/hooks/useProjectBranding';
 import { useProject } from '@/hooks/useProjects';
 import { useLookbookSections, type CanonicalSectionKey } from '@/hooks/useLookbookSections';
@@ -30,8 +32,9 @@ import type { LayoutFamilyKey } from '@/lib/lookbook/lookbookLayoutFamilies';
 import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel';
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
-import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
-import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations, buildWorkingSetFromResolutions, augmentWorkingSetWithRecentGenerations, type BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
+import { runLookbookPipeline } from '@/lib/lookbook/pipeline/runLookbookPipeline';
+import type { PipelineMode } from '@/lib/lookbook/pipeline/types';
+import { sectionKeyToEdgeFunctionSection, sectionKeyToAssetGroup } from '@/lib/lookbook/pipeline/lookbookSlotRegistry';
 
 type LookbookMode = 'workspace' | 'viewer';
 
@@ -43,7 +46,6 @@ export default function LookBookPage() {
   const { project, isLoading: projectLoading } = useProject(projectId);
   const { data: branding } = useProjectBranding(projectId);
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
-  const [activeWorkingSet, setActiveWorkingSet] = useState<BuildWorkingSet | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [autoCompleting, setAutoCompleting] = useState(false);
@@ -128,81 +130,61 @@ export default function LookBookPage() {
     prevSlidesRef.current = lookBookData?.slides ?? null;
   }, [lookBookData]);
 
-  const handleGenerate = useCallback(async (explicitWorkingSet?: BuildWorkingSet | null) => {
+  /**
+   * Build LookBook via canonical pipeline.
+   * Mode: 'fresh_build' (default) or 'reuse_recovery' (auto-complete).
+   */
+  const handleGenerate = useCallback(async (mode: PipelineMode = 'fresh_build') => {
     if (!projectId) return;
     setGenerating(true);
     try {
-      // Invalidate all image caches before building
       invalidateImageCaches();
 
-      // Use explicit param first (from Auto Complete), then fall back to state
-      const effectiveWorkingSet = explicitWorkingSet !== undefined
-        ? explicitWorkingSet
-        : activeWorkingSet;
-
-      console.log('[LookBookPage] handleGenerate called', {
-        explicitWSProvided: explicitWorkingSet !== undefined,
-        effectiveWSEntries: effectiveWorkingSet?.entries?.length ?? 0,
-        effectiveWSSlots: effectiveWorkingSet?.bySlotKey?.size ?? 0,
-      });
-
-      // Always re-resolve from DB — no stale snapshot reuse
-      console.log('[LookBookPage] Building lookbook from fresh DB state...');
-      const freshData = await generateLookBookData(projectId, {
+      const result = await runLookbookPipeline({
+        projectId,
+        mode,
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
-        workingSet: effectiveWorkingSet,
+        previousSlides: prevSlidesRef.current,
       });
 
-      // Preserve valid user decisions from previous build (read from ref, not state)
-      const previousSlides = prevSlidesRef.current;
-      if (previousSlides && previousSlides.length > 0) {
-        const { merged, preservedCount, droppedCount, dropReasons, migratedCount } = mergeUserDecisions(
-          freshData.slides,
-          previousSlides,
-        );
-        freshData.slides = merged;
-        if (preservedCount > 0 || droppedCount > 0 || migratedCount > 0) {
-          console.log('[LookBookPage] ✓ User decisions merge:', {
-            preserved: preservedCount,
-            dropped: droppedCount,
-            migrated: migratedCount,
-            dropReasons,
-          });
-        }
-      }
-
-      // Log provenance for debugging stale-data issues
-      console.log('[LookBookPage] ✓ Build complete', {
-        buildId: freshData.buildId,
-        slideCount: freshData.slides.length,
-        totalImageRefs: freshData.totalImageRefs,
-        generatedAt: freshData.generatedAt,
+      // Log provenance for debugging
+      console.log('[LookBookPage] ✓ Pipeline complete', {
+        buildId: result.data.buildId,
+        slideCount: result.data.slides.length,
+        totalImageRefs: result.data.totalImageRefs,
+        durationMs: result.durationMs,
+        qaPublishable: result.qa.publishable,
+        stages: result.stages.map(s => `${s.stage}:${s.status}`).join(' '),
       });
 
-      setLookBookData(freshData);
+      setLookBookData(result.data);
       setLookbookBuildEpoch(Date.now());
 
-      // Change detection — compare resolved image IDs with previous build
-      const newIds = freshData.resolvedImageIds || [];
+      // Change detection
+      const newIds = result.data.resolvedImageIds || [];
       const prevIds = prevResolvedIdsRef.current || [];
       const changed = newIds.length !== prevIds.length || newIds.some((id, i) => id !== prevIds[i]);
       prevResolvedIdsRef.current = newIds;
 
       if (changed || !prevIds.length) {
-        toast.success(`Look Book built (${freshData.totalImageRefs || 0} images resolved)`);
+        toast.success(`Look Book built (${result.data.totalImageRefs || 0} images resolved)`);
       } else {
         toast.info(
           'Look Book rebuilt — same images as before. Approve new images or generate fresh ones to change the deck.',
           { duration: 6000 },
         );
       }
+
+      if (!result.qa.publishable && result.qa.unresolvedSlides.length > 0) {
+        toast.warning(`${result.qa.unresolvedSlides.length} slides have unresolved images`, { duration: 5000 });
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding, invalidateImageCaches, activeWorkingSet]);
+  }, [projectId, branding, invalidateImageCaches]);
 
   useEffect(() => {
     const routeState = location.state as { mode?: LookbookMode; autoBuild?: boolean; buildKey?: string } | null;
@@ -284,21 +266,9 @@ export default function LookBookPage() {
       const { data, error } = await supabase.functions.invoke('generate-lookbook-image', {
         body: {
           project_id: projectId,
-          section: sectionKey === 'character_identity' ? 'character'
-            : sectionKey === 'world_locations' ? 'world'
-            : sectionKey === 'atmosphere_lighting' ? 'visual_language'
-            : sectionKey === 'texture_detail' ? 'visual_language'
-            : sectionKey === 'symbolic_motifs' ? 'key_moment'
-            : sectionKey === 'key_moments' ? 'key_moment'
-            : 'world',
+          section: sectionKeyToEdgeFunctionSection(sectionKey),
           count: 4,
-          asset_group: sectionKey === 'character_identity' ? 'character'
-            : sectionKey === 'world_locations' ? 'world'
-            : sectionKey === 'atmosphere_lighting' ? 'visual_language'
-            : sectionKey === 'texture_detail' ? 'visual_language'
-            : sectionKey === 'symbolic_motifs' ? 'key_moment'
-            : sectionKey === 'key_moments' ? 'key_moment'
-            : 'poster',
+          asset_group: sectionKeyToAssetGroup(sectionKey),
           pack_mode: true,
         },
       });
@@ -308,7 +278,6 @@ export default function LookBookPage() {
       if (successCount > 0) {
         toast.success(`Generated ${successCount} images for ${sectionKey.replace(/_/g, ' ')}`);
         await updateSectionStatus(sectionKey, { section_status: 'partially_populated' });
-        // Invalidate stale lookbook data so next build picks up new images
         invalidateImageCaches();
         setLookBookData(null);
       } else {
@@ -324,17 +293,18 @@ export default function LookBookPage() {
   const handleResetSection = useCallback(async (sectionKey: CanonicalSectionKey) => {
     const result = await resetSection(sectionKey);
     if (result && result.archivedCount > 0) {
-      setLookBookData(null); // Force rebuild on next viewer open
+      setLookBookData(null);
     }
   }, [resetSection]);
 
   const handleRegenerateClean = useCallback(async (sectionKey: CanonicalSectionKey) => {
     await regenerateClean(sectionKey);
-    setLookBookData(null); // Force rebuild on next viewer open
+    setLookBookData(null);
   }, [regenerateClean]);
 
   /**
-   * Auto Complete LookBook — Analyze gaps, orchestrate resolution, rebuild.
+   * Auto Complete LookBook — runs pipeline in reuse_recovery mode.
+   * All orchestration logic is inside the pipeline — NOT here.
    */
   const handleAutoComplete = useCallback(async () => {
     if (!projectId || !lookBookData) {
@@ -343,66 +313,14 @@ export default function LookBookPage() {
     }
     setAutoCompleting(true);
     try {
-      // 1. Analyze gaps
-      const gapAnalysis = analyzeLookBookGaps(lookBookData);
-      if (gapAnalysis.gaps.length === 0) {
-        toast.success('LookBook is already complete — no gaps found');
-        return;
-      }
-
-      // 2. Get project context for prompts
-      const { data: proj } = await supabase
-        .from('projects')
-        .select('title, genres, tone, format')
-        .eq('id', projectId)
-        .maybeSingle();
-      const projectTitle = (proj as any)?.title || '';
-      const genre = Array.isArray((proj as any)?.genres) ? (proj as any).genres.join(', ') : '';
-      const tone = (proj as any)?.tone || '';
-
-      // 3. Orchestrate resolution (retrieve / reuse)
-      const promptContext = { projectTitle, genre, tone };
-      const result = await orchestrateGapResolution(projectId, gapAnalysis, promptContext);
-
-      const summary = summarizeOrchestration(result);
-      toast.success(`Auto-complete analysis: ${summary}`);
-
-      // 4. Execute generation for all queued gaps (closed-loop)
-      if (result.generationsQueued > 0) {
-        toast.info(`Generating ${result.generationsQueued} missing images…`);
-        const genResult = await executeGapGenerations(projectId, result.resolutions, promptContext);
-        if (genResult.generated > 0) {
-          toast.success(`Generated ${genResult.generated} new image${genResult.generated > 1 ? 's' : ''}`);
-        }
-        if (genResult.failed > 0) {
-          toast.warning(`${genResult.failed} generation${genResult.failed > 1 ? 's' : ''} failed — can retry`);
-        }
-      }
-
-      // 5. Build working set (NO canon promotion — images stay as candidates)
-      let workingSet = await buildWorkingSetFromResolutions(result.resolutions);
-
-      // 6. Augment with recently generated candidates
-      if (result.generationsQueued > 0) {
-        workingSet = await augmentWorkingSetWithRecentGenerations(projectId, workingSet, result.resolutions);
-      }
-
-      const wsSize = workingSet.bySlotKey.size;
-      const candidateCount = workingSet.entries.filter(e => e.source !== 'active').length;
-      if (wsSize > 0) {
-        toast.success(`Working set: ${wsSize} slots filled (${candidateCount} provisional — approve in Review Studio to make permanent)`);
-      }
-
-      // 7. Store working set and rebuild with overlay
-      setActiveWorkingSet(workingSet);  // store for manual rebuilds
-      invalidateImageCaches();
-      await handleGenerate(workingSet);  // pass directly — no stale closure
+      await handleGenerate('reuse_recovery');
+      toast.success('Auto-complete finished — review the deck in Viewer');
     } catch (e: any) {
       toast.error(e.message || 'Auto-complete failed');
     } finally {
       setAutoCompleting(false);
     }
-  }, [projectId, lookBookData, invalidateImageCaches, handleGenerate]);
+  }, [projectId, lookBookData, handleGenerate]);
 
   if (projectLoading || sectionsLoading) {
     return (
