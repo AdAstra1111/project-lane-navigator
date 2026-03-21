@@ -1138,7 +1138,7 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   // ── Landscape story engine — atmospheric background, centered content ──
   return (
     <div style={baseStyle} className="slide-content">
-      {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />}
+      {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
       {!seBg && <DecorativeGradientBg colors={colors} variant="diagonal" />}
       <div style={{ position: 'relative', zIndex: 1, padding: '64px 80px 56px 88px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Story Engine" color={colors.accent} />
