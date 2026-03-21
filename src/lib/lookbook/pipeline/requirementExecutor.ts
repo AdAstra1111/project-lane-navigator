@@ -638,8 +638,6 @@ function identityPayloadForReq(
   return { identity_mode: true };
 }
 
-// Variable used in scoring loop — must be accessible
-const slideType = ''; // placeholder, actual slideType comes from req in the loop
 
 function computeSceneSignature(img: ProjectImage): string {
   const parts: string[] = [];
