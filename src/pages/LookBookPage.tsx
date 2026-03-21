@@ -475,7 +475,7 @@ export default function LookBookPage() {
                 <p className="text-xs text-muted-foreground">Images have changed since your last build. Rebuild to preview the latest approved images.</p>
               </div>
             </div>
-            <Button size="sm" variant="outline" className="gap-1 text-xs h-7 shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10" onClick={handleGenerate} disabled={generating}>
+            <Button size="sm" variant="outline" className="gap-1 text-xs h-7 shrink-0 border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10" onClick={() => handleGenerate()} disabled={generating}>
               {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
               Rebuild Now
             </Button>
