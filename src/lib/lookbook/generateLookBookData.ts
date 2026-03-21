@@ -1006,8 +1006,9 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
     const seBg = pickBackgroundImage(seImages, keyMomentImages, usedBackgroundUrls, 'story_engine');
-    if (seBg) usedBackgroundUrls.push(seBg);
-    const seForeground = seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[];
+    if (seBg) { usedBackgroundUrls.push(seBg); trackImageUsage(seBg, 'story_engine'); }
+    const seForeground = pickForegroundImages(seImages, 'story_engine', 3, seBg ? [seBg] : []);
+    seForeground.forEach(u => trackImageUsage(u, 'story_engine'));
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
