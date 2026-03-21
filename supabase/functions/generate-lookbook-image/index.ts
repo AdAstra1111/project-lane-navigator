@@ -640,13 +640,63 @@ function buildIdentityPrompt(characterName: string, shotType: ShotType, ctx: Sec
   ].join("\n");
 }
 
+// ── ACTION AUTHORITY: Occupation Suppression for Environment Slots ─────────
+// Character occupation/trade must NEVER leak into world/location prompts.
+// Only slot purpose, scene context, or explicit instruction can authorize visible action.
+const OCCUPATION_SUPPRESSION_BLOCK = [
+  '[ACTION AUTHORITY — ENVIRONMENT SLOT RULES]',
+  '',
+  'This is an ENVIRONMENT / LOCATION image. The slot purpose is to show a PLACE, not a person doing their job.',
+  '',
+  'HARD SUPPRESSION — DO NOT DEPICT:',
+  '- Any character performing their trade or occupation (pottery, crafting, cooking, forging, weaving, etc.)',
+  '- Artisan workshop activity or craft processes',
+  '- Close-up hands working on materials',
+  '- Protagonist-centered labor or work scenes',
+  '- Any individual as the focal subject of the frame',
+  '',
+  'COMPOSITION MANDATE:',
+  '- Architecture, spatial layout, and environmental design must dominate the frame',
+  '- If humans appear, they must be background figures (servants, guards, passersby) — never centered',
+  '- Object storytelling: crates, textiles, weapons, scrolls, furniture, dust, light — NOT people working',
+  '- Atmosphere: light shafts, shadow, weather, architectural detail, status signals',
+  '',
+  'The PLACE is the subject. NOT any person. NOT any craft activity.',
+].join('\n');
+
+/**
+ * Filter narrative moments for world/location prompts.
+ * Prefer establishing/atmospheric moments WITHOUT character-centered activity.
+ */
+function filterWorldNarrativeMoment(moment: NarrativeMoment | null): NarrativeMoment | null {
+  if (!moment) return null;
+  const summary = (moment.summary || '').toLowerCase();
+  // Suppress moments that describe character craft/trade activity
+  const occupationPatterns = [
+    'pottery', 'ceramic', 'potter', 'crafting', 'workshop', 'forge', 'forging',
+    'cooking', 'weaving', 'blacksmith', 'artisan', 'sculpt', 'brew', 'baking',
+    'carving', 'sewing', 'knitting', 'painting canvas', 'composing music',
+    'performing', 'practicing', 'training with',
+  ];
+  if (occupationPatterns.some(p => summary.includes(p))) {
+    return null; // Suppress this moment for world prompts
+  }
+  return moment;
+}
+
 function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: SectionContext, variantIndex: number = 0): string {
   const framing = SHOT_FRAMING[shotType];
 
   // ── Narrative moment selection ──
-  const narrativeMoment = (ctx.narrativeMoments?.length)
+  let narrativeMoment = (ctx.narrativeMoments?.length)
     ? selectNarrativeMoment(ctx.narrativeMoments, shotType, variantIndex)
     : null;
+
+  // ── ACTION AUTHORITY: Filter narrative moments for world/location slots ──
+  const isWorldSlot = assetGroup === 'world';
+  if (isWorldSlot) {
+    narrativeMoment = filterWorldNarrativeMoment(narrativeMoment);
+  }
 
   let subjectDescription = "";
   switch (assetGroup) {
@@ -661,12 +711,18 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
       break;
     case "world":
       if (ctx.locationName) {
-        subjectDescription = `Location: "${ctx.locationName}". ${ctx.locationDescription || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+        // Use location description but strip any occupation-related text
+        const locDesc = ctx.locationDescription || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth.";
+        subjectDescription = `Location: "${ctx.locationName}". ${locDesc}`;
+        // Add environment-first positive guidance
+        subjectDescription += ' Focus on architectural features, spatial layout, lighting conditions, material textures, and atmospheric mood. The environment itself tells the story.';
       } else if (narrativeMoment?.location) {
-        subjectDescription = `Location: "${narrativeMoment.location}". ${narrativeMoment.summary || ctx.worldDescription || "A cinematic environment rendered with atmospheric depth."}`;
+        subjectDescription = `Location: "${narrativeMoment.location}". A cinematic environment rendered with atmospheric depth.`;
         if (narrativeMoment.time_of_day) subjectDescription += ` Time of day: ${narrativeMoment.time_of_day}.`;
+        subjectDescription += ' Focus on the physical space, architecture, and atmosphere — not on character activity.';
       } else {
         subjectDescription = ctx.worldDescription || "The story's world rendered with atmospheric depth and cinematic grandeur.";
+        subjectDescription += ' Environment-first composition: architecture, geography, light, and spatial storytelling.';
       }
       break;
     case "key_moment": {
@@ -724,9 +780,26 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `TONE: ${ctx.tone || "dramatic"}. Genre: ${ctx.genres?.join(", ") || "drama"}.`,
   ];
 
+  // ── ACTION AUTHORITY: Inject occupation suppression for world/location slots ──
+  if (isWorldSlot) {
+    promptParts.push('', OCCUPATION_SUPPRESSION_BLOCK);
+    console.log(`[action-authority] occupation suppression APPLIED for world/${shotType}`);
+  }
+
   // Inject full narrative moment block for non-character, non-visual_language shots
+  // For world slots, only inject if the moment passed the occupation filter
   if (narrativeMoment && assetGroup !== 'visual_language') {
-    promptParts.push('', buildNarrativeMomentBlock(narrativeMoment));
+    if (isWorldSlot) {
+      // For world slots, only inject location/time context from narrative — NOT character activity
+      const worldNarrativeLines = ['[LOCATION CONTEXT — FROM SCRIPT]', ''];
+      if (narrativeMoment.location) worldNarrativeLines.push(`WHERE: ${narrativeMoment.location}`);
+      if (narrativeMoment.time_of_day) worldNarrativeLines.push(`TIME OF DAY: ${narrativeMoment.time_of_day}`);
+      if (narrativeMoment.slugline) worldNarrativeLines.push(`SCENE: ${narrativeMoment.slugline}`);
+      worldNarrativeLines.push('', 'Generate this as a LOCATION PLATE — the environment without character activity.');
+      promptParts.push('', worldNarrativeLines.join('\n'));
+    } else {
+      promptParts.push('', buildNarrativeMomentBlock(narrativeMoment));
+    }
   }
 
   promptParts.push(
@@ -739,6 +812,19 @@ function buildPackPrompt(assetGroup: AssetGroup, shotType: ShotType, ctx: Sectio
     `- No illustrated or painted look`,
     `- ${driftExclusions}`,
     `- Must look indistinguishable from a still frame from a theatrically released film`,
+  );
+
+  // ── World-specific negative prompt additions ──
+  if (isWorldSlot) {
+    promptParts.push(
+      `- No pottery wheels, ceramics, or craft processes`,
+      `- No artisan workshop activity`,
+      `- No protagonist performing their trade or occupation`,
+      `- No character-centered composition — the PLACE is the subject`,
+    );
+  }
+
+  promptParts.push(
     ``,
     `TECHNICAL: Premium cinematic quality. Anamorphic lens characteristics.`,
   );
