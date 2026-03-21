@@ -270,6 +270,8 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
   // Requirement-level progress tracker
   const requirements: RequirementProgress[] = [];
+  // Requirement results for QA (only populated in fresh_from_scratch)
+  let reqResults: import('./requirementBuilder').RequirementResult[] | undefined;
 
   try {
     // ── STAGE: MODE_SELECTION ──
