@@ -925,8 +925,8 @@ export async function generateLookBookData(
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
     _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
-  if (coverBg) { usedBackgroundUrls.push(coverBg); trackImageUsage(coverBg, 'cover'); }
-  if (coverImageUrl && coverImageUrl !== coverBg) trackImageUsage(coverImageUrl, 'cover');
+  if (coverBg) { usedBackgroundUrls.push(coverBg); trackSelection(coverBg, 'cover'); }
+  if (coverImageUrl && coverImageUrl !== coverBg) trackSelection(coverImageUrl, 'cover');
 
   // ── 2. CREATIVE VISION (merged with Overview content) ──
   {
@@ -945,7 +945,7 @@ export async function generateLookBookData(
       ? normalizedCanon.premise.slice(0, 300)
       : undefined;
     const cvBg = pickBackgroundImage(atmosphereImages, [], usedBackgroundUrls, 'creative_statement');
-    if (cvBg) { usedBackgroundUrls.push(cvBg); trackImageUsage(cvBg, 'creative_statement'); }
+    if (cvBg) { usedBackgroundUrls.push(cvBg); trackSelection(cvBg, 'creative_statement'); }
     slides.push({
       type: 'creative_statement',
       slide_id: makeSemanticSlideId('creative_statement'),
@@ -962,9 +962,9 @@ export async function generateLookBookData(
   // ── 3. WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'world');
-    if (worldBg) { usedBackgroundUrls.push(worldBg); trackImageUsage(worldBg, 'world'); }
+    if (worldBg) { usedBackgroundUrls.push(worldBg); trackSelection(worldBg, 'world'); }
     const worldForeground = pickForegroundImages(worldImages, 'world', 4, worldBg ? [worldBg] : []);
-    worldForeground.forEach(u => trackImageUsage(u, 'world'));
+    worldForeground.forEach(u => trackSelection(u, 'world'));
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -988,7 +988,7 @@ export async function generateLookBookData(
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6);
-    kmForeground.forEach(u => trackImageUsage(u, 'key_moments'));
+    kmForeground.forEach(u => trackSelection(u, 'key_moments'));
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
@@ -1022,9 +1022,9 @@ export async function generateLookBookData(
   const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls, 'visual_language');
-  if (vlBg) { usedBackgroundUrls.push(vlBg); trackImageUsage(vlBg, 'visual_language'); }
+  if (vlBg) { usedBackgroundUrls.push(vlBg); trackSelection(vlBg, 'visual_language'); }
   const vlForeground = pickForegroundImages(vlImages, 'visual_language', 4, vlBg ? [vlBg] : []);
-  vlForeground.forEach(u => trackImageUsage(u, 'visual_language'));
+  vlForeground.forEach(u => trackSelection(u, 'visual_language'));
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
@@ -1046,9 +1046,9 @@ export async function generateLookBookData(
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
     const themesBg = pickBackgroundImage(atmosphereImages, worldImages, usedBackgroundUrls, 'themes');
-    if (themesBg) { usedBackgroundUrls.push(themesBg); trackImageUsage(themesBg, 'themes'); }
+    if (themesBg) { usedBackgroundUrls.push(themesBg); trackSelection(themesBg, 'themes'); }
     const themesForeground = pickForegroundImages(atmosphereImages, 'themes', 4, themesBg ? [themesBg] : []);
-    themesForeground.forEach(u => trackImageUsage(u, 'themes'));
+    themesForeground.forEach(u => trackSelection(u, 'themes'));
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
@@ -1070,9 +1070,9 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
     const seBg = pickBackgroundImage(seImages, keyMomentImages, usedBackgroundUrls, 'story_engine');
-    if (seBg) { usedBackgroundUrls.push(seBg); trackImageUsage(seBg, 'story_engine'); }
+    if (seBg) { usedBackgroundUrls.push(seBg); trackSelection(seBg, 'story_engine'); }
     const seForeground = pickForegroundImages(seImages, 'story_engine', 3, seBg ? [seBg] : []);
-    seForeground.forEach(u => trackImageUsage(u, 'story_engine'));
+    seForeground.forEach(u => trackSelection(u, 'story_engine'));
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
@@ -1100,7 +1100,7 @@ export async function generateLookBookData(
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
     const compBg = pickBackgroundImage([], [], usedBackgroundUrls, 'comparables');
-    if (compBg) { usedBackgroundUrls.push(compBg); trackImageUsage(compBg, 'comparables'); }
+    if (compBg) { usedBackgroundUrls.push(compBg); trackSelection(compBg, 'comparables'); }
     slides.push({
       type: 'comparables',
       slide_id: makeSemanticSlideId('comparables'),
@@ -1115,7 +1115,7 @@ export async function generateLookBookData(
   const posterImages = canonImages.poster_directions.images;
   if (posterImages.length > 1) {
     const posterForeground = pickForegroundImages(posterImages, 'cover', 4);
-    posterForeground.forEach(u => trackImageUsage(u, 'poster_directions'));
+    posterForeground.forEach(u => trackSelection(u, 'poster_directions'));
     slides.push({
       type: 'key_moments' as any,
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
