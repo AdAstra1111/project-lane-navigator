@@ -5,7 +5,8 @@
  * 1. Searches active pool for a better match
  * 2. Searches archive/candidate pool for reusable images
  * 3. Queues generation for truly missing images
- * 4. Auto-promotes high-confidence results into active canon
+ * 4. Returns a BuildWorkingSet — temporary overlay for the LookBook build
+ *    WITHOUT promoting candidates into active canon
  * 
  * Does NOT duplicate resolveCanonImages logic.
  * Uses project_images as the single source of truth.
@@ -17,6 +18,31 @@ import { resolvePromptTemplate, buildPromptFromTemplate, type PromptContext } fr
 import { classifyOrientation } from './orientationUtils';
 import { toast } from 'sonner';
 
+// ── Build Working Set Types ─────────────────────────────────────────────────
+
+export type WorkingSetSource = 'active' | 'candidate' | 'archived' | 'generated';
+
+export interface WorkingSetEntry {
+  /** Slide ID this image is for */
+  slideId: string;
+  /** Slot ID within the layout */
+  slotId: string;
+  /** The chosen image */
+  image: ProjectImage;
+  /** Where the image came from */
+  source: WorkingSetSource;
+  /** Confidence/match score */
+  score: number;
+  /** Signed URL for rendering */
+  signedUrl: string;
+}
+
+export interface BuildWorkingSet {
+  entries: WorkingSetEntry[];
+  /** Quick lookup: slideId:slotId → entry */
+  bySlotKey: Map<string, WorkingSetEntry>;
+}
+
 // ── Orchestration Result Types ───────────────────────────────────────────────
 
 export type ResolutionMethod = 'active_match' | 'archive_reuse' | 'generation_queued' | 'unresolvable';
@@ -24,8 +50,14 @@ export type ResolutionMethod = 'active_match' | 'archive_reuse' | 'generation_qu
 export interface GapResolution {
   gap: ImageGap;
   method: ResolutionMethod;
+  /** Image if resolved from existing pool */
+  resolvedImage?: ProjectImage;
   /** Image ID if resolved from existing pool */
   resolvedImageId?: string;
+  /** Source pool */
+  resolvedSource?: WorkingSetSource;
+  /** Match score */
+  resolvedScore?: number;
   /** Prompt if generation is queued */
   generationPrompt?: string;
   /** Reason for this resolution */
@@ -113,33 +145,43 @@ async function resolveGap(
     return {
       gap,
       method: 'active_match',
-      resolvedImageId: activeMatch.id,
+      resolvedImage: activeMatch.img,
+      resolvedImageId: activeMatch.img.id,
+      resolvedSource: 'active',
+      resolvedScore: activeMatch.score,
       reason: `Found active image matching ${gap.shotType}/${gap.orientation} in ${assetGroup}`,
     };
   }
 
-  // 2. Search archive/candidate pool for reusable images
-  const archiveMatch = await searchPool(projectId, gap, 'candidate', assetGroup);
-  if (archiveMatch) {
+  // 2. Search candidate pool for reusable images
+  const candidateMatch = await searchPool(projectId, gap, 'candidate', assetGroup);
+  if (candidateMatch) {
     return {
       gap,
       method: 'archive_reuse',
-      resolvedImageId: archiveMatch.id,
+      resolvedImage: candidateMatch.img,
+      resolvedImageId: candidateMatch.img.id,
+      resolvedSource: 'candidate',
+      resolvedScore: candidateMatch.score,
       reason: `Found reusable candidate image for ${gap.slotId}`,
     };
   }
 
+  // 3. Search archived pool
   const archivedMatch = await searchPool(projectId, gap, 'archived', assetGroup);
   if (archivedMatch) {
     return {
       gap,
       method: 'archive_reuse',
-      resolvedImageId: archivedMatch.id,
+      resolvedImage: archivedMatch.img,
+      resolvedImageId: archivedMatch.img.id,
+      resolvedSource: 'archived',
+      resolvedScore: archivedMatch.score,
       reason: `Found archived image that can be restored for ${gap.slotId}`,
     };
   }
 
-  // 3. Queue generation
+  // 4. Queue generation
   const template = resolvePromptTemplate(gap.subjectType, gap.shotType);
   const { prompt } = buildPromptFromTemplate(template, context);
 
@@ -153,13 +195,14 @@ async function resolveGap(
 
 /**
  * Search project_images pool for a match suitable for a gap.
+ * Returns the image AND its score for working-set construction.
  */
 async function searchPool(
   projectId: string,
   gap: ImageGap,
   curationState: 'active' | 'candidate' | 'archived',
   assetGroup: string,
-): Promise<ProjectImage | null> {
+): Promise<{ img: ProjectImage; score: number } | null> {
   const strategyKeys = SUBJECT_TO_STRATEGY_KEYS[gap.subjectType] || [];
 
   let q = (supabase as any)
@@ -206,14 +249,13 @@ async function searchPool(
 
   // Only return if score is above minimum threshold
   const best = scored[0];
-  if (best && best.score >= 5) return best.img;
+  if (best && best.score >= 5) return best;
 
   return null;
 }
 
 /**
  * Get a summary of what the orchestrator would do, without executing.
- * Useful for preview/confirmation UI.
  */
 export function summarizeOrchestration(result: OrchestrationResult): string {
   const parts: string[] = [];
@@ -225,9 +267,6 @@ export function summarizeOrchestration(result: OrchestrationResult): string {
 }
 
 // ── Subject → Edge Function section mapping ──────────────────────────────────
-// These MUST match the valid sections in generate-lookbook-image edge function:
-// "world" | "character" | "key_moment" | "visual_language"
-
 const SUBJECT_TO_SECTION: Record<string, string> = {
   character: 'character',
   world: 'world',
@@ -259,7 +298,7 @@ export async function executeGapGenerations(
   // Group by section to batch where possible
   const bySection = new Map<string, GapResolution[]>();
   for (const res of queued) {
-    const section = SUBJECT_TO_SECTION[res.gap.subjectType] || 'atmosphere_lighting';
+    const section = SUBJECT_TO_SECTION[res.gap.subjectType] || 'visual_language';
     const existing = bySection.get(section) || [];
     existing.push(res);
     bySection.set(section, existing);
@@ -267,7 +306,6 @@ export async function executeGapGenerations(
 
   for (const [section, sectionResolutions] of bySection) {
     try {
-      // Generate one image per gap in this section
       const count = sectionResolutions.length;
       const assetGroup = SUBJECT_TO_ASSET_GROUP[sectionResolutions[0].gap.subjectType] || 'visual_language';
 
@@ -277,10 +315,9 @@ export async function executeGapGenerations(
         body: {
           project_id: projectId,
           section,
-          count: Math.min(count, 4), // Cap at 4 per batch
+          count: Math.min(count, 4),
           asset_group: assetGroup,
           pack_mode: true,
-          // Pass first gap's shot type as hint
           forced_shot_type: sectionResolutions[0].gap.shotType,
           auto_complete_context: {
             prompt_override: sectionResolutions[0].generationPrompt,
@@ -309,56 +346,80 @@ export async function executeGapGenerations(
   return { generated, failed };
 }
 
-// ── Auto-Promotion Scoring ───────────────────────────────────────────────────
-
-const AUTO_PROMOTE_THRESHOLD = 12; // Minimum score to auto-promote
+// ── Build Working Set Construction ───────────────────────────────────────────
 
 /**
- * Score a candidate image for auto-promotion eligibility.
- * Reuses the same scoring signals as the gap search — no duplicate logic.
+ * Build a temporary working set from orchestration results.
+ * This provides image URLs for the LookBook build WITHOUT promoting
+ * any images into active canon.
+ * 
+ * Hydrates signed URLs for all resolved images.
  */
-function scoreForAutoPromotion(img: ProjectImage, gap: ImageGap): number {
-  let score = 0;
-  const orientation = classifyOrientation(img.width, img.height);
+export async function buildWorkingSetFromResolutions(
+  resolutions: GapResolution[],
+): Promise<BuildWorkingSet> {
+  const entries: WorkingSetEntry[] = [];
 
-  // Orientation match (+10)
-  if (gap.orientation === 'any' || orientation === gap.orientation) score += 10;
-  else if (orientation === 'square') score += 3;
+  for (const res of resolutions) {
+    if (!res.resolvedImage || !res.resolvedImageId) continue;
 
-  // Shot type match (+8)
-  if (img.shot_type === gap.shotType) score += 8;
+    const img = res.resolvedImage;
+    let signedUrl = img.signedUrl || '';
 
-  // Narrative binding (+6)
-  if (img.entity_id || img.location_ref || img.moment_ref) score += 6;
+    // Hydrate signed URL if missing
+    if (!signedUrl && img.storage_path) {
+      try {
+        const bucket = img.storage_bucket || 'project-posters';
+        const { data: signed } = await supabase.storage
+          .from(bucket)
+          .createSignedUrl(img.storage_path, 3600);
+        signedUrl = signed?.signedUrl || '';
+      } catch {
+        // Skip if we can't get a URL
+      }
+    }
 
-  // Asset group alignment (+4)
-  const expectedAssetGroup = SUBJECT_TO_ASSET_GROUP[gap.subjectType] || 'visual_language';
-  if ((img as any).asset_group === expectedAssetGroup) score += 4;
+    if (!signedUrl) continue;
 
-  return score;
+    entries.push({
+      slideId: res.gap.slideId,
+      slotId: res.gap.slotId,
+      image: img,
+      source: res.resolvedSource || 'candidate',
+      score: res.resolvedScore || 0,
+      signedUrl,
+    });
+  }
+
+  // Also pick up recently generated candidates (stored as candidate in DB)
+  // These were created by executeGapGenerations moments ago
+  const bySlotKey = new Map<string, WorkingSetEntry>();
+  for (const entry of entries) {
+    const key = `${entry.slideId}:${entry.slotId}`;
+    const existing = bySlotKey.get(key);
+    if (!existing || entry.score > existing.score) {
+      bySlotKey.set(key, entry);
+    }
+  }
+
+  console.log(`[WorkingSet] Built ${bySlotKey.size} working-set entries from ${entries.length} resolved images`);
+
+  return { entries, bySlotKey };
 }
 
 /**
- * Auto-promote the best newly generated candidate per slot into active canon.
- * Only promotes images scoring above AUTO_PROMOTE_THRESHOLD.
- * Reuses the same slot-primary demotion logic as approveIntoCanon.
- * 
- * Returns { promoted, skipped } counts.
+ * After generation, scan recent candidates and add them to the working set.
+ * This picks up images that were just generated by executeGapGenerations.
  */
-export async function autoPromoteGeneratedImages(
+export async function augmentWorkingSetWithRecentGenerations(
   projectId: string,
+  workingSet: BuildWorkingSet,
   resolutions: GapResolution[],
-): Promise<{ promoted: number; skipped: number }> {
-  // Collect all gaps that had generation queued or archive reuse
-  const promotable = resolutions.filter(
-    r => r.method === 'generation_queued' || r.method === 'archive_reuse'
-  );
-  if (promotable.length === 0) return { promoted: 0, skipped: 0 };
+): Promise<BuildWorkingSet> {
+  const generatedGaps = resolutions.filter(r => r.method === 'generation_queued');
+  if (generatedGaps.length === 0) return workingSet;
 
-  let promoted = 0;
-  let skipped = 0;
-
-  // Fetch all recent candidates for this project (generated in last 5 min)
+  // Fetch recent candidates
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { data: recentCandidates } = await (supabase as any)
     .from('project_images')
@@ -367,85 +428,64 @@ export async function autoPromoteGeneratedImages(
     .eq('curation_state', 'candidate')
     .gte('created_at', fiveMinAgo)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(50);
 
-  if (!recentCandidates?.length) {
-    console.log('[AutoPromote] No recent candidates found');
-    return { promoted: 0, skipped: promotable.length };
-  }
+  if (!recentCandidates?.length) return workingSet;
 
   const candidates = recentCandidates as ProjectImage[];
 
-  // Track which slots already got a promoted image (one winner per slot)
-  const promotedSlots = new Set<string>();
-
-  for (const res of promotable) {
-    const slotKey = `${res.gap.subjectType}:${res.gap.shotType}:${res.gap.orientation}`;
-    if (promotedSlots.has(slotKey)) {
-      skipped++;
-      continue;
+  // Hydrate signed URLs
+  await Promise.all(candidates.map(async (img) => {
+    if (!img.signedUrl && img.storage_path) {
+      try {
+        const bucket = img.storage_bucket || 'project-posters';
+        const { data: signed } = await supabase.storage
+          .from(bucket)
+          .createSignedUrl(img.storage_path, 3600);
+        img.signedUrl = signed?.signedUrl || '';
+      } catch { /* skip */ }
     }
+  }));
 
-    // Find best candidate for this gap
-    const assetGroup = SUBJECT_TO_ASSET_GROUP[res.gap.subjectType] || 'visual_language';
+  // Try to match generated candidates to gaps
+  for (const gap of generatedGaps) {
+    const key = `${gap.gap.slideId}:${gap.gap.slotId}`;
+    if (workingSet.bySlotKey.has(key)) continue; // already filled
+
+    const assetGroup = SUBJECT_TO_ASSET_GROUP[gap.gap.subjectType] || 'visual_language';
     const matching = candidates.filter(c => {
-      // Must be same asset group
       if ((c as any).asset_group && (c as any).asset_group !== assetGroup) return false;
-      return true;
+      return !!c.signedUrl;
     });
 
-    if (matching.length === 0) {
-      skipped++;
-      continue;
-    }
+    if (matching.length === 0) continue;
 
     // Score and pick best
-    const scored = matching.map(img => ({
-      img,
-      score: scoreForAutoPromotion(img, res.gap),
-    }));
+    const scored = matching.map(img => {
+      let score = 0;
+      const orientation = classifyOrientation(img.width, img.height);
+      if (gap.gap.orientation === 'any' || orientation === gap.gap.orientation) score += 10;
+      if (img.shot_type === gap.gap.shotType) score += 8;
+      if (img.entity_id || img.location_ref || img.moment_ref) score += 6;
+      return { img, score };
+    });
     scored.sort((a, b) => b.score - a.score);
 
     const best = scored[0];
-    if (best.score < AUTO_PROMOTE_THRESHOLD) {
-      console.log(`[AutoPromote] Skipping ${slotKey} — best score ${best.score} < threshold ${AUTO_PROMOTE_THRESHOLD}`);
-      skipped++;
-      continue;
-    }
-
-    // Promote: demote existing primaries in same slot, then activate
-    try {
-      // Demote existing primaries in same asset_group + subject + shot_type
-      let demoteQ = (supabase as any)
-        .from('project_images')
-        .update({ is_primary: false })
-        .eq('project_id', projectId)
-        .eq('is_primary', true);
-
-      if ((best.img as any).asset_group) demoteQ = demoteQ.eq('asset_group', (best.img as any).asset_group);
-      if (best.img.subject) demoteQ = demoteQ.eq('subject', best.img.subject);
-      if (best.img.shot_type) demoteQ = demoteQ.eq('shot_type', best.img.shot_type);
-      await demoteQ;
-
-      // Promote the winner
-      await (supabase as any)
-        .from('project_images')
-        .update({
-          is_primary: true,
-          is_active: true,
-          curation_state: 'active',
-          archived_from_active_at: null,
-        })
-        .eq('id', best.img.id);
-
-      promotedSlots.add(slotKey);
-      promoted++;
-      console.log(`[AutoPromote] ✓ Promoted ${best.img.id} for ${slotKey} (score: ${best.score})`);
-    } catch (e) {
-      console.error(`[AutoPromote] Failed to promote ${best.img.id}:`, e);
-      skipped++;
+    if (best && best.img.signedUrl) {
+      const entry: WorkingSetEntry = {
+        slideId: gap.gap.slideId,
+        slotId: gap.gap.slotId,
+        image: best.img,
+        source: 'generated',
+        score: best.score,
+        signedUrl: best.img.signedUrl,
+      };
+      workingSet.entries.push(entry);
+      workingSet.bySlotKey.set(key, entry);
     }
   }
 
-  return { promoted, skipped };
+  console.log(`[WorkingSet] Augmented to ${workingSet.bySlotKey.size} entries after generation scan`);
+  return workingSet;
 }

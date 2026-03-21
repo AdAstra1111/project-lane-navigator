@@ -31,7 +31,7 @@ import { VisualCanonResetPanel } from '@/components/images/VisualCanonResetPanel
 import { LookbookRebuildHistoryStrip } from '@/components/images/LookbookRebuildHistoryStrip';
 import { LookbookTriggerDiagnosticsStrip } from '@/components/images/LookbookTriggerDiagnosticsStrip';
 import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
-import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations, autoPromoteGeneratedImages } from '@/lib/images/lookbookImageOrchestrator';
+import { orchestrateGapResolution, summarizeOrchestration, executeGapGenerations, buildWorkingSetFromResolutions, augmentWorkingSetWithRecentGenerations, type BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
 
 type LookbookMode = 'workspace' | 'viewer';
 
