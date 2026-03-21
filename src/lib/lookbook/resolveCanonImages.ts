@@ -112,13 +112,43 @@ function getTargetingRank(img: ProjectImage): number {
 }
 
 /**
- * Sort images: primary > exact-bound > derived-bound > heuristic-bound > partial > unbound > recency.
+ * Narrative truth rank — how strongly this image is anchored to actual
+ * script/canon entities vs being generic atmospheric imagery.
+ *
+ * Images bound to real canon entities (characters, locations, moments)
+ * are preferred over beautiful but narratively unanchored images.
+ */
+function getNarrativeTruthRank(img: ProjectImage): number {
+  const hasEntity = !!img.entity_id;
+  const hasLocation = !!img.location_ref;
+  const hasMoment = !!img.moment_ref;
+  const hasSubject = !!img.subject;
+  const hasSubjectRef = !!img.subject_ref;
+
+  if (hasEntity && hasLocation) return 0;  // strongest: entity + location
+  if (hasEntity || (hasSubjectRef && hasLocation)) return 1;
+  if (hasLocation || hasMoment) return 2;
+  if (hasSubjectRef || hasSubject) return 3;
+  return 4;  // no narrative binding — generic mood imagery
+}
+
+/**
+ * Sort images: primary > narrative truth > exact-bound > derived-bound >
+ * heuristic-bound > partial > unbound > recency.
+ *
+ * Narrative truth is ranked BEFORE visual binding because a narratively
+ * accurate image with weaker binding is more useful than a beautiful
+ * but misleading one.
  */
 function sortWithBindingPreference(images: ProjectImage[]): ProjectImage[] {
   return [...images].sort((a, b) => {
     const pa = a.is_primary ? 0 : 1;
     const pb = b.is_primary ? 0 : 1;
     if (pa !== pb) return pa - pb;
+    // Narrative truth — prefer images bound to actual story entities
+    const na = getNarrativeTruthRank(a);
+    const nb = getNarrativeTruthRank(b);
+    if (na !== nb) return na - nb;
     const ba = getBindingRank(a);
     const bb = getBindingRank(b);
     if (ba !== bb) return ba - bb;
