@@ -64,10 +64,12 @@ export interface NarrativeContext {
 }
 
 export interface InventoryResult {
-  canonImages: Record<string, SectionImageResult>;
+  canonImages: ResolvedCanonImages;
   sectionPools: Record<PoolKey, ProjectImage[]>;
   allUniqueImages: ProjectImage[];
   diagnostics: ResolutionDiagnostics;
+  characterImageMap: Map<string, string>;
+  characterNameImageMap: Map<string, string>;
 }
 
 export interface ElectionContext {
