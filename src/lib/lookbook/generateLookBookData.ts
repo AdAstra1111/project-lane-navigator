@@ -1286,6 +1286,8 @@ export async function generateLookBookData(
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6);
     kmForeground.forEach(u => trackSelection(u, 'key_moments'));
+    const kmComp = resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length);
+    const kmHint = resolveLayoutHint('key_moments', kmForeground.length, false, !!kmForeground[0]);
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
@@ -1293,7 +1295,9 @@ export async function generateLookBookData(
       body: keyMomentBody,
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
       imageUrls: kmForeground,
-      composition: resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length),
+      composition: kmComp,
+      layoutHint: kmHint,
+      roledImages: assignImageRoles(kmForeground, 'key_moments'),
       _debug_image_ids: canonImages.key_moments.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.key_moments),
       _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
