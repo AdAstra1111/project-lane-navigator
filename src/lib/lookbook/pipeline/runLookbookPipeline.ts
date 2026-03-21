@@ -24,6 +24,9 @@ import { runInventoryStage } from './inventoryStage';
 import { runElectionStage, logElectionDiagnostics } from './electionStage';
 import { runAssemblyStage } from './assemblyStage';
 import { runQAStage } from './qaStage';
+import { buildNarrativeEvidence, type NarrativeEvidence } from './narrativeEvidence';
+import { runIdentityBindingStage, type IdentityBindings } from './identityBindingStage';
+import { validateProvenance } from './provenanceValidator';
 import type {
   PipelineOptions,
   PipelineResult,
