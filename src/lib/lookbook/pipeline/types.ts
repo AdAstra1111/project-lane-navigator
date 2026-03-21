@@ -8,6 +8,9 @@ import type { SectionImageResult, ResolutionDiagnostics, ResolvedCanonImages } f
 import type { GapAnalysisResult } from '@/lib/images/lookbookGapAnalyzer';
 import type { OrchestrationResult, BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
 import type { PoolKey } from './lookbookSlotRegistry';
+import type { NarrativeEvidence } from './narrativeEvidence';
+import type { IdentityBindings } from './identityBindingStage';
+import type { ProvenanceReport } from './provenanceValidator';
 
 // ── Pipeline Stages ──────────────────────────────────────────────────────────
 
@@ -111,6 +114,16 @@ export interface QAResult {
   reuseWarnings: string[];
   fingerprintWarnings: string[];
   publishable: boolean;
+  /** Provenance validation report */
+  provenance?: ProvenanceReport;
+  /** Identity binding summary */
+  identityBindingSummary?: {
+    totalCharacters: number;
+    boundCount: number;
+    unboundPrincipals: number;
+  };
+  /** Narrative evidence coverage score (0–1) */
+  evidenceCoverageScore?: number;
 }
 
 // ── Pipeline Progress Callback ───────────────────────────────────────────────
@@ -145,6 +158,10 @@ export interface PipelineOptions {
 export interface PipelineResult {
   data: LookBookData;
   qa: QAResult;
+  /** Narrative evidence from extraction stage */
+  narrativeEvidence?: NarrativeEvidence;
+  /** Identity bindings from binding stage */
+  identityBindings?: IdentityBindings;
   stages: StageState[];
   logs: string[];
   durationMs: number;

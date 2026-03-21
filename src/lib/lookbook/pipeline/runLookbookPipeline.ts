@@ -24,6 +24,9 @@ import { runInventoryStage } from './inventoryStage';
 import { runElectionStage, logElectionDiagnostics } from './electionStage';
 import { runAssemblyStage } from './assemblyStage';
 import { runQAStage } from './qaStage';
+import { buildNarrativeEvidence, type NarrativeEvidence } from './narrativeEvidence';
+import { runIdentityBindingStage, type IdentityBindings } from './identityBindingStage';
+import { validateProvenance } from './provenanceValidator';
 import type {
   PipelineOptions,
   PipelineResult,
@@ -269,13 +272,20 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
     const narrativeRaw = await extractNarrative(options.projectId);
     const { isVD, effectiveLane, ...narrative } = narrativeRaw;
-    log(`Narrative: "${narrative.projectTitle}" (${narrative.genre}, ${narrative.formatLabel})`);
-    updateStage(PipelineStage.NARRATIVE_EXTRACTION, s => completeStage(s, narrative.projectTitle));
+
+    // Build structured narrative evidence (canonical output of this stage)
+    const narrativeEvidence = buildNarrativeEvidence(narrative, {
+      isVerticalDrama: isVD,
+      effectiveLane,
+    });
+
+    log(`Narrative: "${narrative.projectTitle}" (${narrative.genre}, ${narrative.formatLabel}) coverage=${(narrativeEvidence.evidenceCoverage.score * 100).toFixed(0)}%`);
+    updateStage(PipelineStage.NARRATIVE_EXTRACTION, s => completeStage(s, `${narrative.projectTitle} (${(narrativeEvidence.evidenceCoverage.score * 100).toFixed(0)}% coverage)`));
     reportProgress(PipelineStage.NARRATIVE_EXTRACTION, 'Narrative extracted', 100);
 
     // ── STAGE: SLOT_PLANNING ──
     updateStage(PipelineStage.SLOT_PLANNING, startStage);
-    log('Slot planning: using canonical slide definitions');
+    log('Slot planning: using canonical slide definitions with slot intent registry');
     updateStage(PipelineStage.SLOT_PLANNING, s => completeStage(s, 'canonical slots'));
     reportProgress(PipelineStage.SLOT_PLANNING, 'Planning image slots...', 100);
 
@@ -304,6 +314,14 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     log(`Inventory: ${inventory.allUniqueImages.length} unique images across ${Object.keys(inventory.sectionPools).length} pools`);
     updateStage(PipelineStage.INVENTORY, s => completeStage(s, `${inventory.allUniqueImages.length} images`));
     reportProgress(PipelineStage.INVENTORY, 'Inventory complete', 100);
+
+    // ── Run character identity binding (post-inventory, uses image maps) ──
+    const identityBindings = runIdentityBindingStage(
+      narrativeEvidence.characters,
+      inventory.characterImageMap,
+      inventory.characterNameImageMap,
+    );
+    log(`Identity bindings: ${identityBindings.metrics.boundCount}/${identityBindings.metrics.totalCharacters} bound, ${identityBindings.metrics.unboundPrincipals} unbound principals`);
 
     // ── STAGE: GAP_ANALYSIS + RESOLUTION + GENERATION ──
     if (options.mode === 'reuse_recovery' && !workingSet) {
@@ -481,10 +499,25 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     reportProgress(PipelineStage.QA, 'Running quality checks...', 95);
 
     const qa = runQAStage(lookBookData);
-    log(`QA: ${qa.totalSlides} slides, ${qa.totalImageRefs} images, ${qa.unresolvedSlides.length} unresolved, publishable=${qa.publishable}`);
 
-    if (qa.unresolvedSlides.length > 0) {
-      updateStage(PipelineStage.QA, s => warnStage(s, `${qa.unresolvedSlides.length} unresolved slides`));
+    // Run provenance validation and attach to QA
+    const provenanceReport = validateProvenance(finalSlides, narrativeEvidence, identityBindings);
+    qa.provenance = provenanceReport;
+    qa.identityBindingSummary = {
+      totalCharacters: identityBindings.metrics.totalCharacters,
+      boundCount: identityBindings.metrics.boundCount,
+      unboundPrincipals: identityBindings.metrics.unboundPrincipals,
+    };
+    qa.evidenceCoverageScore = narrativeEvidence.evidenceCoverage.score;
+
+    log(`QA: ${qa.totalSlides} slides, ${qa.totalImageRefs} images, ${qa.unresolvedSlides.length} unresolved, publishable=${qa.publishable}`);
+    log(`QA provenance: ${provenanceReport.passCount} pass, ${provenanceReport.warnCount} warn, ${provenanceReport.mismatchCount} mismatch`);
+    if (provenanceReport.identityMissCount > 0) {
+      log(`QA identity: ${provenanceReport.identityMissCount} slides missing principal identity binding`);
+    }
+
+    if (qa.unresolvedSlides.length > 0 || provenanceReport.warnCount > 0) {
+      updateStage(PipelineStage.QA, s => warnStage(s, `${qa.unresolvedSlides.length} unresolved, ${provenanceReport.warnCount} provenance warnings`));
     } else {
       updateStage(PipelineStage.QA, s => completeStage(s, 'all clear'));
     }
@@ -493,6 +526,8 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     return {
       data: lookBookData,
       qa,
+      narrativeEvidence,
+      identityBindings,
       stages,
       logs,
       durationMs: Date.now() - startTime,
