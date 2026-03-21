@@ -1,19 +1,15 @@
 /**
  * runLookbookPipeline — Canonical entry point for all LookBook builds.
  * 
- * This is the ONLY entry point for:
- * - Manual builds (Build Look Book button)
- * - Auto Complete flows
- * - Future rebuild triggers
+ * This is the ONLY entry point. It calls extracted stage modules directly:
+ * MODE → NARRATIVE → INVENTORY → GAP_ANALYSIS → RESOLUTION/GENERATION → ELECTION → ASSEMBLY → QA
  * 
- * Orchestrates the 8-stage pipeline:
- * MODE → NARRATIVE → SLOT_PLANNING → IDENTITY → INVENTORY → GAP_ANALYSIS → 
- * RESOLUTION/GENERATION → ELECTION → ASSEMBLY → QA
- * 
- * Currently wraps generateLookBookData for assembly while stages are incrementally
- * extracted. This is the controlled evolution path — no big-bang rewrite.
+ * generateLookBookData is NO LONGER the execution engine.
  */
-import { generateLookBookData, mergeUserDecisions } from '../generateLookBookData';
+import { supabase } from '@/integrations/supabase/client';
+import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
+import { normalizeCanonText } from '../normalizeCanonText';
+import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { analyzeLookBookGaps } from '@/lib/images/lookbookGapAnalyzer';
 import {
   orchestrateGapResolution,
@@ -23,32 +19,203 @@ import {
   summarizeOrchestration,
   type BuildWorkingSet,
 } from '@/lib/images/lookbookImageOrchestrator';
-import { supabase } from '@/integrations/supabase/client';
+import { mergeUserDecisions } from '../generateLookBookData';
+import { runInventoryStage } from './inventoryStage';
+import { createElectionContext, logElectionDiagnostics } from './electionStage';
+import { runAssemblyStage } from './assemblyStage';
 import type {
   PipelineOptions,
   PipelineResult,
-  PipelineProgress,
-  StageState,
+  NarrativeContext,
   QAResult,
+  StageState,
 } from './types';
 import { PipelineStage } from './types';
+import type { LookBookData, LookBookVisualIdentity, LookBookColorSystem } from '../types';
 
-// ── Stage Runner ─────────────────────────────────────────────────────────────
+// ── Stage helpers ────────────────────────────────────────────────────────────
 
 function makeStageState(stage: PipelineStage): StageState {
   return { stage, status: 'pending' };
 }
-
 function startStage(state: StageState): StageState {
   return { ...state, status: 'running', startedAt: Date.now() };
 }
-
 function completeStage(state: StageState, message?: string): StageState {
   return { ...state, status: 'complete', completedAt: Date.now(), message };
 }
-
 function warnStage(state: StageState, message: string): StageState {
   return { ...state, status: 'warning', completedAt: Date.now(), message };
+}
+
+// ── Color / Identity resolution (moved from generateLookBookData) ────────────
+
+const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
+  dark: { bg: '#0A0A0F', bgSecondary: '#131318', text: '#F0EDE8', textMuted: '#8A8680', accent: '#C4913A', accentMuted: 'rgba(196, 145, 58, 0.25)', gradientFrom: '#0A0A0F', gradientTo: '#1A1510' },
+  thriller: { bg: '#070B12', bgSecondary: '#0D1420', text: '#E8ECF0', textMuted: '#6B7B8D', accent: '#4A90D9', accentMuted: 'rgba(74, 144, 217, 0.2)', gradientFrom: '#070B12', gradientTo: '#0A1525' },
+  warm: { bg: '#100A06', bgSecondary: '#1A1208', text: '#F0E8DD', textMuted: '#9A8A72', accent: '#D4874A', accentMuted: 'rgba(212, 135, 74, 0.2)', gradientFrom: '#100A06', gradientTo: '#1F1508' },
+  prestige: { bg: '#08080C', bgSecondary: '#111118', text: '#EEEEF2', textMuted: '#7A7A88', accent: '#B89A5A', accentMuted: 'rgba(184, 154, 90, 0.2)', gradientFrom: '#08080C', gradientTo: '#151218' },
+  horror: { bg: '#0A0506', bgSecondary: '#160A0C', text: '#F0E5E5', textMuted: '#8A6565', accent: '#C44040', accentMuted: 'rgba(196, 64, 64, 0.2)', gradientFrom: '#0A0506', gradientTo: '#1A0A0A' },
+  verdant: { bg: '#060C08', bgSecondary: '#0C180E', text: '#E8F0EA', textMuted: '#6A8A70', accent: '#5AAE6A', accentMuted: 'rgba(90, 174, 106, 0.2)', gradientFrom: '#060C08', gradientTo: '#0A1A0C' },
+  oceanic: { bg: '#06090E', bgSecondary: '#0A1018', text: '#E5ECF5', textMuted: '#6580A0', accent: '#3A8ABF', accentMuted: 'rgba(58, 138, 191, 0.2)', gradientFrom: '#06090E', gradientTo: '#081520' },
+};
+
+function resolveColorPalette(tone?: string, genre?: string): LookBookColorSystem {
+  const t = (tone || '').toLowerCase();
+  const g = (genre || '').toLowerCase();
+  if (t.includes('dark') || t.includes('noir') || g.includes('drama')) return COLOR_PALETTES.dark;
+  if (g.includes('thriller') || g.includes('crime') || t.includes('cold')) return COLOR_PALETTES.thriller;
+  if (g.includes('horror') || t.includes('horror')) return COLOR_PALETTES.horror;
+  if (t.includes('warm') || g.includes('romance') || g.includes('comedy')) return COLOR_PALETTES.warm;
+  if (g.includes('adventure') || g.includes('nature') || g.includes('fantasy')) return COLOR_PALETTES.verdant;
+  if (g.includes('sci-fi') || g.includes('scifi')) return COLOR_PALETTES.oceanic;
+  return COLOR_PALETTES.prestige;
+}
+
+function resolveIdentity(toneStyle: string, genre?: string): LookBookVisualIdentity {
+  const colors = resolveColorPalette(toneStyle, genre);
+  const t = toneStyle.toLowerCase();
+  return {
+    colors,
+    typography: {
+      titleFont: 'Fraunces',
+      bodyFont: 'DM Sans',
+      titleUppercase: t.includes('thriller') || t.includes('action') || t.includes('horror'),
+    },
+    imageStyle: t.includes('cold') || t.includes('thriller') ? 'cinematic-cold'
+      : t.includes('vintage') || t.includes('period') ? 'vintage'
+      : t.includes('dark') ? 'high-contrast'
+      : 'cinematic-warm',
+  };
+}
+
+// ── Narrative extraction ─────────────────────────────────────────────────────
+
+async function extractNarrative(projectId: string): Promise<NarrativeContext & { isVD: boolean; effectiveLane: string | null }> {
+  const { data: project, error } = await supabase
+    .from('projects')
+    .select('title, genres, format, tone, assigned_lane, comparable_titles, target_audience')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  if (error) throw new Error('Could not load project data: ' + error.message);
+  if (!project) throw new Error('Project not found');
+
+  const genre = Array.isArray((project as any).genres)
+    ? (project as any).genres.map((v: unknown, i: number) => normalizeCanonText(v, `genres.${i}`)).filter(Boolean).join(', ')
+    : normalizeCanonText((project as any).genres, 'genres');
+  const formatLabel = normalizeCanonText((project as any).format, 'format');
+  const format = formatLabel.toLowerCase();
+  const tone = normalizeCanonText((project as any).tone, 'tone');
+  const targetAudience = normalizeCanonText((project as any).target_audience, 'target_audience');
+  const assignedLane = normalizeCanonText((project as any).assigned_lane, 'assigned_lane');
+  const comparableTitles = normalizeCanonText((project as any).comparable_titles, 'comparable_titles');
+
+  const isVD = checkVD(format) || format.includes('vertical') || assignedLane === 'vertical_drama';
+  const effectiveLane = isVD ? 'vertical_drama' : (assignedLane || null);
+
+  const canonicalState = await getCanonicalProjectState(projectId);
+  const canon = canonicalState.state as Record<string, unknown>;
+
+  // Load synopsis / creative statement
+  const { data: docs } = await supabase
+    .from('project_documents')
+    .select('doc_type, latest_version_id')
+    .eq('project_id', projectId)
+    .in('doc_type', ['concept_brief', 'topline_narrative', 'treatment', 'blueprint']);
+
+  let synopsis = '';
+  let creativeStatement = '';
+  if (docs?.length) {
+    const versionIds = docs.map((d: any) => d.latest_version_id).filter(Boolean);
+    if (versionIds.length) {
+      const { data: versions } = await supabase
+        .from('project_document_versions')
+        .select('plaintext, deliverable_type, is_current')
+        .in('id', versionIds)
+        .eq('is_current', true);
+      for (const v of versions || []) {
+        const text = (v as any).plaintext || '';
+        if (text.length > synopsis.length && (v as any).deliverable_type !== 'treatment') synopsis = text.slice(0, 800);
+        if ((v as any).deliverable_type === 'treatment' || (v as any).deliverable_type === 'blueprint') creativeStatement = text.slice(0, 600);
+      }
+    }
+  }
+
+  return {
+    projectTitle: normalizeCanonText((project as any).title, 'title') || 'Untitled Project',
+    genre, format, formatLabel, tone, targetAudience, assignedLane,
+    comparableTitles, comparables: comparableTitles,
+    logline: normalizeCanonText(canon.logline, 'logline'),
+    premise: normalizeCanonText(canon.premise, 'premise'),
+    worldRules: normalizeCanonText(canon.world_rules, 'world_rules'),
+    locations: normalizeCanonText(canon.locations, 'locations'),
+    timeline: normalizeCanonText(canon.timeline, 'timeline'),
+    toneStyle: normalizeCanonText(canon.tone_style, 'tone_style') || tone,
+    formatConstraints: normalizeCanonText(canon.format_constraints, 'format_constraints'),
+    synopsis, creativeStatement,
+    characters: canon.characters,
+    isVD,
+    effectiveLane,
+  };
+}
+
+// ── Character normalization ──────────────────────────────────────────────────
+
+function normalizeCharacters(
+  rawCharacters: unknown,
+  characterImageMap: Map<string, string>,
+  characterNameImageMap: Map<string, string>,
+): any[] {
+  if (!Array.isArray(rawCharacters)) return [];
+  return rawCharacters.slice(0, 6).map((raw, i) => {
+    const c = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+    const id = normalizeCanonText(c.id, `char.${i}.id`);
+    const name = normalizeCanonText(c.name, `char.${i}.name`) || 'Unnamed';
+    const role = normalizeCanonText(c.role, `char.${i}.role`) || normalizeCanonText(c.archetype, `char.${i}.archetype`);
+    const desc = [
+      normalizeCanonText(c.goals, `char.${i}.goals`),
+      normalizeCanonText(c.traits, `char.${i}.traits`),
+      normalizeCanonText(c.description, `char.${i}.description`),
+    ].filter(Boolean);
+    const imageUrl = (id && characterImageMap.get(id)) || characterNameImageMap.get(name.toLowerCase()) || undefined;
+    return { name, role, description: (desc.join(' — ') || 'Role to be defined.').slice(0, 200), imageUrl };
+  });
+}
+
+// ── QA Stage ─────────────────────────────────────────────────────────────────
+
+function runQA(data: LookBookData): QAResult {
+  const actualImageUrls = new Set<string>();
+  const unresolvedSlides: string[] = [];
+
+  for (const slide of data.slides) {
+    if (slide.backgroundImageUrl) actualImageUrls.add(slide.backgroundImageUrl);
+    if (slide.imageUrl) actualImageUrls.add(slide.imageUrl);
+    if (slide.imageUrls) slide.imageUrls.forEach(u => actualImageUrls.add(u));
+    if (slide.characters) {
+      for (const c of slide.characters) {
+        if (c.imageUrl) actualImageUrls.add(c.imageUrl);
+      }
+    }
+    if (slide._has_unresolved) unresolvedSlides.push(slide.type);
+  }
+
+  const slidesWithImages = data.slides.filter(s =>
+    s.backgroundImageUrl || s.imageUrl || (s.imageUrls && s.imageUrls.length > 0) ||
+    (s.characters && s.characters.some(c => c.imageUrl)),
+  ).length;
+
+  return {
+    totalSlides: data.slides.length,
+    slidesWithImages,
+    slidesWithoutImages: data.slides.length - slidesWithImages,
+    totalImageRefs: actualImageUrls.size,
+    unresolvedSlides,
+    reuseWarnings: [],
+    fingerprintWarnings: [],
+    publishable: unresolvedSlides.length <= 2 && slidesWithImages >= Math.floor(data.slides.length * 0.6),
+  };
 }
 
 // ── Pipeline Runner ──────────────────────────────────────────────────────────
@@ -87,12 +254,14 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     reportProgress(PipelineStage.MODE_SELECTION, `Mode: ${options.mode}`, 100);
 
     // ── STAGE: NARRATIVE_EXTRACTION ──
-    // Currently handled inside generateLookBookData (project + canon load)
-    // This is a pass-through stage that will be extracted later
     updateStage(PipelineStage.NARRATIVE_EXTRACTION, startStage);
-    log('Narrative extraction: delegated to assembly (incremental extraction)');
-    updateStage(PipelineStage.NARRATIVE_EXTRACTION, s => completeStage(s, 'delegated'));
-    reportProgress(PipelineStage.NARRATIVE_EXTRACTION, 'Extracting narrative context...', 100);
+    reportProgress(PipelineStage.NARRATIVE_EXTRACTION, 'Extracting narrative context...', 10);
+
+    const narrativeRaw = await extractNarrative(options.projectId);
+    const { isVD, effectiveLane, ...narrative } = narrativeRaw;
+    log(`Narrative: "${narrative.projectTitle}" (${narrative.genre}, ${narrative.formatLabel})`);
+    updateStage(PipelineStage.NARRATIVE_EXTRACTION, s => completeStage(s, narrative.projectTitle));
+    reportProgress(PipelineStage.NARRATIVE_EXTRACTION, 'Narrative extracted', 100);
 
     // ── STAGE: SLOT_PLANNING ──
     updateStage(PipelineStage.SLOT_PLANNING, startStage);
@@ -102,37 +271,46 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
     // ── STAGE: IDENTITY_BINDING ──
     updateStage(PipelineStage.IDENTITY_BINDING, startStage);
-    log('Identity binding: pass-through (future expansion)');
-    updateStage(PipelineStage.IDENTITY_BINDING, s => completeStage(s, 'pass-through'));
-    reportProgress(PipelineStage.IDENTITY_BINDING, 'Binding character identities...', 100);
+    const identity = resolveIdentity(narrative.toneStyle, narrative.genre);
+    log('Identity binding: visual identity resolved');
+    updateStage(PipelineStage.IDENTITY_BINDING, s => completeStage(s, identity.imageStyle));
+    reportProgress(PipelineStage.IDENTITY_BINDING, 'Identity bound', 100);
 
-    // ── STAGE: INVENTORY + ELECTION + ASSEMBLY ──
-    // These are currently fused inside generateLookBookData.
-    // The pipeline wraps them as a unit and will decompose incrementally.
+    // ── STAGE: INVENTORY ──
+    updateStage(PipelineStage.INVENTORY, startStage);
+    reportProgress(PipelineStage.INVENTORY, 'Resolving image inventory...', 20);
 
     let workingSet = options.workingSet || null;
 
-    // In reuse_recovery mode, run gap analysis + orchestration first
-    if (options.mode === 'reuse_recovery' && !workingSet) {
-      // Need a preliminary build to analyze gaps
-      updateStage(PipelineStage.INVENTORY, startStage);
-      reportProgress(PipelineStage.INVENTORY, 'Building preliminary inventory...', 20);
+    const inventory = await runInventoryStage({
+      projectId: options.projectId,
+      effectiveLane,
+      strictDeckMode: isVD,
+      format: narrative.format,
+      assignedLane: narrative.assignedLane,
+      workingSet,
+    });
 
+    log(`Inventory: ${inventory.allUniqueImages.length} unique images across ${Object.keys(inventory.sectionPools).length} pools`);
+    updateStage(PipelineStage.INVENTORY, s => completeStage(s, `${inventory.allUniqueImages.length} images`));
+    reportProgress(PipelineStage.INVENTORY, 'Inventory complete', 100);
+
+    // ── STAGE: GAP_ANALYSIS + RESOLUTION + GENERATION ──
+    if (options.mode === 'reuse_recovery' && !workingSet) {
+      // Build a preliminary deck for gap analysis
+      updateStage(PipelineStage.GAP_ANALYSIS, startStage);
+      reportProgress(PipelineStage.GAP_ANALYSIS, 'Analyzing gaps...', 30);
+
+      // Use the legacy path for gap analysis (it needs a LookBookData object)
+      const { generateLookBookData } = await import('../generateLookBookData');
       const prelimData = await generateLookBookData(options.projectId, {
         companyName: options.companyName,
         companyLogoUrl: options.companyLogoUrl,
         workingSet: null,
       });
 
-      updateStage(PipelineStage.INVENTORY, s => completeStage(s, `${prelimData.totalImageRefs} images`));
-      reportProgress(PipelineStage.INVENTORY, 'Inventory complete', 100);
-
-      // ── GAP_ANALYSIS ──
-      updateStage(PipelineStage.GAP_ANALYSIS, startStage);
-      reportProgress(PipelineStage.GAP_ANALYSIS, 'Analyzing gaps...', 30);
-
       const gapAnalysis = analyzeLookBookGaps(prelimData);
-      log(`Gap analysis: ${gapAnalysis.gaps.length} gaps (${gapAnalysis.missingSlots} missing, ${gapAnalysis.weakSlots} weak)`);
+      log(`Gap analysis: ${gapAnalysis.gaps.length} gaps`);
       updateStage(PipelineStage.GAP_ANALYSIS, s =>
         gapAnalysis.gaps.length > 0
           ? warnStage(s, `${gapAnalysis.gaps.length} gaps`)
@@ -141,33 +319,23 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       reportProgress(PipelineStage.GAP_ANALYSIS, `${gapAnalysis.gaps.length} gaps found`, 100);
 
       if (gapAnalysis.gaps.length > 0) {
-        // ── RESOLUTION ──
         updateStage(PipelineStage.RESOLUTION, startStage);
         reportProgress(PipelineStage.RESOLUTION, 'Resolving gaps...', 40);
 
-        const { data: proj } = await supabase
-          .from('projects')
-          .select('title, genres, tone, format')
-          .eq('id', options.projectId)
-          .maybeSingle();
-
         const promptContext = {
-          projectTitle: (proj as any)?.title || '',
-          genre: Array.isArray((proj as any)?.genres) ? (proj as any).genres.join(', ') : '',
-          tone: (proj as any)?.tone || '',
+          projectTitle: narrative.projectTitle,
+          genre: narrative.genre,
+          tone: narrative.tone,
         };
 
         const orchResult = await orchestrateGapResolution(options.projectId, gapAnalysis, promptContext);
         const summary = summarizeOrchestration(orchResult);
         log(`Resolution: ${summary}`);
         updateStage(PipelineStage.RESOLUTION, s => completeStage(s, summary));
-        reportProgress(PipelineStage.RESOLUTION, summary, 100);
 
-        // ── GENERATION ──
         if (orchResult.generationsQueued > 0) {
           updateStage(PipelineStage.GENERATION, startStage);
           reportProgress(PipelineStage.GENERATION, `Generating ${orchResult.generationsQueued} images...`, 50);
-
           const genResult = await executeGapGenerations(options.projectId, orchResult.resolutions, promptContext);
           log(`Generation: ${genResult.generated} succeeded, ${genResult.failed} failed`);
           updateStage(PipelineStage.GENERATION, s =>
@@ -175,12 +343,10 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
               ? warnStage(s, `${genResult.generated} ok, ${genResult.failed} failed`)
               : completeStage(s, `${genResult.generated} generated`),
           );
-          reportProgress(PipelineStage.GENERATION, `Generated ${genResult.generated} images`, 100);
         } else {
           updateStage(PipelineStage.GENERATION, s => completeStage(s, 'none needed'));
         }
 
-        // Build working set
         workingSet = await buildWorkingSetFromResolutions(orchResult.resolutions);
         if (orchResult.generationsQueued > 0) {
           workingSet = await augmentWorkingSetWithRecentGenerations(
@@ -192,45 +358,121 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
         updateStage(PipelineStage.RESOLUTION, s => completeStage(s, 'no gaps'));
         updateStage(PipelineStage.GENERATION, s => completeStage(s, 'no gaps'));
       }
+
+      // Re-run inventory with working set if we built one
+      if (workingSet && workingSet.bySlotKey.size > 0) {
+        const updatedInventory = await runInventoryStage({
+          projectId: options.projectId,
+          effectiveLane,
+          strictDeckMode: isVD,
+          format: narrative.format,
+          assignedLane: narrative.assignedLane,
+          workingSet,
+        });
+        Object.assign(inventory, updatedInventory);
+      }
     } else {
-      // Fresh build or working set already provided
-      updateStage(PipelineStage.INVENTORY, startStage);
       updateStage(PipelineStage.GAP_ANALYSIS, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
       updateStage(PipelineStage.RESOLUTION, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
       updateStage(PipelineStage.GENERATION, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
     }
 
-    // ── ELECTION + ASSEMBLY (fused in generateLookBookData) ──
+    // ── STAGE: ELECTION ──
     updateStage(PipelineStage.ELECTION, startStage);
-    reportProgress(PipelineStage.ELECTION, 'Electing winners and assembling deck...', 70);
+    reportProgress(PipelineStage.ELECTION, 'Electing winners...', 70);
 
-    const lookBookData = await generateLookBookData(options.projectId, {
-      companyName: options.companyName,
+    const electionCtx = createElectionContext(inventory.sectionPools);
+
+    // Normalize characters with image maps from inventory
+    const normalizedCharacters = normalizeCharacters(
+      narrative.characters,
+      inventory.characterImageMap,
+      inventory.characterNameImageMap,
+    );
+
+    updateStage(PipelineStage.ELECTION, s => completeStage(s, 'context ready'));
+    reportProgress(PipelineStage.ELECTION, 'Election context ready', 80);
+
+    // ── STAGE: ASSEMBLY ──
+    updateStage(PipelineStage.ASSEMBLY, startStage);
+    reportProgress(PipelineStage.ASSEMBLY, 'Assembling deck...', 85);
+
+    const slides = runAssemblyStage({
+      narrative: { ...narrative, characters: normalizedCharacters },
+      identity,
+      canonImages: inventory.canonImages as any,
+      sectionPools: inventory.sectionPools as any,
+      electionCtx,
+      companyName: options.companyName || 'Paradox House',
       companyLogoUrl: options.companyLogoUrl,
-      workingSet,
+      isVerticalDrama: isVD,
+      assignedLane: narrative.assignedLane,
+      format: narrative.format,
     });
 
-    updateStage(PipelineStage.INVENTORY, s => completeStage(s, `resolved`));
-    updateStage(PipelineStage.ELECTION, s => completeStage(s, `${lookBookData.totalImageRefs} images elected`));
-    reportProgress(PipelineStage.ELECTION, 'Election complete', 100);
+    // Log election diagnostics
+    logElectionDiagnostics(electionCtx);
+
+    // Log slide selection summary
+    const selectionDiag = slides.map(s => {
+      const parts = [`${s.type}:`];
+      if (s.backgroundImageUrl) parts.push('bg=✓'); else parts.push('bg=✗');
+      if (s.imageUrls?.length) parts.push(`fg=${s.imageUrls.length}`);
+      if (s._has_unresolved) parts.push('UNRESOLVED');
+      return parts.join(' ');
+    });
+    console.log('[LookBook] ✓ slide image selection:', selectionDiag.join(' | '));
+
+    log(`Assembly: ${slides.length} slides`);
+    updateStage(PipelineStage.ASSEMBLY, s => completeStage(s, `${slides.length} slides`));
+    reportProgress(PipelineStage.ASSEMBLY, `${slides.length} slides assembled`, 90);
 
     // ── Merge user decisions from previous build ──
+    let finalSlides = slides;
     if (options.previousSlides && options.previousSlides.length > 0) {
       const { merged, preservedCount, droppedCount, migratedCount } = mergeUserDecisions(
-        lookBookData.slides,
+        slides,
         options.previousSlides,
       );
-      lookBookData.slides = merged;
+      finalSlides = merged;
       log(`User decisions: ${preservedCount} preserved, ${droppedCount} dropped, ${migratedCount} migrated`);
     }
 
-    // ── ASSEMBLY ──
-    updateStage(PipelineStage.ASSEMBLY, startStage);
-    log(`Assembly: ${lookBookData.slides.length} slides, ${lookBookData.totalImageRefs} images`);
-    updateStage(PipelineStage.ASSEMBLY, s => completeStage(s, `${lookBookData.slides.length} slides`));
-    reportProgress(PipelineStage.ASSEMBLY, `${lookBookData.slides.length} slides assembled`, 90);
+    // ── Build final data object ──
+    const actualImageUrls = new Set<string>();
+    for (const slide of finalSlides) {
+      if (slide.backgroundImageUrl) actualImageUrls.add(slide.backgroundImageUrl);
+      if (slide.imageUrl) actualImageUrls.add(slide.imageUrl);
+      if (slide.imageUrls) slide.imageUrls.forEach(u => actualImageUrls.add(u));
+      if (slide.characters) slide.characters.forEach(c => { if (c.imageUrl) actualImageUrls.add(c.imageUrl); });
+    }
 
-    // ── QA ──
+    const upstreamIds = inventory.diagnostics?.resolvedImageIds || [];
+    const wsIds = workingSet?.entries?.map(e => e.image.id) || [];
+    const resolvedImageIds = [...new Set([...upstreamIds, ...wsIds])].sort();
+
+    const buildId = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const deckFormat = isVD ? 'portrait' as const : 'landscape' as const;
+
+    const lookBookData: LookBookData = {
+      projectId: options.projectId,
+      projectTitle: narrative.projectTitle,
+      identity,
+      slides: finalSlides,
+      deckFormat,
+      generatedAt: new Date().toISOString(),
+      writerCredit: 'Written by Sebastian Street',
+      companyName: options.companyName || 'Paradox House',
+      companyLogoUrl: options.companyLogoUrl,
+      buildId,
+      totalImageRefs: actualImageUrls.size,
+      resolvedImageIds,
+    };
+
+    // ── STAGE: QA ──
     updateStage(PipelineStage.QA, startStage);
     reportProgress(PipelineStage.QA, 'Running quality checks...', 95);
 
@@ -255,41 +497,4 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     log(`PIPELINE ERROR: ${error.message}`);
     throw error;
   }
-}
-
-// ── QA Stage ─────────────────────────────────────────────────────────────────
-
-function runQA(data: import('../types').LookBookData): QAResult {
-  const actualImageUrls = new Set<string>();
-  const unresolvedSlides: string[] = [];
-
-  for (const slide of data.slides) {
-    if (slide.backgroundImageUrl) actualImageUrls.add(slide.backgroundImageUrl);
-    if (slide.imageUrl) actualImageUrls.add(slide.imageUrl);
-    if (slide.imageUrls) slide.imageUrls.forEach(u => actualImageUrls.add(u));
-    if (slide.characters) {
-      for (const c of slide.characters) {
-        if (c.imageUrl) actualImageUrls.add(c.imageUrl);
-      }
-    }
-    if (slide._has_unresolved) {
-      unresolvedSlides.push(slide.type);
-    }
-  }
-
-  const slidesWithImages = data.slides.filter(s =>
-    s.backgroundImageUrl || s.imageUrl || (s.imageUrls && s.imageUrls.length > 0) ||
-    (s.characters && s.characters.some(c => c.imageUrl)),
-  ).length;
-
-  return {
-    totalSlides: data.slides.length,
-    slidesWithImages,
-    slidesWithoutImages: data.slides.length - slidesWithImages,
-    totalImageRefs: actualImageUrls.size,
-    unresolvedSlides,
-    reuseWarnings: [],
-    fingerprintWarnings: [],
-    publishable: unresolvedSlides.length <= 2 && slidesWithImages >= Math.floor(data.slides.length * 0.6),
-  };
 }
