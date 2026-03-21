@@ -235,7 +235,7 @@ export function buildPromptFromTemplate(
   };
 
   for (const [placeholder, value] of Object.entries(replacements)) {
-    prompt = prompt.replaceAll(placeholder, value);
+    prompt = prompt.split(placeholder).join(value);
   }
 
   // Clean up empty placeholders and double spaces
