@@ -841,7 +841,7 @@ export async function generateLookBookData(
     if (img) trackFingerprint(img);
   }
 
-  /** Score an image for section relevance + visual suitability */
+  /** Score an image for section relevance + visual suitability + cinematic fidelity */
   function scoreImageForSlide(img: ProjectImage, slideType: string, applyReusePenalty = true): number {
     let score = 0;
     const hasNarrative = !!(img.entity_id || img.location_ref || img.moment_ref || img.subject_ref);
@@ -857,13 +857,33 @@ export async function generateLookBookData(
     if (isLandscape) score += 8;
 
     // Freshness boost — recently approved/created images get meaningful advantage
-    // This ensures newly approved images can displace stale incumbents
     const ageMs = Date.now() - new Date(img.created_at || 0).getTime();
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
-    if (ageDays < 1) score += 12;       // approved today — strong boost
-    else if (ageDays < 3) score += 8;   // approved in last 3 days
-    else if (ageDays < 7) score += 4;   // approved this week
-    // older images get no freshness boost
+    if (ageDays < 1) score += 12;
+    else if (ageDays < 3) score += 8;
+    else if (ageDays < 7) score += 4;
+
+    // ── Cinematic Fidelity Scoring ──
+    // Penalize images that appear non-photoreal based on prompt/description metadata
+    const promptText = ((img as any).prompt_used || (img as any).description || '').toLowerCase();
+    const isPhotorealPrompt = promptText.includes('photorealistic') || promptText.includes('film still') || promptText.includes('cinematic') || promptText.includes('arri');
+    const isNonPhotoreal = promptText.includes('illustration') || promptText.includes('painting') || promptText.includes('anime') || promptText.includes('concept art') || promptText.includes('watercolor') || promptText.includes('sketch') || promptText.includes('cartoon');
+
+    // Reward explicitly photoreal generation
+    if (isPhotorealPrompt) score += 6;
+    // Penalize non-photoreal imagery
+    if (isNonPhotoreal) score -= 15;
+
+    // Resolution quality proxy — larger images tend to be higher fidelity
+    const megapixels = ((img.width || 0) * (img.height || 0)) / 1_000_000;
+    if (megapixels >= 2) score += 4;
+    else if (megapixels >= 1) score += 2;
+    else if (megapixels > 0 && megapixels < 0.3) score -= 5;
+
+    // Higher fidelity threshold for hero/poster slots
+    if ((slideType === 'cover' || slideType === 'closing') && isNonPhotoreal) {
+      score -= 10; // extra penalty — poster must look premium
+    }
 
     // Section-specific scoring
     const shotType = img.shot_type || '';
