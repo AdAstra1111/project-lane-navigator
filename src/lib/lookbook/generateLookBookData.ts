@@ -4,16 +4,21 @@
  * matching the same DB queries as the workspace panels.
  *
  * Every slide gets a deterministic slide_id for stable identity across rebuilds.
+ *
+ * CINEMATIC MODE: Resolves background images per slide and assigns
+ * composition modes for premium full-bleed cinematic presentation.
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions, SlideComposition } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
 import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { normalizeCanonText } from './normalizeCanonText';
 import { resolveLookbookLayoutFamily, summarizeOrientations, type LayoutFamilyKey } from './lookbookLayoutFamilies';
 import { matchImagesToSlots, type ImageCandidate } from './lookbookSlotMatcher';
+import type { ProjectImage } from '@/lib/images/types';
+import { classifyOrientation } from '@/lib/images/orientationUtils';
 
 /**
  * Generate a deterministic semantic slide_id from a kind and optional variant.
