@@ -1055,6 +1055,16 @@ serve(async (req) => {
       identity_traits_block?: string | null;
       identity_signature_block?: string | null;
       forced_shot_type?: string | null;
+      auto_complete_context?: {
+        target_requirement_id?: string;
+        requirement_ids?: string[];
+        slide_type?: string;
+        pass?: string;
+        requested_shot_type?: string;
+        batch_index?: number;
+        prompt_override?: string;
+        orientations?: string[];
+      } | null;
       width?: number | null;
       height?: number | null;
       aspect_ratio?: string | null;
