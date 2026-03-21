@@ -1389,6 +1389,8 @@ export async function generateLookBookData(
       imageUrls: seForeground,
       backgroundImageUrl: seBg,
       composition: resolveComposition('story_engine', !!seBg, seForeground.length > 1, seForeground.length),
+      layoutHint: resolveLayoutHint('story_engine', seForeground.length, !!seBg, !!seForeground[0]),
+      roledImages: assignImageRoles(seForeground, 'story_engine', seBg),
       _debug_image_ids: seImages.map(i => i.id).slice(0, 3),
       _debug_provenance: seImages.map(img => ({
         imageId: img.id,
