@@ -812,9 +812,14 @@ export async function generateLookBookData(
     usedFingerprints.set(fp, (usedFingerprints.get(fp) || 0) + 1);
   }
 
-  /** Detect craft/workshop imagery via prompt text — guards against mis-tagged images */
+  /** Detect craft/workshop/occupation imagery — guards against character trade leakage into environment slots */
   function isCraftScene(img: ProjectImage): boolean {
-    const text = (img.prompt_used || '').toLowerCase();
+    const text = [
+      (img as any).prompt_used || '',
+      (img as any).description || '',
+      img.subject_ref || '',
+      img.location_ref || '',
+    ].join(' ').toLowerCase();
     return (
       text.includes('pottery') ||
       text.includes('ceramic') ||
@@ -822,8 +827,29 @@ export async function generateLookBookData(
       text.includes('kiln') ||
       text.includes('craftsman') ||
       text.includes('artisan') ||
-      text.includes('handicraft')
+      text.includes('handicraft') ||
+      text.includes('pottery wheel') ||
+      text.includes('forging') ||
+      text.includes('blacksmith') ||
+      text.includes('weaving') ||
+      text.includes('loom') ||
+      text.includes('sculpting') ||
+      text.includes('performing their trade') ||
+      text.includes('craft process')
     );
+  }
+
+  /** Detect character-centered composition in environment context */
+  function isCharacterCenteredInEnvironment(img: ProjectImage): boolean {
+    const text = ((img as any).prompt_used || '').toLowerCase();
+    if (img.asset_group === 'world' || (img as any).subject_type === 'location' || (img as any).subject_type === 'world') {
+      return (
+        (img.shot_type === 'close_up' || img.shot_type === 'medium') &&
+        !!(img.subject_ref) &&
+        text.includes('character')
+      );
+    }
+    return false;
   }
 
   // URL-to-ProjectImage lookup for fingerprint tracking after URL-based selection
