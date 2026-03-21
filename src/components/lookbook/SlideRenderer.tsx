@@ -713,10 +713,7 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
     return (
       <div style={baseStyle} className="slide-content">
         {worldBg && (
-          <div className="absolute inset-0">
-            <img src={worldBg} alt="" className="w-full h-full" style={{ objectFit: 'cover', opacity: 0.08, filter: 'saturate(0.3) blur(6px)' }} />
-            <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f0 0%, ${colors.bg}cc 40%, ${colors.bg}e0 100%)` }} />
-          </div>
+          <CinematicBackground src={worldBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />
         )}
         <EdgeAccent color={colors.accent} />
         <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
