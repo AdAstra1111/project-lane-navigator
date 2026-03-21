@@ -1,13 +1,19 @@
 {/**
- * SlideRenderer — Premium cinematic slide compositions.
+ * SlideRenderer — Pure cinematic slide compositions.
  * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
- * Portrait mode is editorially recomposed for vertical drama —
- * not just stacked landscape layouts.
  *
- * VERTICAL DRAMA CONTRACT:
- * - Portrait images use object-contain (native-fit), NOT object-cover (crop-rescue)
- * - Image zones are sized to match 9:16 source aspect ratios
- * - Layouts are authored for vertical presentation, not squeezed landscape logic
+ * CINEMATIC MODE: Every eligible slide uses a full-bleed background image
+ * with controlled overlays for readability. Text is overlaid on imagery,
+ * not placed beside it on empty dark backgrounds.
+ *
+ * COMPOSITION MODES:
+ * - full_bleed_hero: image fills entire slide, text overlaid with scrim
+ * - text_over_atmosphere: prominent background, text with gradient overlay
+ * - split_cinematic: prominent background + foreground image panel
+ * - montage_grid: image grid is the star, minimal text header
+ * - character_feature: portrait-led character display
+ * - editorial_panel: text-primary with supporting image panel
+ * - gradient_only: fallback when no imagery available
  */}
 import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
 import { getSlideDimensions } from '@/lib/lookbook/types';
@@ -339,6 +345,67 @@ function EdgeAccent({ color }: { color: string }) {
   );
 }
 
+/**
+ * Cinematic background image layer — renders a full-bleed image with
+ * controllable overlay strength. This is the core of the cinematic upgrade.
+ */
+function CinematicBackground({ 
+  src, 
+  colors, 
+  overlayStrength = 'medium',
+  overlayDirection = 'left-heavy',
+}: { 
+  src: string; 
+  colors: { bg: string; gradientTo: string };
+  overlayStrength?: 'light' | 'medium' | 'heavy' | 'vignette';
+  overlayDirection?: 'left-heavy' | 'bottom-heavy' | 'center-vignette' | 'even';
+}) {
+  const overlays: Record<string, Record<string, string>> = {
+    'left-heavy': {
+      light: `linear-gradient(to right, ${colors.bg}dd 0%, ${colors.bg}99 30%, ${colors.bg}44 60%, transparent 85%), linear-gradient(to top, ${colors.bg}cc 0%, transparent 40%)`,
+      medium: `linear-gradient(to right, ${colors.bg}ee 0%, ${colors.bg}cc 35%, ${colors.bg}66 60%, ${colors.bg}33 85%), linear-gradient(to top, ${colors.bg}dd 0%, ${colors.bg}88 30%, transparent 55%)`,
+      heavy: `linear-gradient(to right, ${colors.bg}f5 0%, ${colors.bg}dd 40%, ${colors.bg}99 65%, ${colors.bg}66 90%), linear-gradient(to top, ${colors.bg}ee 0%, ${colors.bg}aa 35%, transparent 60%)`,
+      vignette: `radial-gradient(ellipse at 30% 50%, ${colors.bg}cc 0%, ${colors.bg}66 40%, ${colors.bg}33 70%, transparent 100%), linear-gradient(to top, ${colors.bg}dd 0%, transparent 40%)`,
+    },
+    'bottom-heavy': {
+      light: `linear-gradient(to top, ${colors.bg}ee 0%, ${colors.bg}99 35%, ${colors.bg}44 60%, transparent 80%)`,
+      medium: `linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}cc 30%, ${colors.bg}66 55%, ${colors.bg}33 80%)`,
+      heavy: `linear-gradient(to top, ${colors.bg}f8 0%, ${colors.bg}dd 35%, ${colors.bg}99 60%, ${colors.bg}66 85%)`,
+      vignette: `radial-gradient(ellipse at center bottom, ${colors.bg}ee 0%, ${colors.bg}88 40%, ${colors.bg}44 70%, transparent 100%)`,
+    },
+    'center-vignette': {
+      light: `radial-gradient(ellipse at center, transparent 20%, ${colors.bg}66 60%, ${colors.bg}cc 100%)`,
+      medium: `radial-gradient(ellipse at center, ${colors.bg}44 10%, ${colors.bg}88 50%, ${colors.bg}dd 90%)`,
+      heavy: `radial-gradient(ellipse at center, ${colors.bg}88 10%, ${colors.bg}bb 50%, ${colors.bg}ee 90%)`,
+      vignette: `radial-gradient(ellipse at center, transparent 15%, ${colors.bg}88 50%, ${colors.bg}ee 100%)`,
+    },
+    'even': {
+      light: `linear-gradient(160deg, ${colors.bg}88 0%, ${colors.bg}66 50%, ${colors.bg}88 100%)`,
+      medium: `linear-gradient(160deg, ${colors.bg}aa 0%, ${colors.bg}88 50%, ${colors.bg}aa 100%)`,
+      heavy: `linear-gradient(160deg, ${colors.bg}cc 0%, ${colors.bg}aa 50%, ${colors.bg}cc 100%)`,
+      vignette: `linear-gradient(160deg, ${colors.bg}99 0%, ${colors.bg}77 50%, ${colors.bg}99 100%)`,
+    },
+  };
+
+  return (
+    <div className="absolute inset-0">
+      <img 
+        src={src} 
+        alt="" 
+        className="w-full h-full" 
+        style={{ 
+          objectFit: 'cover', 
+          objectPosition: 'center',
+          filter: 'saturate(0.75) contrast(1.1)',
+        }} 
+      />
+      <div className="absolute inset-0" style={{
+        background: overlays[overlayDirection]?.[overlayStrength] || overlays['left-heavy']['medium'],
+      }} />
+    </div>
+  );
+}
+
 /** Portrait text density cap — truncates body text for vertical slides */
 function capText(text: string | undefined, maxChars: number, isPortrait: boolean): string | undefined {
   if (!text || !isPortrait) return text;
@@ -651,25 +718,27 @@ function OverviewSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIn
     );
   }
 
-  // ── Landscape overview ──
-  const pad = '72px 96px 72px 100px';
+  // ── Landscape overview — cinematic background ──
+  const hasBg = !!slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {hasBg && <CinematicBackground src={slide.backgroundImageUrl!} colors={colors} overlayStrength="heavy" overlayDirection="left-heavy" />}
+      {!hasBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Project Overview" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 56, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
         <div style={{ display: 'flex', gap: 64, flex: 1 }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: hasBg ? 700 : undefined }}>
             {slide.body && <p style={{ fontSize: 28, lineHeight: 1.45, fontWeight: 500, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 28 }}>{slide.body}</p>}
             {slide.bodySecondary && <p style={{ fontSize: 17, lineHeight: 1.7, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
           </div>
           {slide.bullets && slide.bullets.length > 0 && (
             <div style={{
-              width: 360, flexShrink: 0, background: colors.bgSecondary,
+              width: 360, flexShrink: 0, background: `${colors.bgSecondary}cc`,
               border: `1px solid ${colors.accentMuted}`, borderRadius: 8,
               padding: '40px 36px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 28,
+              backdropFilter: hasBg ? 'blur(8px)' : undefined,
             }}>
               {slide.bullets.map((b, i) => {
                 const [label, value] = b.includes(':') ? b.split(':').map(s => s.trim()) : ['', b];
@@ -760,23 +829,18 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
     );
   }
 
-  // ── Landscape world ──
-  const pad = '72px 96px 72px 100px';
+  // ── Landscape world — cinematic background ──
+  const worldBg = slide.backgroundImageUrl || slide.imageUrl || imgs[0];
   return (
     <div style={baseStyle} className="slide-content">
-      {(slide.imageUrl || imgs[0]) && (
-        <div className="absolute inset-0">
-          <img src={slide.imageUrl || imgs[0]} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15, filter: 'saturate(0.4) contrast(1.1) blur(2px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f0 0%, ${colors.bg}cc 40%, ${colors.bg}e0 100%)` }} />
-        </div>
-      )}
-      <EdgeAccent color={colors.accent} />
-      <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {worldBg && <CinematicBackground src={worldBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
+      {!worldBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="The World" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
         <div style={{ display: 'flex', gap: 48, flex: 1, minHeight: 0 }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0, maxWidth: 680 }}>
             {slide.body && <p style={{ fontSize: 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>{slide.body}</p>}
             {slide.bodySecondary && <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
             {slide.quote && (
@@ -1033,21 +1097,18 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
     );
   }
 
-  // ── Landscape themes ──
+  // ── Landscape themes — cinematic background ──
+  const themesBg = slide.backgroundImageUrl || heroImg;
   return (
     <div style={baseStyle} className="slide-content">
-      {heroImg && (
-        <div className="absolute inset-0">
-          <img src={heroImg} alt="" className="w-full h-full object-cover" style={{ opacity: 0.12, filter: 'saturate(0.3) blur(4px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f2 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-        </div>
-      )}
+      {themesBg && <CinematicBackground src={themesBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
+      {!themesBg && <EdgeAccent color={colors.accent} />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
-        <div style={{ flex: 1, padding: '72px 48px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: !hasImages ? 'center' : 'flex-start', textAlign: !hasImages ? 'center' : 'left' }}>
+        <div style={{ flex: 1, padding: '72px 48px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center', maxWidth: hasImages ? 720 : 900 }}>
           <SectionTag label="Themes & Tone" color={colors.accent} />
           <AccentRule color={colors.accent} width={40} />
           <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 40, color: colors.text }}>{slide.title}</h2>
-          <div style={{ maxWidth: 720 }}>
+          <div style={{ maxWidth: 680 }}>
             {slide.body && <p style={{ fontSize: 22, lineHeight: 1.55, fontWeight: 300, color: colors.text, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 20 }}>{slide.body}</p>}
             {slide.bodySecondary && <p style={{ fontSize: 16, lineHeight: 1.65, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
           </div>
@@ -1125,11 +1186,13 @@ function VisualLanguageSlide({ slide, colors, titleStyle, baseStyle, fontBody, s
     );
   }
 
-  // ── Landscape visual language ──
+  // ── Landscape visual language — cinematic background ──
+  const vlBg = slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ height: '100%', display: 'flex' }}>
+      {vlBg && <CinematicBackground src={vlBg} colors={colors} overlayStrength="heavy" overlayDirection="left-heavy" />}
+      {!vlBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex' }}>
         <div style={{ flex: 1, padding: '72px 56px 72px 100px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Visual Language" color={colors.accent} />
           <AccentRule color={colors.accent} />
@@ -1231,18 +1294,13 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
     );
   }
 
-  // ── Landscape story engine ──
-  const pad = '72px 96px 72px 100px';
+  // ── Landscape story engine — cinematic background ──
+  const seBg = slide.backgroundImageUrl || slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      {slide.imageUrl && (
-        <div className="absolute inset-0">
-          <img src={slide.imageUrl} alt="" className="w-full h-full object-cover" style={{ opacity: 0.08, filter: 'saturate(0.3) blur(4px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f5 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-        </div>
-      )}
-      <EdgeAccent color={colors.accent} />
-      <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="heavy" overlayDirection="left-heavy" />}
+      {!seBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Story Engine" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
@@ -1405,11 +1463,13 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
     );
   }
 
-  // ── Landscape comparables ──
+  // ── Landscape comparables — cinematic background ──
+  const compBg = slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {compBg && <CinematicBackground src={compBg} colors={colors} overlayStrength="heavy" overlayDirection="even" />}
+      {!compBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Market Positioning" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
@@ -1435,9 +1495,12 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
    Portrait: vertically centered with generous spacing
    ═══════════════════════════════════════════════════════════════════════ */
 function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
+  const stBg = slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
+      {stBg && <CinematicBackground src={stBg} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />}
       <div style={{
+        position: 'relative', zIndex: 1,
         height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: isPortrait ? '80px 72px' : '80px 180px',
       }}>
@@ -1467,22 +1530,10 @@ function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
    CLOSING — minimal, authoritative
    ═══════════════════════════════════════════════════════════════════════ */
 function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait }: SlideProps) {
-  const hasHero = !!slide.imageUrl;
+  const closingBg = slide.backgroundImageUrl || slide.imageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      {/* Atmospheric background from cover image if available */}
-      {hasHero && (
-        <div className="absolute inset-0">
-          <img src={slide.imageUrl!} alt="" className="w-full h-full" style={{
-            objectFit: 'cover', objectPosition: 'center top',
-            filter: 'saturate(0.2) blur(20px) contrast(1.1)',
-            opacity: 0.12, transform: 'scale(1.1)',
-          }} />
-          <div className="absolute inset-0" style={{
-            background: `radial-gradient(ellipse at center, ${colors.bg}cc 0%, ${colors.bg} 70%)`,
-          }} />
-        </div>
-      )}
+      {closingBg && <CinematicBackground src={closingBg} colors={colors} overlayStrength="medium" overlayDirection="center-vignette" />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: 48, height: 3, background: colors.accent, opacity: 0.5, marginBottom: 36 }} />
         <h1 style={{

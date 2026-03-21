@@ -81,6 +81,16 @@ export interface RebuildResult {
   unresolvedReasons: Array<{ slotKey: string; reason: string }>;
 }
 
+/** Cinematic slide composition mode */
+export type SlideComposition = 
+  | 'full_bleed_hero'        // image fills entire slide, text overlaid
+  | 'split_cinematic'        // 50/50 or 60/40 image + text
+  | 'text_over_atmosphere'   // prominent background image, text overlaid with scrim
+  | 'montage_grid'           // image grid is the star, minimal text header
+  | 'character_feature'      // portrait-led character display
+  | 'editorial_panel'        // text-primary with supporting image panel
+  | 'gradient_only';         // fallback when no imagery available
+
 export interface SlideContent {
   type: SlideType;
   /** Stable slide identifier — deterministic, survives regeneration */
@@ -123,6 +133,12 @@ export interface SlideContent {
   companyName?: string;
   /** Company logo URL */
   companyLogoUrl?: string;
+
+  // ── Cinematic background layer ──
+  /** Background image URL — full-bleed cinematic plate */
+  backgroundImageUrl?: string;
+  /** Resolved cinematic composition mode */
+  composition?: SlideComposition;
 
   // ── Layout family metadata ──
   /** Resolved layout family key for this slide (from auto-resolver) */

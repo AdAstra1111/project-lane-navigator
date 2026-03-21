@@ -4,16 +4,21 @@
  * matching the same DB queries as the workspace panels.
  *
  * Every slide gets a deterministic slide_id for stable identity across rebuilds.
+ *
+ * CINEMATIC MODE: Resolves background images per slide and assigns
+ * composition modes for premium full-bleed cinematic presentation.
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions, SlideComposition } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
 import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
 import { normalizeCanonText } from './normalizeCanonText';
 import { resolveLookbookLayoutFamily, summarizeOrientations, type LayoutFamilyKey } from './lookbookLayoutFamilies';
 import { matchImagesToSlots, type ImageCandidate } from './lookbookSlotMatcher';
+import type { ProjectImage } from '@/lib/images/types';
+import { classifyOrientation } from '@/lib/images/orientationUtils';
 
 /**
  * Generate a deterministic semantic slide_id from a kind and optional variant.
@@ -510,6 +515,54 @@ export async function generateLookBookData(
     }
   }
 
+  // ── Background image pool — collect ALL landscape images for cinematic backgrounds ──
+  const allSectionImages = [
+    ...canonImages.world_locations.images,
+    ...canonImages.atmosphere_lighting.images,
+    ...canonImages.key_moments.images,
+    ...canonImages.texture_detail.images,
+    ...canonImages.symbolic_motifs.images,
+  ];
+  
+  /** Pick the best landscape background image from a pool, preferring wider/atmospheric shots */
+  function pickBackgroundImage(
+    primaryPool: ProjectImage[],
+    fallbackPool: ProjectImage[] = allSectionImages,
+    excludeUrls: string[] = [],
+  ): string | undefined {
+    const isLandscapeImg = (img: ProjectImage) => {
+      const o = classifyOrientation(img.width, img.height);
+      return o === 'landscape';
+    };
+    const primaryLandscape = primaryPool.filter(i => i.signedUrl && isLandscapeImg(i) && !excludeUrls.includes(i.signedUrl!));
+    if (primaryLandscape.length > 0) return primaryLandscape[0].signedUrl!;
+    const primaryAny = primaryPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!));
+    if (primaryAny.length > 0) return primaryAny[0].signedUrl!;
+    const fallbackLandscape = fallbackPool.filter(i => i.signedUrl && isLandscapeImg(i) && !excludeUrls.includes(i.signedUrl!));
+    if (fallbackLandscape.length > 0) return fallbackLandscape[0].signedUrl!;
+    const fallbackAny = fallbackPool.filter(i => i.signedUrl && !excludeUrls.includes(i.signedUrl!));
+    if (fallbackAny.length > 0) return fallbackAny[0].signedUrl!;
+    return undefined;
+  }
+
+  /** Determine cinematic composition mode */
+  function resolveComposition(
+    slideType: string,
+    hasBackground: boolean,
+    hasForegroundImages: boolean,
+    imageCount: number,
+  ): SlideComposition {
+    if (slideType === 'characters') return 'character_feature';
+    if (slideType === 'key_moments' && imageCount >= 2) return 'montage_grid';
+    if (slideType === 'cover' || slideType === 'closing') return 'full_bleed_hero';
+    if (slideType === 'creative_statement') return hasBackground ? 'text_over_atmosphere' : 'gradient_only';
+    if (slideType === 'comparables') return hasBackground ? 'text_over_atmosphere' : 'editorial_panel';
+    if (!hasBackground && !hasForegroundImages) return 'gradient_only';
+    if (hasBackground && hasForegroundImages) return 'split_cinematic';
+    if (hasBackground) return 'text_over_atmosphere';
+    return 'editorial_panel';
+  }
+
   // 5. Build identity
   const identity = resolveIdentity(normalizedCanon.tone_style || tone, genre);
   const logline = normalizedCanon.logline;
@@ -517,7 +570,10 @@ export async function generateLookBookData(
   const writerCredit = 'Written by Sebastian Street';
   const companyName = branding.companyName || 'Paradox House';
 
-  // 6. Build slides with strengthened content
+  // Track used background URLs to avoid repeating the same image across slides
+  const usedBackgroundUrls: string[] = [];
+
+  // 6. Build slides with cinematic backgrounds
   const slides: SlideContent[] = [];
 
   // ── COVER ──
@@ -530,21 +586,28 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
+    backgroundImageUrl: coverImageUrl || pickBackgroundImage(worldImages, allSectionImages) || undefined,
+    composition: 'full_bleed_hero',
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
     _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
+  if (coverImageUrl) usedBackgroundUrls.push(coverImageUrl);
 
   // ── OVERVIEW ──
   const overviewBody = logline || normalizedCanon.premise || synopsis.slice(0, 300);
   const overviewFallback = normalizedCanon.premise || synopsis.slice(0, 500);
   const overviewSecondary = logline && overviewFallback ? overviewFallback : undefined;
+  const overviewBg = pickBackgroundImage(worldImages, allSectionImages, usedBackgroundUrls);
+  if (overviewBg) usedBackgroundUrls.push(overviewBg);
   slides.push({
     type: 'overview',
     slide_id: makeSemanticSlideId('overview'),
     title,
     body: overviewBody || undefined,
     bodySecondary: overviewSecondary !== overviewBody ? overviewSecondary : undefined,
+    backgroundImageUrl: overviewBg,
+    composition: overviewBg ? 'text_over_atmosphere' : 'gradient_only',
     bullets: [
       genre ? `Genre: ${genre}` : '',
       formatLabel ? `Format: ${formatLabel}` : '',
@@ -555,6 +618,9 @@ export async function generateLookBookData(
 
   // ── WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
+    const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls);
+    if (worldBg) usedBackgroundUrls.push(worldBg);
+    const worldForeground = worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -563,7 +629,9 @@ export async function generateLookBookData(
       bodySecondary: normalizedCanon.locations || undefined,
       quote: normalizedCanon.timeline || undefined,
       imageUrl: worldImageUrl || undefined,
-      imageUrls: worldImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      imageUrls: worldForeground,
+      backgroundImageUrl: worldBg,
+      composition: resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length),
       _debug_image_ids: canonImages.world_locations.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.world_locations),
       _has_unresolved: canonImages.world_locations.unresolvedCount > 0,
@@ -578,6 +646,7 @@ export async function generateLookBookData(
       slide_id: makeSemanticSlideId('characters'),
       title: 'Characters',
       characters: normalizedCharacters,
+      composition: 'character_feature',
       _debug_image_ids: canonImages.character_identity.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.character_identity),
       _has_unresolved: canonImages.character_identity.unresolvedCount > 0,
@@ -589,6 +658,9 @@ export async function generateLookBookData(
   if (themesRaw) {
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
+    const themesBg = pickBackgroundImage(atmosphereImages, worldImages, usedBackgroundUrls);
+    if (themesBg) usedBackgroundUrls.push(themesBg);
+    const themesForeground = atmosphereImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
@@ -596,7 +668,9 @@ export async function generateLookBookData(
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
       imageUrl: atmosphereImages[0]?.signedUrl || undefined,
-      imageUrls: atmosphereImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      imageUrls: themesForeground,
+      backgroundImageUrl: themesBg,
+      composition: resolveComposition('themes', !!themesBg, themesForeground.length > 1, themesForeground.length),
       _debug_image_ids: canonImages.atmosphere_lighting.imageIds.slice(0, 4),
       _debug_provenance: toSlideProvenance(canonImages.atmosphere_lighting).slice(0, 4),
       _has_unresolved: themesUnresolved > 0,
@@ -606,13 +680,18 @@ export async function generateLookBookData(
   // ── VISUAL LANGUAGE ── (texture + motif imagery — separate from themes)
   const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
+  const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls);
+  if (vlBg) usedBackgroundUrls.push(vlBg);
+  const vlForeground = vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
     title: 'Visual Language',
     body: vlCopy.body,
     imageUrl: vlImages[0]?.signedUrl || undefined,
-    imageUrls: vlImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+    imageUrls: vlForeground,
+    backgroundImageUrl: vlBg,
+    composition: resolveComposition('visual_language', !!vlBg, vlForeground.length > 1, vlForeground.length),
     bullets: vlCopy.bullets,
     _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
     _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
@@ -623,6 +702,9 @@ export async function generateLookBookData(
   if (format.includes('series') || format.includes('vertical') || format.includes('limited') || format.includes('feature') || format.includes('film') || logline) {
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
+    const seBg = pickBackgroundImage(seImages, keyMomentImages, usedBackgroundUrls);
+    if (seBg) usedBackgroundUrls.push(seBg);
+    const seForeground = seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
@@ -631,7 +713,9 @@ export async function generateLookBookData(
       bodySecondary: seCopy.bodySecondary || undefined,
       bullets: seCopy.bullets,
       imageUrl: seImages[0]?.signedUrl || undefined,
-      imageUrls: seImages.slice(0, 3).map(i => i.signedUrl).filter(Boolean) as string[],
+      imageUrls: seForeground,
+      backgroundImageUrl: seBg,
+      composition: resolveComposition('story_engine', !!seBg, seForeground.length > 1, seForeground.length),
       _debug_image_ids: seImages.map(i => i.id).slice(0, 3),
       _debug_provenance: seImages.map(img => ({
         imageId: img.id,
@@ -649,13 +733,15 @@ export async function generateLookBookData(
     const keyMomentBody = keyMomentImages.length > 0
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
+    const kmForeground = keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
       title: 'Key Moments',
       body: keyMomentBody,
       imageUrl: keyMomentImages[0]?.signedUrl || undefined,
-      imageUrls: keyMomentImages.slice(0, 6).map(i => i.signedUrl).filter(Boolean) as string[],
+      imageUrls: kmForeground,
+      composition: resolveComposition('key_moments', false, kmForeground.length > 0, kmForeground.length),
       _debug_image_ids: canonImages.key_moments.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.key_moments),
       _has_unresolved: canonImages.key_moments.unresolvedCount > 0,
@@ -665,35 +751,45 @@ export async function generateLookBookData(
   // ── COMPARABLES ──
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
+    const compBg = pickBackgroundImage([], allSectionImages, usedBackgroundUrls);
+    if (compBg) usedBackgroundUrls.push(compBg);
     slides.push({
       type: 'comparables',
       slide_id: makeSemanticSlideId('comparables'),
       title: 'Comparables',
       comparables: comps,
+      backgroundImageUrl: compBg,
+      composition: compBg ? 'text_over_atmosphere' : 'gradient_only',
     });
   }
 
   // ── CREATIVE STATEMENT ──
   if (creativeStatement) {
+    const csBg = pickBackgroundImage(atmosphereImages, allSectionImages, usedBackgroundUrls);
+    if (csBg) usedBackgroundUrls.push(csBg);
     slides.push({
       type: 'creative_statement',
       slide_id: makeSemanticSlideId('creative_statement'),
       title: 'Creative Vision',
       body: creativeStatement.slice(0, 500),
       credit: writerCredit,
+      backgroundImageUrl: csBg,
+      composition: csBg ? 'text_over_atmosphere' : 'gradient_only',
     });
   }
 
   // ── POSTER DIRECTIONS ── (dedicated poster showcase when posters exist)
   const posterImages = canonImages.poster_directions.images;
   if (posterImages.length > 1) {
+    const posterForeground = posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[];
     slides.push({
       type: 'key_moments' as any,
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
       title: 'Poster Directions',
       body: 'Key art explorations — the visual identity that anchors the marketing campaign and defines the audience\'s first impression.',
       imageUrl: posterImages[0]?.signedUrl || undefined,
-      imageUrls: posterImages.slice(0, 4).map(i => i.signedUrl).filter(Boolean) as string[],
+      imageUrls: posterForeground,
+      composition: 'montage_grid',
       _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 4),
       _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 4),
       _has_unresolved: false,
@@ -701,6 +797,7 @@ export async function generateLookBookData(
   }
 
   // ── CLOSING ──
+  const closingBg = coverImageUrl || pickBackgroundImage(worldImages, allSectionImages);
   slides.push({
     type: 'closing',
     slide_id: makeSemanticSlideId('closing'),
@@ -710,6 +807,8 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
+    backgroundImageUrl: closingBg,
+    composition: 'full_bleed_hero',
   });
 
   // ── Enrich slides with layout family metadata (landscape decks only) ──
