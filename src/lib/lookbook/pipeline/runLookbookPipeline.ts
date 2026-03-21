@@ -4,7 +4,7 @@
  * This is the ONLY entry point. It calls extracted stage modules directly:
  * MODE → NARRATIVE → INVENTORY → GAP_ANALYSIS → RESOLUTION/GENERATION → ELECTION → ASSEMBLY → QA
  * 
- * generateLookBookData is NO LONGER the execution engine.
+ * No legacy generateLookBookData dependency.
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
@@ -19,15 +19,15 @@ import {
   summarizeOrchestration,
   type BuildWorkingSet,
 } from '@/lib/images/lookbookImageOrchestrator';
-import { mergeUserDecisions } from '../generateLookBookData';
+import { mergeUserDecisions } from './mergeUserDecisions';
 import { runInventoryStage } from './inventoryStage';
-import { createElectionContext, logElectionDiagnostics } from './electionStage';
+import { runElectionStage, logElectionDiagnostics } from './electionStage';
 import { runAssemblyStage } from './assemblyStage';
+import { runQAStage } from './qaStage';
 import type {
   PipelineOptions,
   PipelineResult,
   NarrativeContext,
-  QAResult,
   StageState,
 } from './types';
 import { PipelineStage } from './types';
@@ -48,7 +48,7 @@ function warnStage(state: StageState, message: string): StageState {
   return { ...state, status: 'warning', completedAt: Date.now(), message };
 }
 
-// ── Color / Identity resolution (moved from generateLookBookData) ────────────
+// ── Color / Identity resolution ──────────────────────────────────────────────
 
 const COLOR_PALETTES: Record<string, LookBookColorSystem> = {
   dark: { bg: '#0A0A0F', bgSecondary: '#131318', text: '#F0EDE8', textMuted: '#8A8680', accent: '#C4913A', accentMuted: 'rgba(196, 145, 58, 0.25)', gradientFrom: '#0A0A0F', gradientTo: '#1A1510' },
@@ -117,7 +117,6 @@ async function extractNarrative(projectId: string): Promise<NarrativeContext & {
   const canonicalState = await getCanonicalProjectState(projectId);
   const canon = canonicalState.state as Record<string, unknown>;
 
-  // Load synopsis / creative statement
   const { data: docs } = await supabase
     .from('project_documents')
     .select('doc_type, latest_version_id')
@@ -183,38 +182,48 @@ function normalizeCharacters(
   });
 }
 
-// ── QA Stage ─────────────────────────────────────────────────────────────────
+// ── Pipeline-native gap analysis ─────────────────────────────────────────────
 
-function runQA(data: LookBookData): QAResult {
-  const actualImageUrls = new Set<string>();
-  const unresolvedSlides: string[] = [];
-
-  for (const slide of data.slides) {
-    if (slide.backgroundImageUrl) actualImageUrls.add(slide.backgroundImageUrl);
-    if (slide.imageUrl) actualImageUrls.add(slide.imageUrl);
-    if (slide.imageUrls) slide.imageUrls.forEach(u => actualImageUrls.add(u));
-    if (slide.characters) {
-      for (const c of slide.characters) {
-        if (c.imageUrl) actualImageUrls.add(c.imageUrl);
-      }
-    }
-    if (slide._has_unresolved) unresolvedSlides.push(slide.type);
-  }
-
-  const slidesWithImages = data.slides.filter(s =>
-    s.backgroundImageUrl || s.imageUrl || (s.imageUrls && s.imageUrls.length > 0) ||
-    (s.characters && s.characters.some(c => c.imageUrl)),
-  ).length;
+/**
+ * Build a minimal LookBookData from pipeline inventory for gap analysis.
+ * No legacy generateLookBookData dependency — uses inventory data directly.
+ */
+function buildPreliminaryDeckForGapAnalysis(
+  narrative: NarrativeContext,
+  inventory: Awaited<ReturnType<typeof runInventoryStage>>,
+  identity: LookBookVisualIdentity,
+  isVD: boolean,
+  companyName: string,
+): LookBookData {
+  // Run a quick election + assembly to get a preliminary deck structure
+  const electionResult = runElectionStage(inventory.sectionPools, inventory.allUniqueImages);
+  const normalizedChars = normalizeCharacters(
+    narrative.characters,
+    inventory.characterImageMap,
+    inventory.characterNameImageMap,
+  );
+  const slides = runAssemblyStage({
+    narrative: { ...narrative, characters: normalizedChars },
+    identity,
+    canonImages: inventory.canonImages as any,
+    electionResult,
+    companyName,
+    companyLogoUrl: null,
+    isVerticalDrama: isVD,
+    assignedLane: narrative.assignedLane,
+    format: narrative.format,
+  });
 
   return {
-    totalSlides: data.slides.length,
-    slidesWithImages,
-    slidesWithoutImages: data.slides.length - slidesWithImages,
-    totalImageRefs: actualImageUrls.size,
-    unresolvedSlides,
-    reuseWarnings: [],
-    fingerprintWarnings: [],
-    publishable: unresolvedSlides.length <= 2 && slidesWithImages >= Math.floor(data.slides.length * 0.6),
+    projectId: narrative.projectTitle, // placeholder
+    projectTitle: narrative.projectTitle,
+    identity,
+    slides,
+    deckFormat: isVD ? 'portrait' : 'landscape',
+    generatedAt: new Date().toISOString(),
+    writerCredit: '',
+    companyName,
+    companyLogoUrl: null,
   };
 }
 
@@ -282,7 +291,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
     let workingSet = options.workingSet || null;
 
-    const inventory = await runInventoryStage({
+    let inventory = await runInventoryStage({
       projectId: options.projectId,
       effectiveLane,
       strictDeckMode: isVD,
@@ -297,20 +306,15 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
     // ── STAGE: GAP_ANALYSIS + RESOLUTION + GENERATION ──
     if (options.mode === 'reuse_recovery' && !workingSet) {
-      // Build a preliminary deck for gap analysis
       updateStage(PipelineStage.GAP_ANALYSIS, startStage);
       reportProgress(PipelineStage.GAP_ANALYSIS, 'Analyzing gaps...', 30);
 
-      // Use the legacy path for gap analysis (it needs a LookBookData object)
-      const { generateLookBookData } = await import('../generateLookBookData');
-      const prelimData = await generateLookBookData(options.projectId, {
-        companyName: options.companyName,
-        companyLogoUrl: options.companyLogoUrl,
-        workingSet: null,
-      });
-
-      const gapAnalysis = analyzeLookBookGaps(prelimData);
-      log(`Gap analysis: ${gapAnalysis.gaps.length} gaps`);
+      // Pipeline-native gap analysis — no legacy dependency
+      const prelimDeck = buildPreliminaryDeckForGapAnalysis(
+        narrative, inventory, identity, isVD, options.companyName || 'Paradox House',
+      );
+      const gapAnalysis = analyzeLookBookGaps(prelimDeck);
+      log(`Gap analysis: ${gapAnalysis.gaps.length} gaps (pipeline-native)`);
       updateStage(PipelineStage.GAP_ANALYSIS, s =>
         gapAnalysis.gaps.length > 0
           ? warnStage(s, `${gapAnalysis.gaps.length} gaps`)
@@ -361,7 +365,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
       // Re-run inventory with working set if we built one
       if (workingSet && workingSet.bySlotKey.size > 0) {
-        const updatedInventory = await runInventoryStage({
+        inventory = await runInventoryStage({
           projectId: options.projectId,
           effectiveLane,
           strictDeckMode: isVD,
@@ -369,7 +373,6 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
           assignedLane: narrative.assignedLane,
           workingSet,
         });
-        Object.assign(inventory, updatedInventory);
       }
     } else {
       updateStage(PipelineStage.GAP_ANALYSIS, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
@@ -381,7 +384,15 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.ELECTION, startStage);
     reportProgress(PipelineStage.ELECTION, 'Electing winners...', 70);
 
-    const electionCtx = createElectionContext(inventory.sectionPools);
+    const electionResult = runElectionStage(inventory.sectionPools, inventory.allUniqueImages);
+
+    log(`Election: poster=${electionResult.posterHero ? 'yes' : 'none'}, slides=${electionResult.slideElections.size}`);
+    updateStage(PipelineStage.ELECTION, s => completeStage(s, `${electionResult.slideElections.size} slides elected`));
+    reportProgress(PipelineStage.ELECTION, 'Election complete', 80);
+
+    // ── STAGE: ASSEMBLY ──
+    updateStage(PipelineStage.ASSEMBLY, startStage);
+    reportProgress(PipelineStage.ASSEMBLY, 'Assembling deck...', 85);
 
     // Normalize characters with image maps from inventory
     const normalizedCharacters = normalizeCharacters(
@@ -390,19 +401,11 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       inventory.characterNameImageMap,
     );
 
-    updateStage(PipelineStage.ELECTION, s => completeStage(s, 'context ready'));
-    reportProgress(PipelineStage.ELECTION, 'Election context ready', 80);
-
-    // ── STAGE: ASSEMBLY ──
-    updateStage(PipelineStage.ASSEMBLY, startStage);
-    reportProgress(PipelineStage.ASSEMBLY, 'Assembling deck...', 85);
-
     const slides = runAssemblyStage({
       narrative: { ...narrative, characters: normalizedCharacters },
       identity,
       canonImages: inventory.canonImages as any,
-      sectionPools: inventory.sectionPools as any,
-      electionCtx,
+      electionResult,
       companyName: options.companyName || 'Paradox House',
       companyLogoUrl: options.companyLogoUrl,
       isVerticalDrama: isVD,
@@ -411,7 +414,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     });
 
     // Log election diagnostics
-    logElectionDiagnostics(electionCtx);
+    logElectionDiagnostics(electionResult.electionCtx);
 
     // Log slide selection summary
     const selectionDiag = slides.map(s => {
@@ -476,7 +479,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.QA, startStage);
     reportProgress(PipelineStage.QA, 'Running quality checks...', 95);
 
-    const qa = runQA(lookBookData);
+    const qa = runQAStage(lookBookData);
     log(`QA: ${qa.totalSlides} slides, ${qa.totalImageRefs} images, ${qa.unresolvedSlides.length} unresolved, publishable=${qa.publishable}`);
 
     if (qa.unresolvedSlides.length > 0) {
