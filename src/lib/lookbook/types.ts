@@ -176,6 +176,8 @@ export interface SlideContent {
   _debug_provenance?: SlideImageProvenance[];
   /** Whether this slide has unresolved image slots */
   _has_unresolved?: boolean;
+  /** Working-set source provenance — which slots came from provisional images */
+  _workingSetSources?: Record<string, string>;
 }
 
 export interface LookBookData {
