@@ -845,6 +845,7 @@ export async function generateLookBookData(
   const slides: SlideContent[] = [];
 
   // ── 1. COVER ──
+  const coverBg = coverImageUrl || pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'cover') || undefined;
   slides.push({
     type: 'cover',
     slide_id: makeSemanticSlideId('cover'),
@@ -854,13 +855,14 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
-    backgroundImageUrl: coverImageUrl || pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'cover') || undefined,
+    backgroundImageUrl: coverBg,
     composition: 'full_bleed_hero',
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
     _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
-  if (coverImageUrl) usedBackgroundUrls.push(coverImageUrl);
+  if (coverBg) { usedBackgroundUrls.push(coverBg); trackImageUsage(coverBg, 'cover'); }
+  if (coverImageUrl && coverImageUrl !== coverBg) trackImageUsage(coverImageUrl, 'cover');
 
   // ── 2. CREATIVE VISION (merged with Overview content) ──
   {
