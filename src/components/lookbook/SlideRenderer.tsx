@@ -12,7 +12,7 @@
  * - Themes: text-led with subtle atmospheric support
  * - Closing: atmospheric bookend
  */}
-import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
+import type { SlideContent, LookBookVisualIdentity, DeckFormat, LayoutHint } from '@/lib/lookbook/types';
 import { getSlideDimensions } from '@/lib/lookbook/types';
 
 interface SlideRendererProps {
