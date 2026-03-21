@@ -14,6 +14,7 @@ import type { ProjectImage } from './types';
 import type { ImageGap, GapAnalysisResult } from './lookbookGapAnalyzer';
 import { resolvePromptTemplate, buildPromptFromTemplate, type PromptContext } from './slotPromptRegistry';
 import { classifyOrientation } from './orientationUtils';
+import { toast } from 'sonner';
 
 // ── Orchestration Result Types ───────────────────────────────────────────────
 
