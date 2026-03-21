@@ -1362,6 +1362,8 @@ export async function generateLookBookData(
       imageUrls: themesForeground,
       backgroundImageUrl: themesBg,
       composition: resolveComposition('themes', !!themesBg, themesForeground.length > 1, themesForeground.length),
+      layoutHint: resolveLayoutHint('themes', themesForeground.length, !!themesBg, false),
+      roledImages: assignImageRoles(themesForeground, 'themes', themesBg),
       _debug_image_ids: canonImages.atmosphere_lighting.imageIds.slice(0, 4),
       _debug_provenance: toSlideProvenance(canonImages.atmosphere_lighting).slice(0, 4),
       _has_unresolved: themesUnresolved > 0,
