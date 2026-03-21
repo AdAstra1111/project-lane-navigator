@@ -377,9 +377,13 @@ export default function LookBookPage() {
               Rebuild Structure
             </Button>
           )}
-          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={() => handleGenerate()} disabled={generating}>
-            {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
+          <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={() => handleGenerate()} disabled={generating || autoCompleting}>
+            {generating && !autoCompleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <BookOpen className="h-3 w-3" />}
             Build Look Book
+          </Button>
+          <Button size="sm" variant="default" className="gap-1 text-xs h-7" onClick={handleFreshFromScratch} disabled={autoCompleting || generating}>
+            {autoCompleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            Auto Generate
           </Button>
           {lookBookData && (
             <Button size="sm" variant="outline" className="gap-1 text-xs h-7" onClick={handleAutoComplete} disabled={autoCompleting || generating}>
@@ -389,6 +393,13 @@ export default function LookBookPage() {
           )}
         </div>
       </div>
+
+      {/* ── Pipeline progress ── */}
+      {(generating || autoCompleting) && pipelineProgress && (
+        <div className="px-4 py-2 border-b border-border bg-card/30 shrink-0">
+          <LookbookPipelineProgress progress={pipelineProgress} />
+        </div>
+      )}
 
       {/* ── Main content area ── */}
       <div className="flex-1 min-h-0 flex flex-col">
