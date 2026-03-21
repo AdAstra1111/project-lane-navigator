@@ -696,7 +696,7 @@ export async function generateLookBookData(
     companyName,
     companyLogoUrl: branding.companyLogoUrl || null,
     imageUrl: coverImageUrl || undefined,
-    backgroundImageUrl: coverImageUrl || pickBackgroundImage(worldImages, allSectionImages) || undefined,
+    backgroundImageUrl: coverImageUrl || pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'cover') || undefined,
     composition: 'full_bleed_hero',
     _debug_image_ids: canonImages.poster_directions.imageIds.slice(0, 1),
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
