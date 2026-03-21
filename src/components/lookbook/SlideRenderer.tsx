@@ -731,18 +731,20 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
         </div>
         <div style={{
           marginTop: 'auto',
-          padding: '18px 96px',
+          padding: '24px 96px 20px',
           background: `linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}cc 60%, transparent 100%)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
           borderTop: `1px solid ${colors.accentMuted}`,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-            {slide.credit && <span style={{ fontSize: 12, letterSpacing: '0.15em', color: colors.accent, opacity: 0.85, textTransform: 'uppercase' }}>{slide.credit}</span>}
-            {slide.companyName && <span style={{ fontSize: 11, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.5, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-          </div>
-          {slide.companyLogoUrl && (
-            <img src={slide.companyLogoUrl} alt="" style={{ height: 20, objectFit: 'contain', opacity: 0.4, filter: 'brightness(2)' }} />
-          )}
+          <CinematicCreditBlock
+            title={slide.title}
+            companyName={slide.companyName}
+            credit={slide.credit}
+            companyLogoUrl={slide.companyLogoUrl}
+            colors={colors}
+            variant="full"
+            scale={0.85}
+          />
         </div>
       </div>
     </div>
