@@ -315,6 +315,14 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.INVENTORY, s => completeStage(s, `${inventory.allUniqueImages.length} images`));
     reportProgress(PipelineStage.INVENTORY, 'Inventory complete', 100);
 
+    // ── Run character identity binding (post-inventory, uses image maps) ──
+    const identityBindings = runIdentityBindingStage(
+      narrativeEvidence.characters,
+      inventory.characterImageMap,
+      inventory.characterNameImageMap,
+    );
+    log(`Identity bindings: ${identityBindings.metrics.boundCount}/${identityBindings.metrics.totalCharacters} bound, ${identityBindings.metrics.unboundPrincipals} unbound principals`);
+
     // ── STAGE: GAP_ANALYSIS + RESOLUTION + GENERATION ──
     if (options.mode === 'reuse_recovery' && !workingSet) {
       updateStage(PipelineStage.GAP_ANALYSIS, startStage);
