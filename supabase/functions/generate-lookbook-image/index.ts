@@ -1357,7 +1357,8 @@ FRAMING RULES:
       }
 
       // Step 8: VSAL — Visual Style Authority Lock (if available)
-      if (vsalPromptBlock) {
+      // Skip when prompt_override is active — override already contains creative direction
+      if (vsalPromptBlock && !promptOverrideUsed) {
         prompt += `\n\n${vsalPromptBlock}`;
         if (visualStyleLock && visualStyleLock.forbid.length > 0) {
           prompt += `\n\nADDITIONAL PROHIBITIONS (VSAL): ${visualStyleLock.forbid.join(", ")}`;
@@ -1365,9 +1366,9 @@ FRAMING RULES:
       }
 
       // Step 8b: PRESTIGE STYLE — Inject lane grammar + prestige style composite
-      // This is the CORE style consistency layer. Without it, generated images
-      // lack specific lighting/palette/texture/tone direction and drift to generic AI output.
-      if (!isIdentityGeneration && prestigeComposite.promptBlock) {
+      // Skip when prompt_override is active — override already contains style direction
+      // This avoids duplication and conflicting composition instructions
+      if (!isIdentityGeneration && prestigeComposite.promptBlock && !promptOverrideUsed) {
         prompt += `\n\n${prestigeComposite.promptBlock}`;
         if (prestigeComposite.negativeBlock) {
           prompt += `\n\nSTYLE PROHIBITIONS: ${prestigeComposite.negativeBlock}`;
