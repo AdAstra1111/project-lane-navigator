@@ -345,6 +345,67 @@ function EdgeAccent({ color }: { color: string }) {
   );
 }
 
+/**
+ * Cinematic background image layer — renders a full-bleed image with
+ * controllable overlay strength. This is the core of the cinematic upgrade.
+ */
+function CinematicBackground({ 
+  src, 
+  colors, 
+  overlayStrength = 'medium',
+  overlayDirection = 'left-heavy',
+}: { 
+  src: string; 
+  colors: { bg: string; gradientTo: string };
+  overlayStrength?: 'light' | 'medium' | 'heavy' | 'vignette';
+  overlayDirection?: 'left-heavy' | 'bottom-heavy' | 'center-vignette' | 'even';
+}) {
+  const overlays: Record<string, Record<string, string>> = {
+    'left-heavy': {
+      light: `linear-gradient(to right, ${colors.bg}dd 0%, ${colors.bg}99 30%, ${colors.bg}44 60%, transparent 85%), linear-gradient(to top, ${colors.bg}cc 0%, transparent 40%)`,
+      medium: `linear-gradient(to right, ${colors.bg}ee 0%, ${colors.bg}cc 35%, ${colors.bg}66 60%, ${colors.bg}33 85%), linear-gradient(to top, ${colors.bg}dd 0%, ${colors.bg}88 30%, transparent 55%)`,
+      heavy: `linear-gradient(to right, ${colors.bg}f5 0%, ${colors.bg}dd 40%, ${colors.bg}99 65%, ${colors.bg}66 90%), linear-gradient(to top, ${colors.bg}ee 0%, ${colors.bg}aa 35%, transparent 60%)`,
+      vignette: `radial-gradient(ellipse at 30% 50%, ${colors.bg}cc 0%, ${colors.bg}66 40%, ${colors.bg}33 70%, transparent 100%), linear-gradient(to top, ${colors.bg}dd 0%, transparent 40%)`,
+    },
+    'bottom-heavy': {
+      light: `linear-gradient(to top, ${colors.bg}ee 0%, ${colors.bg}99 35%, ${colors.bg}44 60%, transparent 80%)`,
+      medium: `linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}cc 30%, ${colors.bg}66 55%, ${colors.bg}33 80%)`,
+      heavy: `linear-gradient(to top, ${colors.bg}f8 0%, ${colors.bg}dd 35%, ${colors.bg}99 60%, ${colors.bg}66 85%)`,
+      vignette: `radial-gradient(ellipse at center bottom, ${colors.bg}ee 0%, ${colors.bg}88 40%, ${colors.bg}44 70%, transparent 100%)`,
+    },
+    'center-vignette': {
+      light: `radial-gradient(ellipse at center, transparent 20%, ${colors.bg}66 60%, ${colors.bg}cc 100%)`,
+      medium: `radial-gradient(ellipse at center, ${colors.bg}44 10%, ${colors.bg}88 50%, ${colors.bg}dd 90%)`,
+      heavy: `radial-gradient(ellipse at center, ${colors.bg}88 10%, ${colors.bg}bb 50%, ${colors.bg}ee 90%)`,
+      vignette: `radial-gradient(ellipse at center, transparent 15%, ${colors.bg}88 50%, ${colors.bg}ee 100%)`,
+    },
+    'even': {
+      light: `linear-gradient(160deg, ${colors.bg}88 0%, ${colors.bg}66 50%, ${colors.bg}88 100%)`,
+      medium: `linear-gradient(160deg, ${colors.bg}aa 0%, ${colors.bg}88 50%, ${colors.bg}aa 100%)`,
+      heavy: `linear-gradient(160deg, ${colors.bg}cc 0%, ${colors.bg}aa 50%, ${colors.bg}cc 100%)`,
+      vignette: `linear-gradient(160deg, ${colors.bg}99 0%, ${colors.bg}77 50%, ${colors.bg}99 100%)`,
+    },
+  };
+
+  return (
+    <div className="absolute inset-0">
+      <img 
+        src={src} 
+        alt="" 
+        className="w-full h-full" 
+        style={{ 
+          objectFit: 'cover', 
+          objectPosition: 'center',
+          filter: 'saturate(0.75) contrast(1.1)',
+        }} 
+      />
+      <div className="absolute inset-0" style={{
+        background: overlays[overlayDirection]?.[overlayStrength] || overlays['left-heavy']['medium'],
+      }} />
+    </div>
+  );
+}
+
 /** Portrait text density cap — truncates body text for vertical slides */
 function capText(text: string | undefined, maxChars: number, isPortrait: boolean): string | undefined {
   if (!text || !isPortrait) return text;
