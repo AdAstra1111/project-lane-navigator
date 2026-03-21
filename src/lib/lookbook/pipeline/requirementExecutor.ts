@@ -233,8 +233,10 @@ export async function executeRequirements(
   }
 
   // ── Harvest generated candidates ──
+  // Use 15-minute window to account for multi-pass generation time
   log('Harvesting recently generated candidates...');
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const harvestWindowMs = 15 * 60 * 1000;
+  const harvestCutoff = new Date(Date.now() - harvestWindowMs).toISOString();
   const { data: recentCandidates } = await (supabase as any)
     .from('project_images')
     .select('*')
