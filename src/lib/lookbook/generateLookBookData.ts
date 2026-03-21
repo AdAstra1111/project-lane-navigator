@@ -902,8 +902,8 @@ export async function generateLookBookData(
 
   const totalImageRefs = slides.reduce((acc, s) => acc + (s._debug_image_ids?.length || 0), 0);
 
-  // Collect all resolved image IDs sorted for deterministic change detection
-  const resolvedImageIds = (resolved._diagnostics?.resolvedImageIds || []).slice().sort();
+  // Collect all resolved image IDs sorted for deterministic change detection  
+  const resolvedImageIds = (canonImages._diagnostics?.resolvedImageIds || []).slice().sort();
 
   // Unique build fingerprint — crypto.randomUUID or fallback
   const buildId = typeof crypto !== 'undefined' && crypto.randomUUID
