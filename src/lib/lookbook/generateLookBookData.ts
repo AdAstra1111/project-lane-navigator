@@ -870,7 +870,7 @@ export async function generateLookBookData(
   // ── OPTIONAL: COMPARABLES ──
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
-    const compBg = pickBackgroundImage([], allSectionImages, usedBackgroundUrls);
+    const compBg = pickBackgroundImage([], [], usedBackgroundUrls, 'comparables');
     if (compBg) usedBackgroundUrls.push(compBg);
     slides.push({
       type: 'comparables',
