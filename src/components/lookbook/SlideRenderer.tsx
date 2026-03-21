@@ -981,7 +981,7 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
   // ── Landscape themes — full-bleed atmospheric background, centered text ──
   return (
     <div style={baseStyle} className="slide-content">
-      {heroImg && <CinematicBackground src={heroImg} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />}
+      {heroImg && <CinematicBackground src={heroImg} colors={colors} overlayStrength="medium" overlayDirection="center-vignette" />}
       {!heroImg && <DecorativeGradientBg colors={colors} variant="radial" />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '72px 120px' }}>
         <SectionTag label="Themes & Tone" color={colors.accent} />
