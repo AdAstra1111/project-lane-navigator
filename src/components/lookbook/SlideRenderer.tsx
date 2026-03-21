@@ -1106,12 +1106,8 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   if (isPortrait) {
     return (
       <div style={baseStyle} className="slide-content">
-        {seBg && (
-          <div className="absolute inset-0">
-            <img src={seBg} alt="" className="w-full h-full" style={{ objectFit: 'cover', opacity: 0.05, filter: 'saturate(0.3) blur(8px)' }} />
-            <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f5 0%, ${colors.bg}dd 50%, ${colors.bg}f0 100%)` }} />
-          </div>
-        )}
+        {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="heavy" overlayDirection="even" />}
+        {!seBg && <DecorativeGradientBg colors={colors} variant="diagonal" />}
         <EdgeAccent color={colors.accent} />
         <div style={{ position: 'relative', zIndex: 1, padding: '56px 56px 48px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Story Engine" color={colors.accent} />
