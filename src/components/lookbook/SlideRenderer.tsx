@@ -1463,11 +1463,13 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
     );
   }
 
-  // ── Landscape comparables ──
+  // ── Landscape comparables — cinematic background ──
+  const compBg = slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
-      <EdgeAccent color={colors.accent} />
-      <div style={{ padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {compBg && <CinematicBackground src={compBg} colors={colors} overlayStrength="heavy" overlayDirection="even" />}
+      {!compBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Market Positioning" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 48, color: colors.text }}>{slide.title}</h2>
