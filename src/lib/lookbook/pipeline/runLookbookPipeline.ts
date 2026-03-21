@@ -189,6 +189,7 @@ function normalizeCharacters(
  * No legacy generateLookBookData dependency — uses inventory data directly.
  */
 function buildPreliminaryDeckForGapAnalysis(
+  projectId: string,
   narrative: NarrativeContext,
   inventory: Awaited<ReturnType<typeof runInventoryStage>>,
   identity: LookBookVisualIdentity,
