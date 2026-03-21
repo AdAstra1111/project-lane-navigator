@@ -991,7 +991,7 @@ export async function generateLookBookData(
       title: 'Themes & Tone',
       body: themesCopy.body || undefined,
       bodySecondary: themesCopy.bodySecondary || undefined,
-      imageUrl: atmosphereImages[0]?.signedUrl || undefined,
+      imageUrl: themesForeground[0] || undefined,
       imageUrls: themesForeground,
       backgroundImageUrl: themesBg,
       composition: resolveComposition('themes', !!themesBg, themesForeground.length > 1, themesForeground.length),
