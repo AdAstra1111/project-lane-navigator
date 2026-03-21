@@ -352,22 +352,20 @@ export function runAssemblyStage(input: AssemblyInput): SlideContent[] {
   }
 
   // ── 10. POSTER DIRECTIONS ──
-  const posterImages = canonImages.poster_directions?.images || [];
-  if (posterImages.length > 1) {
-    // Poster directions uses its own mini-election (already scored in election stage context)
-    const posterFg = posterImages
-      .filter(img => img.signedUrl)
-      .slice(0, 4)
-      .map(img => img.signedUrl!);
-    slides.push({
-      type: 'key_moments' as any,
-      slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
-      title: 'Poster Directions',
-      body: 'Key art explorations — the visual identity that anchors the marketing campaign.',
-      imageUrl: posterFg[0] || undefined,
-      imageUrls: posterFg,
-      composition: 'montage_grid',
-    });
+  {
+    const e = getElection(electionResult, 'key_moments:poster_directions');
+    if (e.foregroundUrls.length > 1) {
+      slides.push({
+        type: 'key_moments' as any,
+        slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
+        title: 'Poster Directions',
+        body: 'Key art explorations — the visual identity that anchors the marketing campaign.',
+        imageUrl: e.foregroundUrls[0] || undefined,
+        imageUrls: e.foregroundUrls,
+        composition: 'montage_grid',
+        roledImages: e.roledImages,
+      });
+    }
   }
 
   // ── 11. CLOSING ──

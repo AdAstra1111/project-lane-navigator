@@ -189,6 +189,7 @@ function normalizeCharacters(
  * No legacy generateLookBookData dependency — uses inventory data directly.
  */
 function buildPreliminaryDeckForGapAnalysis(
+  projectId: string,
   narrative: NarrativeContext,
   inventory: Awaited<ReturnType<typeof runInventoryStage>>,
   identity: LookBookVisualIdentity,
@@ -215,7 +216,7 @@ function buildPreliminaryDeckForGapAnalysis(
   });
 
   return {
-    projectId: narrative.projectTitle, // placeholder
+    projectId,
     projectTitle: narrative.projectTitle,
     identity,
     slides,
@@ -311,7 +312,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
       // Pipeline-native gap analysis — no legacy dependency
       const prelimDeck = buildPreliminaryDeckForGapAnalysis(
-        narrative, inventory, identity, isVD, options.companyName || 'Paradox House',
+        options.projectId, narrative, inventory, identity, isVD, options.companyName || 'Paradox House',
       );
       const gapAnalysis = analyzeLookBookGaps(prelimDeck);
       log(`Gap analysis: ${gapAnalysis.gaps.length} gaps (pipeline-native)`);
