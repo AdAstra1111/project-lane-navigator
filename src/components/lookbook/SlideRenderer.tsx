@@ -713,10 +713,7 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
     return (
       <div style={baseStyle} className="slide-content">
         {worldBg && (
-          <div className="absolute inset-0">
-            <img src={worldBg} alt="" className="w-full h-full" style={{ objectFit: 'cover', opacity: 0.08, filter: 'saturate(0.3) blur(6px)' }} />
-            <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f0 0%, ${colors.bg}cc 40%, ${colors.bg}e0 100%)` }} />
-          </div>
+          <CinematicBackground src={worldBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />
         )}
         <EdgeAccent color={colors.accent} />
         <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -1389,10 +1386,7 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
     return (
       <div style={baseStyle} className="slide-content">
         {slide.backgroundImageUrl && (
-          <div className="absolute inset-0">
-            <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.3) blur(14px) contrast(0.9)', opacity: 0.3, transform: 'scale(1.06)' }} />
-            <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}bb 0%, ${colors.bg}dd 55%, ${colors.bg}f0 100%)` }} />
-          </div>
+          <CinematicBackground src={slide.backgroundImageUrl} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />
         )}
         {!slide.backgroundImageUrl && <DecorativeGradientBg colors={colors} variant="radial" />}
         <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 56px' }}>
@@ -1408,10 +1402,7 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
   return (
     <div style={baseStyle} className="slide-content">
       {slide.backgroundImageUrl && (
-        <div className="absolute inset-0">
-          <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.35) blur(12px) contrast(0.9)', opacity: 0.35, transform: 'scale(1.05)' }} />
-          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}aa 0%, ${colors.bg}cc 50%, ${colors.bg}ee 100%)` }} />
-        </div>
+        <CinematicBackground src={slide.backgroundImageUrl} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />
       )}
       {!slide.backgroundImageUrl && <DecorativeGradientBg colors={colors} variant="radial" />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '0 100px' }}>
