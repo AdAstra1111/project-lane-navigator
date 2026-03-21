@@ -1335,6 +1335,8 @@ export async function generateLookBookData(
     imageUrls: vlForeground,
     backgroundImageUrl: vlBg,
     composition: resolveComposition('visual_language', !!vlBg, vlForeground.length > 1, vlForeground.length),
+    layoutHint: resolveLayoutHint('visual_language', vlForeground.length, !!vlBg, !!vlForeground[0]),
+    roledImages: assignImageRoles(vlForeground, 'visual_language', vlBg),
     bullets: vlCopy.bullets,
     _debug_image_ids: [...canonImages.texture_detail.imageIds, ...canonImages.symbolic_motifs.imageIds].slice(0, 4),
     _debug_provenance: [...toSlideProvenance(canonImages.texture_detail), ...toSlideProvenance(canonImages.symbolic_motifs)].slice(0, 4),
