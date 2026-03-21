@@ -14,6 +14,7 @@ import { scoreImageForSlide } from './lookbookScorer';
 import type { PoolKey } from './lookbookSlotRegistry';
 import { SLIDE_TO_POOL } from './lookbookSlotRegistry';
 import type { InventoryResult } from './types';
+import { resolveProjectCastIdentity } from '@/lib/aiCast/resolveActorIdentity';
 
 // ── Pool expansion helper ────────────────────────────────────────────────────
 
