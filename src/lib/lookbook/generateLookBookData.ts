@@ -1036,7 +1036,7 @@ export async function generateLookBookData(
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
     const compBg = pickBackgroundImage([], [], usedBackgroundUrls, 'comparables');
-    if (compBg) usedBackgroundUrls.push(compBg);
+    if (compBg) { usedBackgroundUrls.push(compBg); trackImageUsage(compBg, 'comparables'); }
     slides.push({
       type: 'comparables',
       slide_id: makeSemanticSlideId('comparables'),
