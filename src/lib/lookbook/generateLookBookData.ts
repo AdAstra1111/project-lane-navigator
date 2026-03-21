@@ -656,8 +656,62 @@ export async function generateLookBookData(
   function getReusePenalty(url: string): number {
     const usage = deckImageUsage.get(url);
     if (!usage || usage.count === 0) return 0;
-    // First reuse: -30, second: -60, etc. — heavy enough to prefer ANY unique image
     return usage.count * -30;
+  }
+
+  // ── Semantic Fingerprint Diversity Layer ──
+  // Tracks semantic "types" of images used across the deck to penalize repetition
+  // even when URLs differ. Fingerprint = asset_group|subject|location_ref|shot_type
+  const usedFingerprints = new Map<string, number>();
+
+  function getImageFingerprint(img: ProjectImage): string {
+    return [
+      img.asset_group || 'none',
+      img.subject || 'none',
+      img.location_ref || 'none',
+      img.shot_type || 'none',
+    ].join('|');
+  }
+
+  function getFingerprintPenalty(img: ProjectImage): number {
+    const fp = getImageFingerprint(img);
+    const count = usedFingerprints.get(fp) || 0;
+    // -25 per prior use of same semantic type — strong enough to force variety
+    return count * -25;
+  }
+
+  function trackFingerprint(img: ProjectImage) {
+    const fp = getImageFingerprint(img);
+    usedFingerprints.set(fp, (usedFingerprints.get(fp) || 0) + 1);
+  }
+
+  /** Detect craft/workshop imagery via prompt text — guards against mis-tagged images */
+  function isCraftScene(img: ProjectImage): boolean {
+    const text = (img.prompt_used || '').toLowerCase();
+    return (
+      text.includes('pottery') ||
+      text.includes('ceramic') ||
+      text.includes('workshop') ||
+      text.includes('kiln') ||
+      text.includes('craftsman') ||
+      text.includes('artisan') ||
+      text.includes('handicraft')
+    );
+  }
+
+  // URL-to-ProjectImage lookup for fingerprint tracking after URL-based selection
+  const urlToImage = new Map<string, ProjectImage>();
+  for (const pool of Object.values(sectionPools)) {
+    for (const img of pool) {
+      if (img.signedUrl) urlToImage.set(img.signedUrl, img);
+    }
+  }
+
+  /** Track both URL usage and fingerprint for a selected image URL */
+  function trackSelection(url: string, slideType: string) {
+    trackImageUsage(url, slideType);
+    const img = urlToImage.get(url);
+    if (img) trackFingerprint(img);
   }
 
   /** Score an image for section relevance + visual suitability */
@@ -731,6 +785,16 @@ export async function generateLookBookData(
     // Deck-level reuse penalty — strongly prefer unique images
     if (applyReusePenalty && img.signedUrl) {
       score += getReusePenalty(img.signedUrl);
+    }
+
+    // Semantic fingerprint diversity penalty — penalize same "type" of image across deck
+    if (applyReusePenalty) {
+      score += getFingerprintPenalty(img);
+    }
+
+    // Anti-pattern: craft/workshop imagery penalty on non-visual-language slides
+    if (slideType !== 'visual_language' && isCraftScene(img)) {
+      score -= 25;
     }
 
     return score;
@@ -861,8 +925,8 @@ export async function generateLookBookData(
     _debug_provenance: toSlideProvenance(canonImages.poster_directions).slice(0, 1),
     _has_unresolved: canonImages.poster_directions.unresolvedCount > 0,
   });
-  if (coverBg) { usedBackgroundUrls.push(coverBg); trackImageUsage(coverBg, 'cover'); }
-  if (coverImageUrl && coverImageUrl !== coverBg) trackImageUsage(coverImageUrl, 'cover');
+  if (coverBg) { usedBackgroundUrls.push(coverBg); trackSelection(coverBg, 'cover'); }
+  if (coverImageUrl && coverImageUrl !== coverBg) trackSelection(coverImageUrl, 'cover');
 
   // ── 2. CREATIVE VISION (merged with Overview content) ──
   {
@@ -881,7 +945,7 @@ export async function generateLookBookData(
       ? normalizedCanon.premise.slice(0, 300)
       : undefined;
     const cvBg = pickBackgroundImage(atmosphereImages, [], usedBackgroundUrls, 'creative_statement');
-    if (cvBg) { usedBackgroundUrls.push(cvBg); trackImageUsage(cvBg, 'creative_statement'); }
+    if (cvBg) { usedBackgroundUrls.push(cvBg); trackSelection(cvBg, 'creative_statement'); }
     slides.push({
       type: 'creative_statement',
       slide_id: makeSemanticSlideId('creative_statement'),
@@ -898,9 +962,9 @@ export async function generateLookBookData(
   // ── 3. WORLD ──
   if (normalizedCanon.world_rules || normalizedCanon.locations || normalizedCanon.timeline || worldImages.length > 0) {
     const worldBg = pickBackgroundImage(worldImages, [], usedBackgroundUrls, 'world');
-    if (worldBg) { usedBackgroundUrls.push(worldBg); trackImageUsage(worldBg, 'world'); }
+    if (worldBg) { usedBackgroundUrls.push(worldBg); trackSelection(worldBg, 'world'); }
     const worldForeground = pickForegroundImages(worldImages, 'world', 4, worldBg ? [worldBg] : []);
-    worldForeground.forEach(u => trackImageUsage(u, 'world'));
+    worldForeground.forEach(u => trackSelection(u, 'world'));
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -924,7 +988,7 @@ export async function generateLookBookData(
       ? 'The defining visual beats — the frames that sell the story, anchor the trailer, and live in the audience\'s memory.'
       : 'Key visual moments will be populated as the project\'s visual canon develops. These are the frames that define the trailer, the poster, and the audience\'s first impression.';
     const kmForeground = pickForegroundImages(keyMomentImages, 'key_moments', 6);
-    kmForeground.forEach(u => trackImageUsage(u, 'key_moments'));
+    kmForeground.forEach(u => trackSelection(u, 'key_moments'));
     slides.push({
       type: 'key_moments',
       slide_id: makeSemanticSlideId('key_moments'),
@@ -958,9 +1022,9 @@ export async function generateLookBookData(
   const vlImages = [...textureImages, ...motifImages];
   const vlCopy = buildVisualLanguageCopy(normalizedCanon, genre, tone, identity.imageStyle);
   const vlBg = pickBackgroundImage(vlImages, atmosphereImages, usedBackgroundUrls, 'visual_language');
-  if (vlBg) { usedBackgroundUrls.push(vlBg); trackImageUsage(vlBg, 'visual_language'); }
+  if (vlBg) { usedBackgroundUrls.push(vlBg); trackSelection(vlBg, 'visual_language'); }
   const vlForeground = pickForegroundImages(vlImages, 'visual_language', 4, vlBg ? [vlBg] : []);
-  vlForeground.forEach(u => trackImageUsage(u, 'visual_language'));
+  vlForeground.forEach(u => trackSelection(u, 'visual_language'));
   slides.push({
     type: 'visual_language',
     slide_id: makeSemanticSlideId('visual_language'),
@@ -982,9 +1046,9 @@ export async function generateLookBookData(
     const themesCopy = buildThemesCopy(normalizedCanon, genre, tone);
     const themesUnresolved = canonImages.atmosphere_lighting.unresolvedCount;
     const themesBg = pickBackgroundImage(atmosphereImages, worldImages, usedBackgroundUrls, 'themes');
-    if (themesBg) { usedBackgroundUrls.push(themesBg); trackImageUsage(themesBg, 'themes'); }
+    if (themesBg) { usedBackgroundUrls.push(themesBg); trackSelection(themesBg, 'themes'); }
     const themesForeground = pickForegroundImages(atmosphereImages, 'themes', 4, themesBg ? [themesBg] : []);
-    themesForeground.forEach(u => trackImageUsage(u, 'themes'));
+    themesForeground.forEach(u => trackSelection(u, 'themes'));
     slides.push({
       type: 'themes',
       slide_id: makeSemanticSlideId('themes'),
@@ -1006,9 +1070,9 @@ export async function generateLookBookData(
     const seCopy = buildStoryEngineCopy(normalizedCanon, format, genre);
     const seImages = keyMomentImages.length > 2 ? keyMomentImages.slice(2, 6) : motifImages;
     const seBg = pickBackgroundImage(seImages, keyMomentImages, usedBackgroundUrls, 'story_engine');
-    if (seBg) { usedBackgroundUrls.push(seBg); trackImageUsage(seBg, 'story_engine'); }
+    if (seBg) { usedBackgroundUrls.push(seBg); trackSelection(seBg, 'story_engine'); }
     const seForeground = pickForegroundImages(seImages, 'story_engine', 3, seBg ? [seBg] : []);
-    seForeground.forEach(u => trackImageUsage(u, 'story_engine'));
+    seForeground.forEach(u => trackSelection(u, 'story_engine'));
     slides.push({
       type: 'story_engine',
       slide_id: makeSemanticSlideId('story_engine'),
@@ -1036,7 +1100,7 @@ export async function generateLookBookData(
   const comps = parseComparables(normalizedCanon.comparables || comparableTitles);
   if (comps.length > 0) {
     const compBg = pickBackgroundImage([], [], usedBackgroundUrls, 'comparables');
-    if (compBg) { usedBackgroundUrls.push(compBg); trackImageUsage(compBg, 'comparables'); }
+    if (compBg) { usedBackgroundUrls.push(compBg); trackSelection(compBg, 'comparables'); }
     slides.push({
       type: 'comparables',
       slide_id: makeSemanticSlideId('comparables'),
@@ -1051,7 +1115,7 @@ export async function generateLookBookData(
   const posterImages = canonImages.poster_directions.images;
   if (posterImages.length > 1) {
     const posterForeground = pickForegroundImages(posterImages, 'cover', 4);
-    posterForeground.forEach(u => trackImageUsage(u, 'poster_directions'));
+    posterForeground.forEach(u => trackSelection(u, 'poster_directions'));
     slides.push({
       type: 'key_moments' as any,
       slide_id: makeSemanticSlideId('key_moments', 'poster_directions'),
@@ -1234,7 +1298,16 @@ export async function generateLookBookData(
     console.log('[LookBook] ✓ no cross-slide image reuse');
   }
 
-  // ── Selection diagnostics — log WHY each slide got its images ──
+  // ── Fingerprint diversity diagnostics ──
+  const fpStats = Array.from(usedFingerprints.entries())
+    .filter(([, count]) => count > 1)
+    .map(([fp, count]) => `${fp} (×${count})`);
+  if (fpStats.length > 0) {
+    console.warn(`[LookBook] ⚠ fingerprint reuse: ${fpStats.join(' | ')}`);
+  } else {
+    console.log('[LookBook] ✓ no fingerprint repetition — good semantic diversity');
+  }
+
   const selectionDiagnostics: string[] = [];
   for (const slide of slides) {
     const parts = [`${slide.type}:`];
