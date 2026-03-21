@@ -493,11 +493,11 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
             </>
           ) : (
             <>
-              <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
+              <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.75) contrast(1.12)' }} />
               <div className="absolute inset-0" style={{
                 background: `
-                  linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 32%, transparent 62%),
-                  linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 22%, transparent 48%)
+                  linear-gradient(to right, ${colors.bg}f0 0%, ${colors.bg}bb 28%, ${colors.bg}55 50%, transparent 72%),
+                  linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}aa 18%, transparent 42%)
                 `,
               }} />
             </>
@@ -958,16 +958,13 @@ function CharacterSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideI
    ═══════════════════════════════════════════════════════════════════════ */
 function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
   const heroImg = slide.backgroundImageUrl || slide.imageUrl;
+  const hasStrongImage = !!heroImg;
 
   if (isPortrait) {
     return (
       <div style={baseStyle} className="slide-content">
-        {heroImg && (
-          <div className="absolute inset-0">
-            <img src={heroImg} alt="" className="w-full h-full" style={{ objectFit: 'cover', opacity: 0.08, filter: 'saturate(0.3) blur(8px)' }} />
-            <div className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${colors.bg}e8 0%, ${colors.bg}cc 35%, ${colors.bg}f5 100%)` }} />
-          </div>
-        )}
+        {hasStrongImage && <CinematicBackground src={heroImg!} colors={colors} overlayStrength="medium" overlayDirection="center-vignette" />}
+        {!hasStrongImage && <DecorativeGradientBg colors={colors} variant="radial" />}
         <EdgeAccent color={colors.accent} />
         <div style={{ position: 'relative', zIndex: 1, padding: '64px 56px 56px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <SectionTag label="Themes & Tone" color={colors.accent} />
@@ -984,7 +981,7 @@ function ThemesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideInde
   // ── Landscape themes — full-bleed atmospheric background, centered text ──
   return (
     <div style={baseStyle} className="slide-content">
-      {heroImg && <CinematicBackground src={heroImg} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />}
+      {heroImg && <CinematicBackground src={heroImg} colors={colors} overlayStrength="medium" overlayDirection="center-vignette" />}
       {!heroImg && <DecorativeGradientBg colors={colors} variant="radial" />}
       <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '72px 120px' }}>
         <SectionTag label="Themes & Tone" color={colors.accent} />
@@ -1141,7 +1138,7 @@ function StoryEngineSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
   // ── Landscape story engine — atmospheric background, centered content ──
   return (
     <div style={baseStyle} className="slide-content">
-      {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />}
+      {seBg && <CinematicBackground src={seBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
       {!seBg && <DecorativeGradientBg colors={colors} variant="diagonal" />}
       <div style={{ position: 'relative', zIndex: 1, padding: '64px 80px 56px 88px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="Story Engine" color={colors.accent} />
@@ -1416,8 +1413,8 @@ function ClosingSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortra
     <div style={baseStyle} className="slide-content">
       {slide.backgroundImageUrl && (
         <div className="absolute inset-0">
-          <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.2) blur(20px) contrast(0.8)', opacity: 0.25, transform: 'scale(1.1)' }} />
-          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}cc 0%, ${colors.bg}ee 60%, ${colors.bg} 100%)` }} />
+          <img src={slide.backgroundImageUrl} alt="" className="w-full h-full" style={{ objectFit: 'cover', filter: 'saturate(0.35) blur(12px) contrast(0.9)', opacity: 0.35, transform: 'scale(1.05)' }} />
+          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${colors.bg}aa 0%, ${colors.bg}cc 50%, ${colors.bg}ee 100%)` }} />
         </div>
       )}
       {!slide.backgroundImageUrl && <DecorativeGradientBg colors={colors} variant="radial" />}
