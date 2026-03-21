@@ -1034,22 +1034,116 @@ export async function generateLookBookData(
     return undefined;
   }
 
-  /** Determine cinematic composition mode */
+  // ── Visual Rhythm Engine ──
+  // Tracks composition patterns to prevent consecutive identical layouts.
+  // Alternates between dense (image-heavy) and minimal (text-heavy) slides.
+  const rhythmHistory: SlideComposition[] = [];
+
+  function getRhythmPenalty(composition: SlideComposition): number {
+    if (rhythmHistory.length === 0) return 0;
+    const last = rhythmHistory[rhythmHistory.length - 1];
+    // Strong penalty for exact repeat
+    if (last === composition) return -1;
+    // Mild penalty for similar density (two image-heavy or two text-heavy in a row)
+    const imageDense: SlideComposition[] = ['full_bleed_hero', 'montage_grid', 'split_cinematic'];
+    const textDense: SlideComposition[] = ['text_over_atmosphere', 'editorial_panel', 'gradient_only'];
+    if (imageDense.includes(last) && imageDense.includes(composition)) return -0.5;
+    if (textDense.includes(last) && textDense.includes(composition)) return -0.5;
+    return 0;
+  }
+
+  /** Resolve layout hint for a slide based on section type, image count, and rhythm */
+  function resolveLayoutHint(
+    slideType: string,
+    imageCount: number,
+    hasBackground: boolean,
+    hasHeroImage: boolean,
+  ): LayoutHint {
+    switch (slideType) {
+      case 'key_moments':
+        if (imageCount >= 4) return 'hero_top_grid';
+        if (imageCount >= 2) return 'asymmetric_split';
+        if (imageCount === 1) return 'cinematic_stack';
+        return 'default';
+      case 'world':
+        if (hasBackground && imageCount >= 2) return 'environment_grid';
+        if (hasBackground) return 'landscape_hero';
+        return 'default';
+      case 'characters':
+        return imageCount >= 2 ? 'dual_character_split' : 'portrait_dominant';
+      case 'themes':
+        return hasBackground ? 'text_overlay_bg' : 'minimal_text_center';
+      case 'creative_statement':
+        return hasBackground ? 'text_overlay_bg' : 'minimal_text_center';
+      case 'visual_language':
+        return imageCount >= 2 ? 'environment_grid' : 'default';
+      case 'story_engine':
+        return hasBackground ? 'text_overlay_bg' : 'default';
+      default:
+        return 'default';
+    }
+  }
+
+  /** Determine cinematic composition mode — now rhythm-aware */
   function resolveComposition(
     slideType: string,
     hasBackground: boolean,
     hasForegroundImages: boolean,
     imageCount: number,
   ): SlideComposition {
-    if (slideType === 'characters') return 'character_feature';
-    if (slideType === 'key_moments' && imageCount >= 2) return 'montage_grid';
-    if (slideType === 'cover' || slideType === 'closing') return 'full_bleed_hero';
-    if (slideType === 'creative_statement') return hasBackground ? 'text_over_atmosphere' : 'gradient_only';
-    if (slideType === 'comparables') return hasBackground ? 'text_over_atmosphere' : 'editorial_panel';
-    if (!hasBackground && !hasForegroundImages) return 'gradient_only';
-    if (hasBackground && hasForegroundImages) return 'split_cinematic';
-    if (hasBackground) return 'text_over_atmosphere';
-    return 'editorial_panel';
+    let primary: SlideComposition;
+
+    if (slideType === 'characters') primary = 'character_feature';
+    else if (slideType === 'key_moments' && imageCount >= 2) primary = 'montage_grid';
+    else if (slideType === 'cover' || slideType === 'closing') primary = 'full_bleed_hero';
+    else if (slideType === 'creative_statement') primary = hasBackground ? 'text_over_atmosphere' : 'gradient_only';
+    else if (slideType === 'comparables') primary = hasBackground ? 'text_over_atmosphere' : 'editorial_panel';
+    else if (!hasBackground && !hasForegroundImages) primary = 'gradient_only';
+    else if (hasBackground && hasForegroundImages) primary = 'split_cinematic';
+    else if (hasBackground) primary = 'text_over_atmosphere';
+    else primary = 'editorial_panel';
+
+    // Check rhythm — if exact repeat, try to find an alternative
+    const penalty = getRhythmPenalty(primary);
+    if (penalty < -0.5 && hasBackground && hasForegroundImages) {
+      // Flip between split_cinematic and montage_grid for variety
+      if (primary === 'split_cinematic') primary = 'montage_grid';
+      else if (primary === 'montage_grid' && imageCount >= 1) primary = 'split_cinematic';
+      // Flip between text_over_atmosphere and editorial_panel
+      else if (primary === 'text_over_atmosphere') primary = 'editorial_panel';
+      else if (primary === 'editorial_panel' && hasBackground) primary = 'text_over_atmosphere';
+    }
+
+    rhythmHistory.push(primary);
+    return primary;
+  }
+
+  /** Assign image roles: hero (top 1), support (next N), background (remainder) */
+  function assignImageRoles(
+    urls: string[],
+    slideType: string,
+    bgUrl?: string,
+  ): import('./types').RoledImage[] {
+    const roles: import('./types').RoledImage[] = [];
+
+    // Background image gets background role
+    if (bgUrl) {
+      const bgImg = urlToImage.get(bgUrl);
+      roles.push({ url: bgUrl, role: 'background', score: bgImg ? scoreImageForSlide(bgImg, slideType, false) : 0 });
+    }
+
+    // Foreground images: first = hero, rest = support
+    for (let i = 0; i < urls.length; i++) {
+      const img = urlToImage.get(urls[i]);
+      const score = img ? scoreImageForSlide(img, slideType, false) : 0;
+      roles.push({
+        url: urls[i],
+        role: i === 0 ? 'hero' : 'support',
+        score,
+      });
+    }
+
+    return roles;
   }
 
   // 5. Build identity
