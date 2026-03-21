@@ -11,8 +11,6 @@ import type { PoolKey } from './lookbookSlotRegistry';
 import type { NarrativeEvidence } from './narrativeEvidence';
 import type { IdentityBindings } from './identityBindingStage';
 import type { ProvenanceReport } from './provenanceValidator';
-import type { OrchestrationResult, BuildWorkingSet } from '@/lib/images/lookbookImageOrchestrator';
-import type { PoolKey } from './lookbookSlotRegistry';
 
 // ── Pipeline Stages ──────────────────────────────────────────────────────────
 
