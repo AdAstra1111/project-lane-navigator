@@ -787,6 +787,16 @@ export async function generateLookBookData(
       score += getReusePenalty(img.signedUrl);
     }
 
+    // Semantic fingerprint diversity penalty — penalize same "type" of image across deck
+    if (applyReusePenalty) {
+      score += getFingerprintPenalty(img);
+    }
+
+    // Anti-pattern: craft/workshop imagery penalty on non-visual-language slides
+    if (slideType !== 'visual_language' && isCraftScene(img)) {
+      score -= 25;
+    }
+
     return score;
   }
 
