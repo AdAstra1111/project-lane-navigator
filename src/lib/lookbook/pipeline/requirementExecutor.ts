@@ -499,7 +499,7 @@ export async function executeRequirements(
       }
 
       // ── DECK-LEVEL OVERUSE PENALTY (editorial slides) ──
-      if (isEditorialSlide(slideType)) {
+      if (isEditorialSlide(req.slideType)) {
         const deckUsage = deckSignatureUsage.get(sig);
         if (deckUsage && deckUsage.count >= EDITORIAL_FAMILY_CAP) {
           score -= 15; // Already used this scene family on another editorial slide
