@@ -493,11 +493,11 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
             </>
           ) : (
             <>
-              <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.7) contrast(1.15)' }} />
+              <img src={slide.imageUrl} alt="" className="w-full h-full object-cover object-top" style={{ filter: 'saturate(0.75) contrast(1.12)' }} />
               <div className="absolute inset-0" style={{
                 background: `
-                  linear-gradient(to right, ${colors.bg} 0%, ${colors.bg}ee 32%, transparent 62%),
-                  linear-gradient(to top, ${colors.bg} 0%, ${colors.bg}cc 22%, transparent 48%)
+                  linear-gradient(to right, ${colors.bg}f0 0%, ${colors.bg}bb 28%, ${colors.bg}55 50%, transparent 72%),
+                  linear-gradient(to top, ${colors.bg}f5 0%, ${colors.bg}aa 18%, transparent 42%)
                 `,
               }} />
             </>
