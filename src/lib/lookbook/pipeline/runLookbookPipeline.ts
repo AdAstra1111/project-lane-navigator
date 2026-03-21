@@ -274,10 +274,108 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     const narrativeRaw = await extractNarrative(options.projectId);
     const { isVD, effectiveLane, ...narrative } = narrativeRaw;
 
-    // Build structured narrative evidence (canonical output of this stage)
+    // Fetch character identity anchors (images that are identity-locked or primary)
+    const characterIdentityMap = new Map<string, boolean>();
+    try {
+      const { data: charImages } = await supabase
+        .from('project_images')
+        .select('entity_id, subject, is_primary, generation_config')
+        .eq('project_id', options.projectId)
+        .eq('asset_group', 'character_identity')
+        .eq('curation_state', 'active');
+      for (const img of charImages || []) {
+        const gc = img.generation_config as Record<string, unknown> | null;
+        const isIdentityLocked = !!(gc?.identity_locked) || !!img.is_primary;
+        if (isIdentityLocked) {
+          if (img.entity_id) characterIdentityMap.set(img.entity_id, true);
+          if (img.subject) characterIdentityMap.set((img.subject as string).toLowerCase(), true);
+        }
+      }
+      log(`Identity anchors: ${characterIdentityMap.size} characters with visual identity`);
+    } catch (e) {
+      log(`Identity anchor fetch failed (non-blocking): ${(e as Error).message}`);
+    }
+
+    // Fetch canon locations for location evidence
+    let locationEvidence: LocationEvidence[] = [];
+    try {
+      const { data: locations } = await (supabase as any)
+        .from('canon_locations')
+        .select('id, canonical_name, description, interior_or_exterior, story_importance, location_type')
+        .eq('project_id', options.projectId)
+        .eq('active', true)
+        .limit(30);
+      if (locations?.length) {
+        // Check which locations have visual refs
+        const locIds = locations.map((l: any) => l.id);
+        const { data: locImages } = await supabase
+          .from('project_images')
+          .select('canon_location_id')
+          .eq('project_id', options.projectId)
+          .in('canon_location_id', locIds)
+          .eq('curation_state', 'active')
+          .limit(100);
+        const locsWithImages = new Set((locImages || []).map((i: any) => i.canon_location_id));
+
+        locationEvidence = locations.map((l: any) => ({
+          name: l.canonical_name,
+          canonLocationId: l.id,
+          description: l.description || undefined,
+          interiorOrExterior: l.interior_or_exterior || undefined,
+          storyImportance: l.story_importance || undefined,
+          hasVisualRefs: locsWithImages.has(l.id),
+        }));
+        log(`Location evidence: ${locationEvidence.length} canon locations (${locsWithImages.size} with visual refs)`);
+      }
+    } catch (e) {
+      log(`Location evidence fetch failed (non-blocking): ${(e as Error).message}`);
+    }
+
+    // Extract scene evidence from canon docs (conservative first-pass)
+    let sceneEvidence: SceneEvidence[] = [];
+    try {
+      // Try scene_graph_versions first (structured scene data)
+      const { data: sceneRows } = await (supabase as any)
+        .from('scene_graph_versions')
+        .select('id, slugline, scene_number, characters, dramatic_purpose, canon_location_id')
+        .eq('project_id', options.projectId)
+        .eq('is_current', true)
+        .limit(30);
+      if (sceneRows?.length) {
+        sceneEvidence = sceneRows.map((s: any) => ({
+          sceneId: s.id,
+          slugline: s.slugline || `Scene ${s.scene_number}`,
+          characters: Array.isArray(s.characters) ? s.characters.map((c: any) => typeof c === 'string' ? c : c?.name || '') : [],
+          dramaticPurpose: s.dramatic_purpose || undefined,
+          location: s.slugline || undefined,
+          confidence: 0.9, // structured data = high confidence
+        }));
+        log(`Scene evidence: ${sceneEvidence.length} scenes from scene graph`);
+      } else {
+        // Fallback: extract weak scene signals from synopsis/treatment text
+        const synopsisText = narrative.synopsis || narrative.creativeStatement || '';
+        if (synopsisText.length > 100) {
+          // Extract sentence-level beats as low-confidence scene evidence
+          const sentences = synopsisText.split(/[.!?]+/).filter(s => s.trim().length > 20).slice(0, 8);
+          sceneEvidence = sentences.map((s, i) => ({
+            slugline: `Beat ${i + 1}`,
+            dramaticPurpose: s.trim().slice(0, 150),
+            confidence: 0.4, // text-derived = low confidence
+          }));
+          log(`Scene evidence: ${sceneEvidence.length} weak beats from synopsis (confidence=0.4)`);
+        }
+      }
+    } catch (e) {
+      log(`Scene evidence fetch failed (non-blocking): ${(e as Error).message}`);
+    }
+
+    // Build structured narrative evidence with real identity/location/scene data
     const narrativeEvidence = buildNarrativeEvidence(narrative, {
       isVerticalDrama: isVD,
       effectiveLane,
+      characterIdentityMap,
+      locationEvidence,
+      sceneEvidence,
     });
 
     log(`Narrative: "${narrative.projectTitle}" (${narrative.genre}, ${narrative.formatLabel}) coverage=${(narrativeEvidence.evidenceCoverage.score * 100).toFixed(0)}%`);
