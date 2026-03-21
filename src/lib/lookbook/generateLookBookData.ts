@@ -499,15 +499,28 @@ export async function generateLookBookData(
     }
   }
   // Name-based map: prefer primary close_up/medium/full_body for best card representation
+  // Enhanced scoring: primary > identity-locked > narrative-bound > preferred shot type
   const characterNameImageMap = new Map<string, string>();
   const charNameScoreMap = new Map<string, number>();
   const PREFERRED_CARD_SHOTS = ['close_up', 'medium', 'full_body', 'emotional_variant', 'profile'];
   for (const img of charImages) {
     if (!img.subject || !img.signedUrl) continue;
     const key = img.subject.toLowerCase();
-    const isPrimary = img.is_primary ? 2 : 0;
-    const shotBonus = PREFERRED_CARD_SHOTS.includes(img.shot_type || '') ? 1 : 0;
-    const score = isPrimary + shotBonus;
+    let score = 0;
+    // Primary status (strongest signal)
+    if (img.is_primary) score += 20;
+    // Identity-locked generation (trust these more)
+    const gc = img.generation_config as Record<string, unknown> | null;
+    if (gc?.identity_locked) score += 10;
+    // Narrative truth (bound to actual entity)
+    if (img.entity_id) score += 5;
+    // Preferred shot type for card display
+    if (PREFERRED_CARD_SHOTS.includes(img.shot_type || '')) score += 3;
+    // Portrait orientation bonus (better for character cards)
+    if (classifyOrientation(img.width, img.height) === 'portrait') score += 2;
+    // Recency
+    score += Math.max(0, 2 - Math.floor((Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24)));
+
     const prev = charNameScoreMap.get(key) ?? -1;
     if (score > prev) {
       characterNameImageMap.set(key, img.signedUrl);
