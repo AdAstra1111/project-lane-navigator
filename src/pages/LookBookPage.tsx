@@ -130,81 +130,61 @@ export default function LookBookPage() {
     prevSlidesRef.current = lookBookData?.slides ?? null;
   }, [lookBookData]);
 
-  const handleGenerate = useCallback(async (explicitWorkingSet?: BuildWorkingSet | null) => {
+  /**
+   * Build LookBook via canonical pipeline.
+   * Mode: 'fresh_build' (default) or 'reuse_recovery' (auto-complete).
+   */
+  const handleGenerate = useCallback(async (mode: PipelineMode = 'fresh_build') => {
     if (!projectId) return;
     setGenerating(true);
     try {
-      // Invalidate all image caches before building
       invalidateImageCaches();
 
-      // Use explicit param first (from Auto Complete), then fall back to state
-      const effectiveWorkingSet = explicitWorkingSet !== undefined
-        ? explicitWorkingSet
-        : activeWorkingSet;
-
-      console.log('[LookBookPage] handleGenerate called', {
-        explicitWSProvided: explicitWorkingSet !== undefined,
-        effectiveWSEntries: effectiveWorkingSet?.entries?.length ?? 0,
-        effectiveWSSlots: effectiveWorkingSet?.bySlotKey?.size ?? 0,
-      });
-
-      // Always re-resolve from DB — no stale snapshot reuse
-      console.log('[LookBookPage] Building lookbook from fresh DB state...');
-      const freshData = await generateLookBookData(projectId, {
+      const result = await runLookbookPipeline({
+        projectId,
+        mode,
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
-        workingSet: effectiveWorkingSet,
+        previousSlides: prevSlidesRef.current,
       });
 
-      // Preserve valid user decisions from previous build (read from ref, not state)
-      const previousSlides = prevSlidesRef.current;
-      if (previousSlides && previousSlides.length > 0) {
-        const { merged, preservedCount, droppedCount, dropReasons, migratedCount } = mergeUserDecisions(
-          freshData.slides,
-          previousSlides,
-        );
-        freshData.slides = merged;
-        if (preservedCount > 0 || droppedCount > 0 || migratedCount > 0) {
-          console.log('[LookBookPage] ✓ User decisions merge:', {
-            preserved: preservedCount,
-            dropped: droppedCount,
-            migrated: migratedCount,
-            dropReasons,
-          });
-        }
-      }
-
-      // Log provenance for debugging stale-data issues
-      console.log('[LookBookPage] ✓ Build complete', {
-        buildId: freshData.buildId,
-        slideCount: freshData.slides.length,
-        totalImageRefs: freshData.totalImageRefs,
-        generatedAt: freshData.generatedAt,
+      // Log provenance for debugging
+      console.log('[LookBookPage] ✓ Pipeline complete', {
+        buildId: result.data.buildId,
+        slideCount: result.data.slides.length,
+        totalImageRefs: result.data.totalImageRefs,
+        durationMs: result.durationMs,
+        qaPublishable: result.qa.publishable,
+        stages: result.stages.map(s => `${s.stage}:${s.status}`).join(' '),
       });
 
-      setLookBookData(freshData);
+      setLookBookData(result.data);
       setLookbookBuildEpoch(Date.now());
 
-      // Change detection — compare resolved image IDs with previous build
-      const newIds = freshData.resolvedImageIds || [];
+      // Change detection
+      const newIds = result.data.resolvedImageIds || [];
       const prevIds = prevResolvedIdsRef.current || [];
       const changed = newIds.length !== prevIds.length || newIds.some((id, i) => id !== prevIds[i]);
       prevResolvedIdsRef.current = newIds;
 
       if (changed || !prevIds.length) {
-        toast.success(`Look Book built (${freshData.totalImageRefs || 0} images resolved)`);
+        toast.success(`Look Book built (${result.data.totalImageRefs || 0} images resolved)`);
       } else {
         toast.info(
           'Look Book rebuilt — same images as before. Approve new images or generate fresh ones to change the deck.',
           { duration: 6000 },
         );
       }
+
+      if (!result.qa.publishable && result.qa.unresolvedSlides.length > 0) {
+        toast.warning(`${result.qa.unresolvedSlides.length} slides have unresolved images`, { duration: 5000 });
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate Look Book');
     } finally {
       setGenerating(false);
     }
-  }, [projectId, branding, invalidateImageCaches, activeWorkingSet]);
+  }, [projectId, branding, invalidateImageCaches]);
 
   useEffect(() => {
     const routeState = location.state as { mode?: LookbookMode; autoBuild?: boolean; buildKey?: string } | null;
