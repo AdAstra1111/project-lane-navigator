@@ -490,12 +490,13 @@ export async function generateLookBookData(
     canonImages.poster_directions.images[0]?.signedUrl ||
     '';
 
-  const worldImages = canonImages.world_locations.images;
+  // Initial pool aliases — will be reassigned after pool expansion
+  let worldImages = canonImages.world_locations.images;
   const worldImageUrl = worldImages[0]?.signedUrl || '';
-  const atmosphereImages = canonImages.atmosphere_lighting.images;
-  const textureImages = canonImages.texture_detail.images;
-  const motifImages = canonImages.symbolic_motifs.images;
-  const keyMomentImages = canonImages.key_moments.images;
+  let atmosphereImages = canonImages.atmosphere_lighting.images;
+  let textureImages = canonImages.texture_detail.images;
+  let motifImages = canonImages.symbolic_motifs.images;
+  let keyMomentImages = canonImages.key_moments.images;
 
   // Build character image maps — pick ONE best image per character (primary preferred)
   const charImages = canonImages.character_identity.images;
@@ -540,14 +541,53 @@ export async function generateLookBookData(
 
   // ── Section-scoped image pools — prevent cross-contamination ──
   // Each slide type gets its own curated pool. Global fallback is LAST RESORT only.
-  const sectionPools = {
-    world: canonImages.world_locations.images,
-    atmosphere: canonImages.atmosphere_lighting.images,
-    texture: canonImages.texture_detail.images,
-    motifs: canonImages.symbolic_motifs.images,
-    keyMoments: canonImages.key_moments.images,
-    poster: canonImages.poster_directions.images,
+  const sectionPools: Record<string, ProjectImage[]> = {
+    world: [...canonImages.world_locations.images],
+    atmosphere: [...canonImages.atmosphere_lighting.images],
+    texture: [...canonImages.texture_detail.images],
+    motifs: [...canonImages.symbolic_motifs.images],
+    keyMoments: [...canonImages.key_moments.images],
+    poster: [...canonImages.poster_directions.images],
   };
+
+  // ── Pool Diagnostics: log actual candidate counts before selection ──
+  console.log('[LookBook:pools] initial section sizes:',
+    Object.entries(sectionPools).map(([k, v]) => `${k}=${v.length}`).join(' '));
+
+  // ── ensurePoolSize: deterministic pool expansion from fallback pools ──
+  // When a section pool is too small, expand it using scored images from related pools.
+  // Preserves existing pool, adds non-duplicate images, ranked by scoreImageForSlide.
+  function ensurePoolSize(
+    pool: ProjectImage[],
+    fallbackPools: ProjectImage[][],
+    minSize: number,
+    slideType: string,
+    poolName: string,
+  ): ProjectImage[] {
+    if (pool.length >= minSize) return pool;
+    const existingIds = new Set(pool.map(i => i.id));
+    const existingUrls = new Set(pool.map(i => i.signedUrl).filter(Boolean));
+    const expanded = [...pool];
+
+    for (const fb of fallbackPools) {
+      if (expanded.length >= minSize) break;
+      const candidates = fb
+        .filter(img => !existingIds.has(img.id) && img.signedUrl && !existingUrls.has(img.signedUrl!))
+        .map(img => ({ img, score: scoreImageForSlide(img, slideType, false) }))
+        .sort((a, b) => b.score - a.score);
+      for (const { img } of candidates) {
+        if (expanded.length >= minSize) break;
+        existingIds.add(img.id);
+        existingUrls.add(img.signedUrl!);
+        expanded.push(img);
+      }
+    }
+
+    if (expanded.length > pool.length) {
+      console.log(`[LookBook:pool-expand] ${poolName}: ${pool.length} → ${expanded.length} (+${expanded.length - pool.length} from fallback)`);
+    }
+    return expanded;
+  }
 
   // ── Working Set Overlay: inject provisional images into pools ──
   // These are candidate/generated images chosen by Auto Complete
@@ -937,6 +977,47 @@ export async function generateLookBookData(
 
   // Track used background URLs to avoid repeating the same image across slides
   const usedBackgroundUrls: string[] = [];
+
+  // ── Pool Expansion: ensure slides have enough candidates ──
+  // Must happen AFTER scoreImageForSlide is defined and BEFORE slide building
+  sectionPools.keyMoments = ensurePoolSize(
+    sectionPools.keyMoments,
+    [sectionPools.motifs, sectionPools.atmosphere, sectionPools.world],
+    3, 'key_moments', 'keyMoments',
+  );
+  sectionPools.world = ensurePoolSize(
+    sectionPools.world,
+    [sectionPools.atmosphere],
+    2, 'world', 'world',
+  );
+  sectionPools.atmosphere = ensurePoolSize(
+    sectionPools.atmosphere,
+    [sectionPools.world, sectionPools.texture],
+    2, 'themes', 'atmosphere',
+  );
+  sectionPools.poster = ensurePoolSize(
+    sectionPools.poster,
+    [sectionPools.world, sectionPools.keyMoments],
+    1, 'cover', 'poster',
+  );
+
+  // Re-derive convenience aliases after expansion
+  worldImages = sectionPools.world;
+  atmosphereImages = sectionPools.atmosphere;
+  textureImages = sectionPools.texture;
+  motifImages = sectionPools.motifs;
+  keyMomentImages = sectionPools.keyMoments;
+
+  // Log post-expansion pool sizes
+  console.log('[LookBook:pools] post-expansion:',
+    Object.entries(sectionPools).map(([k, v]) => `${k}=${v.length}`).join(' '));
+
+  // Rebuild urlToImage lookup after expansion
+  for (const pool of Object.values(sectionPools)) {
+    for (const img of pool) {
+      if (img.signedUrl) urlToImage.set(img.signedUrl, img);
+    }
+  }
 
   // 6. Build slides in premium vertical-drama sequence
   const slides: SlideContent[] = [];

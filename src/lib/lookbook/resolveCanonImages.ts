@@ -311,14 +311,14 @@ async function fetchSectionImages(
 
   let images = (rows || []) as ProjectImage[];
 
-  // ── STRICT DECK MODE: winners only ──
+  // ── STRICT DECK MODE: ALL active images (not just primaries) ──
+  // Previous behavior filtered to is_primary only, starving pools.
+  // Now we return all active images and let the scoring layer in
+  // generateLookBookData elect winners based on merit.
   if (strictDeckMode) {
-    // Filter to primary winners only
-    const primaries = images.filter((img: any) => img.is_primary === true);
-    
-    // For VD, also filter to compliant images only
-    if (isVDStrict && primaries.length > 0) {
-      const compliant = primaries.filter(img => {
+    // For VD, filter to compliant images only
+    if (isVDStrict && images.length > 0) {
+      const compliant = images.filter(img => {
         const result = classifyVerticalCompliance(
           { width: img.width, height: img.height, shot_type: img.shot_type },
           img.shot_type || '',
@@ -327,16 +327,60 @@ async function fetchSectionImages(
         );
         return result.eligibleForWinnerSelection;
       });
-      images = compliant;
-    } else {
-      images = primaries;
+      // Only restrict if we have compliant images; otherwise keep all active
+      if (compliant.length > 0) images = compliant;
     }
 
-    // NO fallback chain in strict mode
+    // If shot_type filter yielded 0 results, retry WITHOUT shot_type filter
+    // This prevents sections like key_moments from starving due to strict shot_type matching
+    if (images.length === 0 && shotFilter?.length) {
+      let relaxedQ = (supabase as any)
+        .from('project_images')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('curation_state', 'active');
+      if (mapping.strategy_keys.length > 0) relaxedQ = relaxedQ.in('strategy_key', mapping.strategy_keys);
+      if (mapping.asset_groups.length > 0) relaxedQ = relaxedQ.in('asset_group', mapping.asset_groups);
+      relaxedQ = relaxedQ
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(effectiveLimit);
+      const { data: relaxedRows } = await relaxedQ;
+      if (relaxedRows?.length) {
+        console.log(`[LookBook:resolveCanonImages:STRICT] ${sectionKey}: shot_type filter relaxed, recovered ${relaxedRows.length} images`);
+        images = relaxedRows as ProjectImage[];
+      }
+    }
+
+    // Candidate augmentation: even in strict mode, add candidates to expand pool
+    // They participate in scoring but don't auto-promote to canon
+    if (images.length < 4) {
+      let cq = (supabase as any)
+        .from('project_images')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('curation_state', 'candidate');
+      if (mapping.strategy_keys.length > 0) cq = cq.in('strategy_key', mapping.strategy_keys);
+      if (mapping.asset_groups.length > 0) cq = cq.in('asset_group', mapping.asset_groups);
+      cq = cq.order('created_at', { ascending: false }).limit(effectiveLimit);
+      const { data: candidateRows } = await cq;
+      if (candidateRows?.length) {
+        const existingIds = new Set(images.map(i => i.id));
+        const newCandidates = (candidateRows as ProjectImage[]).filter(i => !existingIds.has(i.id));
+        if (newCandidates.length > 0) {
+          console.log(`[LookBook:resolveCanonImages:STRICT] ${sectionKey}: augmented with ${newCandidates.length} candidates (pool was ${images.length})`);
+          images = [...images, ...newCandidates];
+        }
+      }
+    }
+
+    // NO fallback chain in strict mode (but we now have richer pools)
+    images = applyCanonicalExclusionGate(images);
+    images = sortWithBindingPreference(images);
     const provenance = images.map(img => buildProvenance(img, isVDStrict, projectFormat, projectLane));
     await hydrateSignedUrls(images);
 
-    console.log(`[LookBook:resolveCanonImages:STRICT] ${sectionKey}: ${images.length} winners (${primaries.length} primaries found, ${images.length} compliant)`);
+    console.log(`[LookBook:resolveCanonImages:STRICT] ${sectionKey}: ${images.length} images resolved (active + candidate augmentation)`);
 
     return {
       sectionKey,
@@ -384,8 +428,9 @@ async function fetchSectionImages(
     }
   }
 
-  // Fallback 3: candidate images — ONLY in non-strict mode
-  if (images.length === 0) {
+  // Fallback 3: candidate images — augment when pool is thin (not just empty)
+  // This ensures newly generated candidates enter contention alongside active images
+  if (images.length < 6) {
     let cq = (supabase as any)
       .from('project_images')
       .select('*')
@@ -408,8 +453,13 @@ async function fetchSectionImages(
       .limit(limit);
     const { data: candidateRows } = await cq;
     if (candidateRows?.length) {
-      console.warn(`[LookBook:resolveCanonImages] ${sectionKey}: using candidate fallback (${candidateRows.length} images — promote to active for best results)`);
-      images = candidateRows as ProjectImage[];
+      const existingIds = new Set(images.map(i => i.id));
+      const newCandidates = (candidateRows as ProjectImage[]).filter(i => !existingIds.has(i.id));
+      if (newCandidates.length > 0) {
+        const mode = images.length === 0 ? 'primary source' : 'augmenting';
+        console.log(`[LookBook:resolveCanonImages] ${sectionKey}: ${mode} with ${newCandidates.length} candidates (active pool was ${images.length})`);
+        images = [...images, ...newCandidates];
+      }
     }
   }
 
