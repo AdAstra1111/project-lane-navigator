@@ -4,6 +4,9 @@
  * This is the ONLY entry point. It calls extracted stage modules directly:
  * MODE → NARRATIVE → INVENTORY → GAP_ANALYSIS → RESOLUTION/GENERATION → ELECTION → ASSEMBLY → QA
  * 
+ * fresh_from_scratch mode uses requirement-fulfillment (not gap-driven).
+ * reuse_recovery mode uses gap-driven resolution.
+ * 
  * No legacy generateLookBookData dependency.
  */
 import { supabase } from '@/integrations/supabase/client';
@@ -28,6 +31,8 @@ import { runQAStage } from './qaStage';
 import { buildNarrativeEvidence, type NarrativeEvidence } from './narrativeEvidence';
 import { runIdentityBindingStage, type IdentityBindings } from './identityBindingStage';
 import { validateProvenance } from './provenanceValidator';
+import { buildRequirementSet } from './requirementBuilder';
+import { executeRequirements } from './requirementExecutor';
 import type {
   PipelineOptions,
   PipelineResult,
@@ -265,6 +270,8 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
 
   // Requirement-level progress tracker
   const requirements: RequirementProgress[] = [];
+  // Requirement results for QA (only populated in fresh_from_scratch)
+  let reqResults: import('./requirementBuilder').RequirementResult[] | undefined;
 
   try {
     // ── STAGE: MODE_SELECTION ──
@@ -429,56 +436,99 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     log(`Identity bindings: ${identityBindings.metrics.boundCount}/${identityBindings.metrics.totalCharacters} bound, ${identityBindings.metrics.unboundPrincipals} unbound principals`);
 
     // ── STAGE: GAP_ANALYSIS + RESOLUTION + GENERATION ──
-    const needsGeneration = options.mode === 'fresh_from_scratch' || (options.mode === 'reuse_recovery' && !workingSet);
 
-    if (needsGeneration) {
+    if (options.mode === 'fresh_from_scratch') {
+      // ── REQUIREMENT-FULFILLMENT ENGINE ──
+      // This does NOT use gap analysis. It builds requirements from spec and fulfills them.
+
+      updateStage(PipelineStage.GAP_ANALYSIS, startStage);
+      reportProgress(PipelineStage.GAP_ANALYSIS, 'Building requirement set...', 20);
+
+      const requirementSet = buildRequirementSet(narrative, narrativeEvidence);
+
+      // Build progress entries from requirements
+      for (const req of requirementSet.requirements) {
+        requirements.push({
+          id: req.id,
+          label: req.label,
+          slideType: req.slideType,
+          status: 'pending',
+          generatedCount: 0,
+          selectedCount: 0,
+        });
+      }
+
+      log(`Requirements: ${requirementSet.requirements.length} total, min=${requirementSet.totalMinImages} images needed`);
+      updateStage(PipelineStage.GAP_ANALYSIS, s => completeStage(s, `${requirementSet.requirements.length} requirements`));
+      reportProgress(PipelineStage.GAP_ANALYSIS, `${requirementSet.requirements.length} requirements identified`, 100, requirements);
+
+      // Execute requirements (generation + satisfaction tracking)
+      updateStage(PipelineStage.RESOLUTION, startStage);
+      updateStage(PipelineStage.GENERATION, startStage);
+      reportProgress(PipelineStage.GENERATION, 'Generating per requirement...', 30, requirements);
+
+      const execResult = await executeRequirements(
+        options.projectId,
+        requirementSet,
+        { projectTitle: narrative.projectTitle, genre: narrative.genre, tone: narrative.tone || narrative.toneStyle },
+        options.onProgress,
+        logs,
+      );
+
+      // Update requirement progress from execution results
+      for (const result of execResult.results) {
+        const pIdx = requirements.findIndex(r => r.id === result.requirement.id);
+        if (pIdx >= 0) {
+          requirements[pIdx].generatedCount = result.generatedCount;
+          requirements[pIdx].selectedCount = result.selectedCount;
+          requirements[pIdx].status = result.status === 'satisfied' ? 'selected'
+            : result.status === 'partial' ? 'generated'
+            : 'blocked';
+          if (result.blockingReason) requirements[pIdx].blockingReason = result.blockingReason;
+        }
+      }
+
+      log(`Requirement fulfillment: ${execResult.totalSatisfied} satisfied, ${execResult.totalPartial} partial, ${execResult.totalBlocked} blocked`);
+      log(`Generation: ${execResult.totalGenerated} succeeded, ${execResult.totalFailed} failed`);
+
+      updateStage(PipelineStage.RESOLUTION, s => completeStage(s, `${execResult.totalSatisfied}/${execResult.results.length} satisfied`));
+      updateStage(PipelineStage.GENERATION, s =>
+        execResult.totalBlocked > 0
+          ? warnStage(s, `${execResult.totalGenerated} ok, ${execResult.totalBlocked} blocked`)
+          : completeStage(s, `${execResult.totalGenerated} generated`),
+      );
+      reportProgress(PipelineStage.GENERATION, `${execResult.totalSatisfied}/${execResult.results.length} requirements satisfied`, 100, requirements);
+
+      // Store requirement results for QA
+      reqResults = execResult.results;
+
+      // Use generated working set
+      workingSet = execResult.workingSet;
+
+      // Re-run inventory with working set
+      if (workingSet.bySlotKey.size > 0) {
+        inventory = await runInventoryStage({
+          projectId: options.projectId,
+          effectiveLane,
+          strictDeckMode: isVD,
+          format: narrative.format,
+          assignedLane: narrative.assignedLane,
+          workingSet,
+        });
+        log(`Post-generation inventory: ${inventory.allUniqueImages.length} images`);
+      }
+
+    } else if (options.mode === 'reuse_recovery' && !workingSet) {
+      // ── GAP-DRIVEN RESOLUTION (reuse_recovery only) ──
       updateStage(PipelineStage.GAP_ANALYSIS, startStage);
       reportProgress(PipelineStage.GAP_ANALYSIS, 'Analyzing gaps...', 30);
 
-      // Pipeline-native gap analysis — no legacy dependency
       const prelimDeck = buildPreliminaryDeckForGapAnalysis(
         options.projectId, narrative, inventory, identity, isVD, options.companyName || 'Paradox House',
       );
       const gapAnalysis = analyzeLookBookGaps(prelimDeck);
+      const effectiveGaps = gapAnalysis.gaps;
 
-      // For fresh_from_scratch: if gap analysis found few gaps (because inventory is empty),
-      // synthesize requirements from slot intent registry for all slide types
-      let effectiveGaps = gapAnalysis.gaps;
-      if (options.mode === 'fresh_from_scratch' && effectiveGaps.length < 3) {
-        log('fresh_from_scratch: synthesizing requirements from slot intent registry');
-        const syntheticGaps: typeof effectiveGaps = [];
-        const slideTypes = ['cover', 'creative_statement', 'world', 'key_moments', 'visual_language', 'themes', 'story_engine', 'closing'];
-        const SLIDE_SUBJECT_MAP: Record<string, string> = {
-          cover: 'poster', creative_statement: 'atmosphere', world: 'world',
-          key_moments: 'moment', visual_language: 'texture', themes: 'atmosphere',
-          story_engine: 'moment', closing: 'poster',
-        };
-        for (const slideType of slideTypes) {
-          const intent = SLOT_INTENT_REGISTRY[slideType];
-          if (!intent) continue;
-          const existingForSlide = effectiveGaps.filter(g => g.slideType === slideType);
-          if (existingForSlide.length >= intent.minImages) continue;
-          const needed = Math.max(1, intent.minImages) - existingForSlide.length;
-          for (let i = 0; i < needed; i++) {
-            syntheticGaps.push({
-              slideId: `${slideType}:synthetic_${i}`,
-              slideType,
-              slotId: `bg_${i}`,
-              shotType: slideType === 'cover' || slideType === 'closing' ? 'hero' : 'wide',
-              orientation: 'landscape' as any,
-              subjectType: (SLIDE_SUBJECT_MAP[slideType] || 'atmosphere') as any,
-              severity: 'missing' as any,
-              reason: `Fresh-from-scratch requirement for ${slideType}`,
-              priority: 10,
-              canReuse: false,
-              needsGeneration: true,
-            });
-          }
-        }
-        effectiveGaps = [...effectiveGaps, ...syntheticGaps];
-      }
-
-      // Build requirement progress entries
       for (const gap of effectiveGaps) {
         requirements.push({
           id: `${gap.slideId}:${gap.slotId}`,
@@ -490,7 +540,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
         });
       }
 
-      log(`Gap analysis: ${effectiveGaps.length} gaps (pipeline-native, mode=${options.mode})`);
+      log(`Gap analysis: ${effectiveGaps.length} gaps`);
       updateStage(PipelineStage.GAP_ANALYSIS, s =>
         effectiveGaps.length > 0
           ? warnStage(s, `${effectiveGaps.length} gaps`)
@@ -499,59 +549,28 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       reportProgress(PipelineStage.GAP_ANALYSIS, `${effectiveGaps.length} gaps found`, 100, requirements);
 
       if (effectiveGaps.length > 0) {
-        // Update requirements to planning
-        for (const req of requirements) req.status = 'planning';
-        reportProgress(PipelineStage.RESOLUTION, 'Planning generation...', 35, requirements);
-
         updateStage(PipelineStage.RESOLUTION, startStage);
-        reportProgress(PipelineStage.RESOLUTION, 'Resolving gaps...', 40, requirements);
-
         const promptContext = {
           projectTitle: narrative.projectTitle,
           genre: narrative.genre,
           tone: narrative.tone,
         };
 
-        // For fresh_from_scratch: force all gaps to need generation (skip reuse search)
-        const gapAnalysisForOrch = options.mode === 'fresh_from_scratch'
-          ? { ...gapAnalysis, gaps: effectiveGaps.map(g => ({ ...g, canReuse: false, needsGeneration: true })) }
-          : { ...gapAnalysis, gaps: effectiveGaps };
-
-        const orchResult = await orchestrateGapResolution(options.projectId, gapAnalysisForOrch, promptContext);
+        const orchResult = await orchestrateGapResolution(options.projectId, { ...gapAnalysis, gaps: effectiveGaps }, promptContext);
         const summary = summarizeOrchestration(orchResult);
         log(`Resolution: ${summary}`);
         updateStage(PipelineStage.RESOLUTION, s => completeStage(s, summary));
-
-        // Update requirements to generating
-        for (const req of requirements) req.status = 'generating';
-        reportProgress(PipelineStage.RESOLUTION, summary, 100, requirements);
 
         if (orchResult.generationsQueued > 0) {
           updateStage(PipelineStage.GENERATION, startStage);
           reportProgress(PipelineStage.GENERATION, `Generating ${orchResult.generationsQueued} images...`, 50, requirements);
           const genResult = await executeGapGenerations(options.projectId, orchResult.resolutions, promptContext);
-
-          // Update requirement counts
-          const genBySlide = new Map<string, number>();
-          for (const res of orchResult.resolutions) {
-            if (res.method === 'generation_queued') {
-              const prev = genBySlide.get(res.gap.slideType) || 0;
-              genBySlide.set(res.gap.slideType, prev + 1);
-            }
-          }
-          for (const req of requirements) {
-            req.generatedCount = genBySlide.get(req.slideType) || 0;
-            req.status = req.generatedCount > 0 ? 'generated' : 'blocked';
-            if (req.status === 'blocked') req.blockingReason = 'Generation returned no results';
-          }
-
           log(`Generation: ${genResult.generated} succeeded, ${genResult.failed} failed`);
           updateStage(PipelineStage.GENERATION, s =>
             genResult.failed > 0
               ? warnStage(s, `${genResult.generated} ok, ${genResult.failed} failed`)
               : completeStage(s, `${genResult.generated} generated`),
           );
-          reportProgress(PipelineStage.GENERATION, `${genResult.generated} generated`, 100, requirements);
         } else {
           updateStage(PipelineStage.GENERATION, s => completeStage(s, 'none needed'));
         }
@@ -562,35 +581,23 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
             options.projectId, workingSet, orchResult.resolutions,
           );
         }
-        log(`Working set: ${workingSet.bySlotKey.size} slots filled`);
 
-        // Update requirements to selected
-        for (const req of requirements) {
-          if (req.status === 'generated' || req.status === 'blocked') {
-            const hasSelection = workingSet.bySlotKey.has(req.id) ||
-              [...workingSet.bySlotKey.keys()].some(k => k.startsWith(req.slideType));
-            req.status = hasSelection ? 'selected' : (req.status === 'blocked' ? 'blocked' : 'complete');
-            if (hasSelection) req.selectedCount = 1;
-          }
+        if (workingSet.bySlotKey.size > 0) {
+          inventory = await runInventoryStage({
+            projectId: options.projectId,
+            effectiveLane,
+            strictDeckMode: isVD,
+            format: narrative.format,
+            assignedLane: narrative.assignedLane,
+            workingSet,
+          });
         }
-        reportProgress(PipelineStage.GENERATION, 'Generation complete', 100, requirements);
       } else {
         updateStage(PipelineStage.RESOLUTION, s => completeStage(s, 'no gaps'));
         updateStage(PipelineStage.GENERATION, s => completeStage(s, 'no gaps'));
       }
-
-      // Re-run inventory with working set if we built one
-      if (workingSet && workingSet.bySlotKey.size > 0) {
-        inventory = await runInventoryStage({
-          projectId: options.projectId,
-          effectiveLane,
-          strictDeckMode: isVD,
-          format: narrative.format,
-          assignedLane: narrative.assignedLane,
-          workingSet,
-        });
-      }
     } else {
+      // fresh_build or pre-resolved reuse_recovery
       updateStage(PipelineStage.GAP_ANALYSIS, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
       updateStage(PipelineStage.RESOLUTION, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
       updateStage(PipelineStage.GENERATION, s => completeStage(s, options.mode === 'fresh_build' ? 'skipped (fresh)' : 'pre-resolved'));
@@ -695,7 +702,7 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.QA, startStage);
     reportProgress(PipelineStage.QA, 'Running quality checks...', 95);
 
-    const qa = runQAStage(lookBookData);
+    const qa = runQAStage(lookBookData, reqResults);
 
     // Run provenance validation and attach to QA
     const provenanceReport = validateProvenance(finalSlides, narrativeEvidence, identityBindings);

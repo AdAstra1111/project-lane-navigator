@@ -1,18 +1,19 @@
 /**
  * qaStage — Final deck quality validation.
  *
- * INPUT: LookBookData
+ * INPUT: LookBookData + optional RequirementResult[]
  * OUTPUT: QAResult
  * SIDE EFFECTS: none (pure function)
  */
 import type { LookBookData } from '../types';
 import type { QAResult } from './types';
+import type { RequirementResult } from './requirementBuilder';
 
 /**
  * Run quality checks on the assembled LookBook deck.
  * Returns structured QA metrics and publishability assessment.
  */
-export function runQAStage(data: LookBookData): QAResult {
+export function runQAStage(data: LookBookData, requirementResults?: RequirementResult[]): QAResult {
   const actualImageUrls = new Set<string>();
   const unresolvedSlides: string[] = [];
   const reuseWarnings: string[] = [];
@@ -51,6 +52,19 @@ export function runQAStage(data: LookBookData): QAResult {
     (s.characters && s.characters.some(c => c.imageUrl)),
   ).length;
 
+  // Requirement-aware publishability
+  let publishable: boolean;
+  if (requirementResults && requirementResults.length > 0) {
+    const satisfied = requirementResults.filter(r => r.status === 'satisfied').length;
+    const critical = requirementResults.filter(r => r.requirement.critical);
+    const criticalBlocked = critical.filter(r => r.status === 'blocked').length;
+    // Publishable if no critical requirements are fully blocked
+    // and at least 50% of all requirements are satisfied
+    publishable = criticalBlocked === 0 && satisfied >= Math.ceil(requirementResults.length * 0.5);
+  } else {
+    publishable = unresolvedSlides.length <= 2 && slidesWithImages >= Math.floor(data.slides.length * 0.6);
+  }
+
   return {
     totalSlides: data.slides.length,
     slidesWithImages,
@@ -59,6 +73,6 @@ export function runQAStage(data: LookBookData): QAResult {
     unresolvedSlides,
     reuseWarnings,
     fingerprintWarnings,
-    publishable: unresolvedSlides.length <= 2 && slidesWithImages >= Math.floor(data.slides.length * 0.6),
+    publishable,
   };
 }
