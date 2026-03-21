@@ -653,10 +653,15 @@ function CoverSlide({ slide, colors, titleStyle, baseStyle, fontBody, isPortrait
                 {capText(slide.subtitle, 160, true)}
               </p>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-              {slide.credit && <span style={{ fontSize: 13, letterSpacing: '0.12em', color: colors.accent, opacity: 0.85 }}>{slide.credit}</span>}
-              {slide.companyName && <span style={{ fontSize: 12, letterSpacing: '0.2em', color: colors.textMuted, opacity: 0.45, textTransform: 'uppercase' }}>{slide.companyName}</span>}
-            </div>
+            <CinematicCreditBlock
+              title={slide.title}
+              companyName={slide.companyName}
+              credit={slide.credit}
+              companyLogoUrl={slide.companyLogoUrl}
+              colors={colors}
+              variant="full"
+              scale={0.9}
+            />
           </div>
         </div>
         {slide.companyLogoUrl && (
