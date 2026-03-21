@@ -1,13 +1,19 @@
 {/**
- * SlideRenderer — Premium cinematic slide compositions.
+ * SlideRenderer — Pure cinematic slide compositions.
  * Supports landscape (1920×1080) and portrait (1080×1920) deck formats.
- * Portrait mode is editorially recomposed for vertical drama —
- * not just stacked landscape layouts.
  *
- * VERTICAL DRAMA CONTRACT:
- * - Portrait images use object-contain (native-fit), NOT object-cover (crop-rescue)
- * - Image zones are sized to match 9:16 source aspect ratios
- * - Layouts are authored for vertical presentation, not squeezed landscape logic
+ * CINEMATIC MODE: Every eligible slide uses a full-bleed background image
+ * with controlled overlays for readability. Text is overlaid on imagery,
+ * not placed beside it on empty dark backgrounds.
+ *
+ * COMPOSITION MODES:
+ * - full_bleed_hero: image fills entire slide, text overlaid with scrim
+ * - text_over_atmosphere: prominent background, text with gradient overlay
+ * - split_cinematic: prominent background + foreground image panel
+ * - montage_grid: image grid is the star, minimal text header
+ * - character_feature: portrait-led character display
+ * - editorial_panel: text-primary with supporting image panel
+ * - gradient_only: fallback when no imagery available
  */}
 import type { SlideContent, LookBookVisualIdentity, DeckFormat } from '@/lib/lookbook/types';
 import { getSlideDimensions } from '@/lib/lookbook/types';
