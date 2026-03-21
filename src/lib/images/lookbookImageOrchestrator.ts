@@ -23,8 +23,10 @@ import { toast } from 'sonner';
 export type WorkingSetSource = 'active' | 'candidate' | 'archived' | 'generated';
 
 export interface WorkingSetEntry {
-  /** Slide ID this image is for */
+  /** Slide ID this image is for (semantic, e.g. 'world:main') */
   slideId: string;
+  /** Explicit slide type — NEVER parsed from slideId */
+  slideType: string;
   /** Slot ID within the layout */
   slotId: string;
   /** The chosen image */
@@ -383,6 +385,7 @@ export async function buildWorkingSetFromResolutions(
 
     entries.push({
       slideId: res.gap.slideId,
+      slideType: res.gap.slideType,
       slotId: res.gap.slotId,
       image: img,
       source: res.resolvedSource || 'candidate',
@@ -475,6 +478,7 @@ export async function augmentWorkingSetWithRecentGenerations(
     if (best && best.img.signedUrl) {
       const entry: WorkingSetEntry = {
         slideId: gap.gap.slideId,
+        slideType: gap.gap.slideType,
         slotId: gap.gap.slotId,
         image: best.img,
         source: 'generated',

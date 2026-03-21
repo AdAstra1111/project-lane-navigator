@@ -549,11 +549,16 @@ export async function generateLookBookData(
   // ── Working Set Overlay: inject provisional images into pools ──
   // These are candidate/generated images chosen by Auto Complete
   // They participate in image selection but do NOT modify canon
+  //
+  // DETERMINISTIC OVERRIDE: working-set entries also populate a direct
+  // per-slide-type URL map so they bypass pool competition for their target slide.
   const workingSet = branding.workingSet;
+  const workingSetDirectOverrides = new Map<string, { url: string; source: import('@/lib/images/lookbookImageOrchestrator').WorkingSetSource; imageId: string }>();
+
   if (workingSet && workingSet.bySlotKey.size > 0) {
     console.log(`[LookBook] Applying working set overlay (${workingSet.bySlotKey.size} entries)`);
     
-    // Map slide types to section pool keys
+    // Map slide types to section pool keys — uses EXPLICIT slideType, never parsed slideId
     const SLIDE_TO_POOL: Record<string, keyof typeof sectionPools> = {
       cover: 'poster', closing: 'poster',
       world: 'world',
@@ -571,10 +576,23 @@ export async function generateLookBookData(
         _workingSetSource: entry.source as any,
       } as any;
 
-      // Inject into the appropriate section pool
-      const poolKey = SLIDE_TO_POOL[entry.slideId.split(':')[0]] || 'atmosphere';
+      // Use EXPLICIT slideType — never parse slideId
+      const slideType = entry.slideType || entry.slideId.split(':')[0]; // slideType is primary, split is legacy fallback only
+      const poolKey = SLIDE_TO_POOL[slideType] || 'atmosphere';
       if (sectionPools[poolKey]) {
         sectionPools[poolKey].push(syntheticImg);
+      }
+
+      // DETERMINISTIC OVERRIDE: register this URL for direct slide injection
+      // This ensures the working-set image is used even if it would lose pool competition
+      const overrideKey = `${slideType}:${entry.slotId}`;
+      const existingOverride = workingSetDirectOverrides.get(overrideKey);
+      if (!existingOverride || entry.score > 0) {
+        workingSetDirectOverrides.set(overrideKey, {
+          url: entry.signedUrl,
+          source: entry.source,
+          imageId: entry.image.id,
+        });
       }
 
       // Also inject character images into the character maps
@@ -588,6 +606,8 @@ export async function generateLookBookData(
         }
       }
     }
+
+    console.log(`[LookBook] Working set: ${workingSetDirectOverrides.size} deterministic overrides registered`);
   }
 
   // Broad fallback pool — used ONLY when section pool is empty
@@ -1029,6 +1049,51 @@ export async function generateLookBookData(
       slides.filter(s => s.layoutFamily).map(s => `${s.type}→${s.layoutFamily}`).join(', '));
   }
 
+  // ── Working Set Deterministic Overrides — apply after all pool-based selection ──
+  // If a working-set entry targets a slide's background slot and the slide has no
+  // background image (or a weaker one), inject it directly.
+  if (workingSetDirectOverrides.size > 0) {
+    for (const slide of slides) {
+      // Check for background override
+      const bgKey = `${slide.type}:background`;
+      const bgOverride = workingSetDirectOverrides.get(bgKey);
+      if (bgOverride && !slide.backgroundImageUrl) {
+        slide.backgroundImageUrl = bgOverride.url;
+        slide._workingSetSources = slide._workingSetSources || {};
+        (slide._workingSetSources as any).background = bgOverride.source;
+        // Recompute composition since we now have a background
+        slide.composition = resolveComposition(
+          slide.type, true,
+          (slide.imageUrls?.length || 0) > 0,
+          (slide.imageUrls?.length || 0),
+        );
+      }
+
+      // Check for hero/primary override
+      const heroKey = `${slide.type}:hero`;
+      const heroOverride = workingSetDirectOverrides.get(heroKey);
+      if (heroOverride && !slide.imageUrl) {
+        slide.imageUrl = heroOverride.url;
+        slide._workingSetSources = slide._workingSetSources || {};
+        (slide._workingSetSources as any).hero = heroOverride.source;
+      }
+
+      // Check for any foreground slot overrides
+      for (const [key, override] of workingSetDirectOverrides) {
+        if (key.startsWith(`${slide.type}:`) && !key.endsWith(':background') && !key.endsWith(':hero')) {
+          if (!slide.imageUrls?.includes(override.url)) {
+            slide.imageUrls = slide.imageUrls || [];
+            slide.imageUrls.push(override.url);
+            slide._workingSetSources = slide._workingSetSources || {};
+            const slotName = key.split(':')[1] || 'slot';
+            (slide._workingSetSources as any)[slotName] = override.source;
+          }
+        }
+      }
+    }
+    console.log('[LookBook] ✓ working-set deterministic overrides applied');
+  }
+
   // ── Selection diagnostics — log WHY each slide got its images ──
   const selectionDiagnostics: string[] = [];
   for (const slide of slides) {
@@ -1038,6 +1103,13 @@ export async function generateLookBookData(
     if (slide.imageUrls?.length) parts.push(`fg=${slide.imageUrls.length}`);
     if (slide._debug_image_ids?.length) parts.push(`ids=${slide._debug_image_ids.length}`);
     if (slide._has_unresolved) parts.push('UNRESOLVED');
+    // Working-set provenance
+    if (slide._workingSetSources && Object.keys(slide._workingSetSources as any).length > 0) {
+      const wsSources = Object.entries(slide._workingSetSources as any)
+        .map(([slot, src]) => `${slot}=${src}`)
+        .join(',');
+      parts.push(`WS[${wsSources}]`);
+    }
     selectionDiagnostics.push(parts.join(' '));
   }
   console.log('[LookBook] ✓ slide image selection:', selectionDiagnostics.join(' | '));
