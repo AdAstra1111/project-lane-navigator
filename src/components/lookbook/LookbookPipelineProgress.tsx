@@ -85,15 +85,32 @@ export function LookbookPipelineProgress({ progress, className }: Props) {
 
       {/* Requirement-level progress */}
       {progress.requirements && progress.requirements.length > 0 && (
-        <div className="space-y-1 pt-1 border-t border-border/30">
-          <p className="text-[10px] text-muted-foreground font-medium">Requirements</p>
-          <div className="grid gap-1 max-h-32 overflow-y-auto">
+        <div className="space-y-1.5 pt-1 border-t border-border/30">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-muted-foreground font-medium">Requirements</p>
+            <RequirementSummary requirements={progress.requirements} />
+          </div>
+          <div className="grid gap-1 max-h-40 overflow-y-auto">
             {progress.requirements.map(req => (
               <RequirementRow key={req.id} req={req} />
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function RequirementSummary({ requirements }: { requirements: RequirementProgress[] }) {
+  const satisfied = requirements.filter(r => r.status === 'complete' || r.status === 'selected').length;
+  const blocked = requirements.filter(r => r.status === 'blocked').length;
+  const total = requirements.length;
+
+  return (
+    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <span className="text-emerald-500">{satisfied} satisfied</span>
+      {blocked > 0 && <span className="text-red-400">{blocked} blocked</span>}
+      <span>/ {total} total</span>
     </div>
   );
 }
