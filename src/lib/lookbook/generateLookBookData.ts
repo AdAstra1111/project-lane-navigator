@@ -1258,6 +1258,8 @@ export async function generateLookBookData(
     if (worldBg) { usedBackgroundUrls.push(worldBg); trackSelection(worldBg, 'world'); }
     const worldForeground = pickForegroundImages(worldImages, 'world', 4, worldBg ? [worldBg] : []);
     worldForeground.forEach(u => trackSelection(u, 'world'));
+    const worldComp = resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length);
+    const worldHint = resolveLayoutHint('world', worldForeground.length, !!worldBg, !!worldForeground[0]);
     slides.push({
       type: 'world',
       slide_id: makeSemanticSlideId('world'),
@@ -1268,7 +1270,9 @@ export async function generateLookBookData(
       imageUrl: worldForeground[0] || undefined,
       imageUrls: worldForeground,
       backgroundImageUrl: worldBg,
-      composition: resolveComposition('world', !!worldBg, worldForeground.length > 1, worldForeground.length),
+      composition: worldComp,
+      layoutHint: worldHint,
+      roledImages: assignImageRoles(worldForeground, 'world', worldBg),
       _debug_image_ids: canonImages.world_locations.imageIds,
       _debug_provenance: toSlideProvenance(canonImages.world_locations),
       _has_unresolved: canonImages.world_locations.unresolvedCount > 0,
