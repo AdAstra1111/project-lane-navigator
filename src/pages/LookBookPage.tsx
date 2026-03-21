@@ -593,7 +593,7 @@ export default function LookBookPage() {
               <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
                 <p className="text-sm text-foreground mb-1">No built lookbook yet.</p>
                 <p className="text-xs text-muted-foreground mb-4">Build the lookbook from the canonical workspace sections first.</p>
-                <Button size="sm" variant="outline" className="gap-1" onClick={handleGenerate} disabled={generating}>
+                <Button size="sm" variant="outline" className="gap-1" onClick={() => handleGenerate()} disabled={generating}>
                   {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                   Build Look Book
                 </Button>
