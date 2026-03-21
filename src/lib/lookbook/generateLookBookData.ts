@@ -376,9 +376,16 @@ function normalizeCharacterSlides(
   });
 }
 
+export interface GenerateLookBookOptions {
+  companyName: string | null;
+  companyLogoUrl: string | null;
+  /** Temporary working set overlay — fills gaps without promoting to canon */
+  workingSet?: import('@/lib/images/lookbookImageOrchestrator').BuildWorkingSet | null;
+}
+
 export async function generateLookBookData(
   projectId: string,
-  branding: { companyName: string | null; companyLogoUrl: string | null },
+  branding: GenerateLookBookOptions,
 ): Promise<LookBookData> {
   /** Helper: is this a vertical-drama project? Checks both format and lane. */
   const isVerticalDrama = (fmt: string, lane: string) =>
