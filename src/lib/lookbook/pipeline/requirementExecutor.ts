@@ -5,6 +5,12 @@
  * a working set of generated candidates for election.
  *
  * This replaces gap-driven generation for fresh_from_scratch mode.
+ *
+ * Controls:
+ * - Hard identity lock enforcement for character generation
+ * - Slide-type visual guardrails injected into every prompt
+ * - Scene diversity scoring to prevent visual repetition
+ * - Deterministic requirement-origin matching when metadata exists
  */
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectImage } from '@/lib/images/types';
@@ -14,6 +20,7 @@ import type { BuildWorkingSet, WorkingSetEntry } from '@/lib/images/lookbookImag
 import type { LookBookRequirement, RequirementPass, RequirementResult, RequirementSet, SatisfactionStatus } from './requirementBuilder';
 import type { RequirementProgress, PipelineProgressCallback } from './types';
 import { PipelineStage } from './types';
+import { buildConstraintPromptSuffix } from './slideTypeConstraints';
 
 // ── Execution Result ─────────────────────────────────────────────────────────
 
@@ -25,6 +32,56 @@ export interface RequirementExecutionResult {
   totalSatisfied: number;
   totalPartial: number;
   totalBlocked: number;
+}
+
+// ── Identity Anchor Cache ────────────────────────────────────────────────────
+
+interface CharacterAnchorSet {
+  headshot?: string; // storage_path
+  fullBody?: string; // storage_path
+  hasAnchors: boolean;
+}
+
+/**
+ * Resolve identity anchors for all characters in a project.
+ * Returns a map of characterName(lowercase) → anchor paths.
+ */
+async function resolveCharacterAnchors(projectId: string): Promise<Map<string, CharacterAnchorSet>> {
+  const map = new Map<string, CharacterAnchorSet>();
+
+  try {
+    const { data: anchorImages } = await (supabase as any)
+      .from('project_images')
+      .select('subject, shot_type, storage_path, is_primary, generation_config, curation_state')
+      .eq('project_id', projectId)
+      .eq('asset_group', 'character')
+      .eq('is_primary', true)
+      .in('shot_type', ['identity_headshot', 'identity_full_body'])
+      .in('curation_state', ['active', 'approved', 'locked']);
+
+    for (const img of anchorImages || []) {
+      const name = (img.subject || '').toLowerCase().trim();
+      if (!name) continue;
+
+      if (!map.has(name)) {
+        map.set(name, { hasAnchors: false });
+      }
+      const entry = map.get(name)!;
+
+      if (img.shot_type === 'identity_headshot' && img.storage_path) {
+        entry.headshot = img.storage_path;
+        entry.hasAnchors = true;
+      }
+      if (img.shot_type === 'identity_full_body' && img.storage_path) {
+        entry.fullBody = img.storage_path;
+        entry.hasAnchors = true;
+      }
+    }
+  } catch (e) {
+    console.warn('[ReqExecutor] Failed to resolve character anchors:', (e as Error).message);
+  }
+
+  return map;
 }
 
 // ── Pass order (deterministic) ───────────────────────────────────────────────
@@ -88,6 +145,17 @@ export async function executeRequirements(
   // Track all generation call metadata for matching
   const generationBatches: GenerationBatchRecord[] = [];
 
+  // ── RESOLVE CHARACTER IDENTITY ANCHORS ──
+  // This MUST happen before any generation to enforce identity lock
+  log('Resolving character identity anchors...');
+  const characterAnchors = await resolveCharacterAnchors(projectId);
+  log(`Identity anchors resolved: ${characterAnchors.size} characters with anchors`);
+  for (const [name, anchors] of characterAnchors) {
+    if (anchors.hasAnchors) {
+      log(`  ✓ ${name}: headshot=${!!anchors.headshot} fullBody=${!!anchors.fullBody}`);
+    }
+  }
+
   // Process each pass in order
   for (const pass of PASS_ORDER) {
     const passReqs = requirementSet.byPass[pass];
@@ -146,9 +214,43 @@ export async function executeRequirements(
         };
 
         const template = resolvePromptTemplate(targetReq.subjectType as any, targetReq.shotType);
-        const { prompt } = buildPromptFromTemplate(template, promptCtx);
+        let { prompt } = buildPromptFromTemplate(template, promptCtx);
+
+        // ── SLIDE-TYPE VISUAL GUARDRAILS ──
+        // Inject positive/negative constraints based on slide editorial purpose
+        const constraintSuffix = buildConstraintPromptSuffix(targetReq.slideType);
+        if (constraintSuffix) {
+          prompt = `${prompt} ${constraintSuffix}`;
+        }
+
+        // ── Append hard negatives from requirement ──
+        if (targetReq.hardNegatives.length > 0) {
+          prompt = `${prompt} NEGATIVE: ${targetReq.hardNegatives.join(', ')}.`;
+        }
 
         log(`[${section}] batch ${callCount}: generating ${count} (${totalGeneratedForSection}/${totalNeeded} done, req=${targetReq.id})`);
+
+        // ── IDENTITY LOCK ENFORCEMENT ──
+        // Resolve identity anchors for character requirements
+        let identityPayload: Record<string, unknown> = {};
+        if (targetReq.subjectType === 'character' && targetReq.promptContext.characterName) {
+          const charNameKey = targetReq.promptContext.characterName.toLowerCase().trim();
+          const anchors = characterAnchors.get(charNameKey);
+
+          if (anchors?.hasAnchors) {
+            identityPayload = {
+              identity_mode: true,
+              identity_anchor_paths: {
+                headshot: anchors.headshot || null,
+                fullBody: anchors.fullBody || null,
+              },
+              identity_notes: targetReq.promptContext.characterTraits || null,
+            };
+            log(`[${section}] Identity LOCKED for "${targetReq.promptContext.characterName}" (headshot=${!!anchors.headshot}, fullBody=${!!anchors.fullBody})`);
+          } else {
+            log(`[${section}] No identity anchors for "${targetReq.promptContext.characterName}" — generating without lock`);
+          }
+        }
 
         try {
           const { data, error } = await (supabase as any).functions.invoke('generate-lookbook-image', {
@@ -159,6 +261,8 @@ export async function executeRequirements(
               asset_group: targetReq.assetGroup,
               pack_mode: true,
               forced_shot_type: targetReq.shotType,
+              // Identity lock fields (empty object if not character)
+              ...identityPayload,
               auto_complete_context: {
                 prompt_override: prompt,
                 requirement_ids: sectionReqs.map(r => r.id),
@@ -263,16 +367,35 @@ export async function executeRequirements(
 
   log(`Harvested ${candidates.length} candidate images`);
 
+  // ── Track selected scene signatures for diversity control ──
+  const selectedSignatures = new Map<string, number>(); // slideType → signature count
+
   // ── Match candidates to requirements with strengthened scoring ──
   for (const req of requirementSet.requirements) {
-    const matching = candidates.filter(c => {
+    const gc_field = 'generation_config';
+
+    // ── DETERMINISTIC REQUIREMENT-ORIGIN MATCHING ──
+    // If any candidates have our exact target_requirement_id, ONLY use those
+    const directMatches = candidates.filter(c => {
+      if (!c.signedUrl) return false;
+      const gc = (c as any)[gc_field] as Record<string, unknown> | null;
+      const autoCtx = gc?.auto_complete_context as Record<string, unknown> | null;
+      return autoCtx?.target_requirement_id === req.id;
+    });
+
+    const useDirectOnly = directMatches.length > 0;
+    const pool = useDirectOnly ? directMatches : candidates.filter(c => {
       if (!c.signedUrl) return false;
       // Asset group filter — but allow through if no asset_group on image
       if ((c as any).asset_group && (c as any).asset_group !== req.assetGroup) return false;
       return true;
     });
 
-    const scored = matching.map(img => {
+    if (useDirectOnly) {
+      log(`[Match] ${req.id}: using ${directMatches.length} direct requirement-origin matches (deterministic)`);
+    }
+
+    const scored = pool.map(img => {
       let score = 0;
 
       // ── Requirement-origin matching (strongest signal) ──
@@ -280,10 +403,13 @@ export async function executeRequirements(
       const autoCtx = gc?.auto_complete_context as Record<string, unknown> | null;
       if (autoCtx?.target_requirement_id === req.id) {
         score += 25; // Direct requirement match
-      } else if (autoCtx?.slide_type === req.slideType) {
-        score += 12; // Same slide type
-      } else if (autoCtx?.pass === req.pass) {
-        score += 6; // Same pass
+      } else if (!useDirectOnly) {
+        // Only apply weaker matching when no direct matches exist
+        if (autoCtx?.slide_type === req.slideType) {
+          score += 12; // Same slide type
+        } else if (autoCtx?.pass === req.pass) {
+          score += 6; // Same pass
+        }
       }
 
       // ── Orientation match ──
@@ -307,25 +433,55 @@ export async function executeRequirements(
       }
 
       // ── Batch metadata match (fallback for when generation_config isn't populated) ──
-      const batchMatch = generationBatches.find(b =>
-        b.targetRequirementId === req.id &&
-        b.section === req.section
-      );
-      if (batchMatch && batchMatch.successCount > 0) {
-        // Images from the batch targeting this requirement get a mild boost
-        const imgCreated = (img as any).created_at;
-        if (imgCreated && batchMatch.generatedAt && Math.abs(new Date(imgCreated).getTime() - new Date(batchMatch.generatedAt).getTime()) < 30000) {
-          score += 8;
+      if (!useDirectOnly) {
+        const batchMatch = generationBatches.find(b =>
+          b.targetRequirementId === req.id &&
+          b.section === req.section
+        );
+        if (batchMatch && batchMatch.successCount > 0) {
+          const imgCreated = (img as any).created_at;
+          if (imgCreated && batchMatch.generatedAt && Math.abs(new Date(imgCreated).getTime() - new Date(batchMatch.generatedAt).getTime()) < 30000) {
+            score += 8;
+          }
         }
       }
 
-      return { img, score };
+      // ── SCENE DIVERSITY PENALTY ──
+      // Penalize images that look like already-selected compositions for this slide
+      const sig = computeSceneSignature(img);
+      const slideKey = req.slideType;
+      const existingCount = selectedSignatures.get(`${slideKey}:${sig}`) || 0;
+      if (existingCount > 0) {
+        score -= 10 * existingCount; // Progressive penalty for repeated scenes
+      }
+      // Extra penalty for same character + same location + same composition
+      if (req.promptContext.characterName && img.subject && img.location_ref) {
+        const dupKey = `${slideKey}:${(img.subject as string).toLowerCase()}:${img.location_ref}:${img.shot_type}`;
+        const dupCount = selectedSignatures.get(dupKey) || 0;
+        if (dupCount > 0) {
+          score -= 15;
+        }
+      }
+
+      return { img, score, sig };
     });
     scored.sort((a, b) => b.score - a.score);
 
     // Take best matches up to preferred count
     const winners = scored.slice(0, req.preferred);
     const satisfiedCount = winners.length;
+
+    // Record selected signatures for diversity tracking
+    for (const w of winners) {
+      const slideKey = req.slideType;
+      const sigKey = `${slideKey}:${w.sig}`;
+      selectedSignatures.set(sigKey, (selectedSignatures.get(sigKey) || 0) + 1);
+      // Also track character+location combos
+      if (req.promptContext.characterName && w.img.subject && w.img.location_ref) {
+        const dupKey = `${slideKey}:${(w.img.subject as string).toLowerCase()}:${w.img.location_ref}:${w.img.shot_type}`;
+        selectedSignatures.set(dupKey, (selectedSignatures.get(dupKey) || 0) + 1);
+      }
+    }
 
     // Determine satisfaction
     let status: SatisfactionStatus;
@@ -399,6 +555,22 @@ export async function executeRequirements(
     totalPartial,
     totalBlocked,
   };
+}
+
+// ── Scene Diversity ──────────────────────────────────────────────────────────
+
+/**
+ * Compute a lightweight scene signature for diversity control.
+ * Uses location_ref, subject, shot_type, and composition hints.
+ */
+function computeSceneSignature(img: ProjectImage): string {
+  const parts: string[] = [];
+  if (img.location_ref) parts.push(`loc:${img.location_ref}`);
+  if (img.subject) parts.push(`subj:${(img.subject as string).toLowerCase()}`);
+  if (img.shot_type) parts.push(`shot:${img.shot_type}`);
+  // If no distinguishing metadata, use a generic signature
+  if (parts.length === 0) return 'generic';
+  return parts.join('|');
 }
 
 // ── Shot-type compatibility mapping ──────────────────────────────────────────
