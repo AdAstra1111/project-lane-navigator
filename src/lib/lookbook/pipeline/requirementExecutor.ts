@@ -231,32 +231,55 @@ export async function executeRequirements(
 
         log(`[${section}] batch ${callCount}: generating ${count} (${totalGeneratedForSection}/${totalNeeded} done, req=${targetReq.id})`);
 
-        // ── IDENTITY LOCK ENFORCEMENT ──
-        // Applies to character requirements AND character-bearing slides with named characters
+        // ── GLOBAL IDENTITY LOCK ENFORCEMENT ──
+        // Applies to ANY requirement that references known characters
         let identityPayload: Record<string, unknown> = {};
-        const charName = targetReq.promptContext.characterName;
-        const shouldLockIdentity = charName && (
-          targetReq.subjectType === 'character' ||
-          CHARACTER_BEARING_SLIDES.has(targetReq.slideType)
-        );
+        const allCharNames = resolveAllCharacterNamesFromReq(targetReq);
+        const resolvedAnchors: Record<string, { headshot: string | null; fullBody: string | null }> = {};
+        let identityCharCount = 0;
 
-        if (shouldLockIdentity && charName) {
-          const charNameKey = charName.toLowerCase().trim();
-          const anchors = characterAnchors.get(charNameKey);
-
+        for (const cn of allCharNames) {
+          const key = cn.toLowerCase().trim();
+          const anchors = characterAnchors.get(key);
           if (anchors?.hasAnchors) {
+            resolvedAnchors[cn] = {
+              headshot: anchors.headshot || null,
+              fullBody: anchors.fullBody || null,
+            };
+            identityCharCount++;
+          }
+        }
+
+        if (identityCharCount > 0) {
+          // Single vs multi-character payload
+          if (identityCharCount === 1) {
+            const [name, anch] = Object.entries(resolvedAnchors)[0];
             identityPayload = {
               identity_mode: true,
-              identity_anchor_paths: {
-                headshot: anchors.headshot || null,
-                fullBody: anchors.fullBody || null,
-              },
+              identity_locked: true,
+              identity_anchor_paths: anch,
               identity_notes: targetReq.promptContext.characterTraits || null,
+              identity_mode_used: true,
+              identity_character_count: 1,
             };
-            log(`[${section}] Identity LOCKED for "${charName}" (headshot=${!!anchors.headshot}, fullBody=${!!anchors.fullBody})`);
+            log(`[${section}] Identity LOCKED for "${name}" (headshot=${!!anch.headshot}, fullBody=${!!anch.fullBody})`);
           } else {
-            log(`[${section}] No identity anchors for "${charName}" — generating without lock`);
+            identityPayload = {
+              identity_mode: true,
+              identity_locked: true,
+              identity_anchor_paths: resolvedAnchors,
+              identity_notes: `Maintain exact facial identity consistency for all characters based on provided references. ${targetReq.promptContext.characterTraits || ''}`.trim(),
+              identity_mode_used: true,
+              identity_character_count: identityCharCount,
+            };
+            log(`[${section}] Multi-character identity LOCKED for ${Object.keys(resolvedAnchors).join(', ')} (${identityCharCount} chars)`);
           }
+        } else if (allCharNames.length > 0) {
+          identityPayload = {
+            identity_mode_used: false,
+            identity_character_count: 0,
+          };
+          log(`[${section}] No identity anchors for characters [${allCharNames.join(', ')}] — generating without lock`);
         }
 
         try {
