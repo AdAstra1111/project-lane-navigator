@@ -139,6 +139,7 @@ export default function LookBookPage() {
   const handleGenerate = useCallback(async (mode: PipelineMode = 'fresh_build') => {
     if (!projectId) return;
     setGenerating(true);
+    setPipelineProgress(null);
     try {
       invalidateImageCaches();
 
@@ -148,6 +149,7 @@ export default function LookBookPage() {
         companyName: branding?.companyName || null,
         companyLogoUrl: branding?.companyLogoUrl || null,
         previousSlides: prevSlidesRef.current,
+        onProgress: (p) => setPipelineProgress(p),
       });
 
       // Log provenance for debugging
