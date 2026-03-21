@@ -525,8 +525,11 @@ export async function generateLookBookData(
     if (PREFERRED_CARD_SHOTS.includes(img.shot_type || '')) score += 3;
     // Portrait orientation bonus (better for character cards)
     if (classifyOrientation(img.width, img.height) === 'portrait') score += 2;
-    // Recency
-    score += Math.max(0, 2 - Math.floor((Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24)));
+    // Freshness boost — recently approved images can displace stale primaries
+    const charAgeDays = (Date.now() - new Date(img.created_at || 0).getTime()) / (1000 * 60 * 60 * 24);
+    if (charAgeDays < 1) score += 8;
+    else if (charAgeDays < 3) score += 5;
+    else if (charAgeDays < 7) score += 2;
 
     const prev = charNameScoreMap.get(key) ?? -1;
     if (score > prev) {
