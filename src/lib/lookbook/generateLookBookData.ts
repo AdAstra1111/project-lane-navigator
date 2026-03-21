@@ -1248,6 +1248,7 @@ export async function generateLookBookData(
       credit: writerCredit,
       backgroundImageUrl: cvBg,
       composition: cvBg ? 'text_over_atmosphere' : 'gradient_only',
+      layoutHint: resolveLayoutHint('creative_statement', 0, !!cvBg, false),
     });
   }
 
