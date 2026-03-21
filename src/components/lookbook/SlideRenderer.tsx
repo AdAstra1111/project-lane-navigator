@@ -829,23 +829,18 @@ function WorldSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex
     );
   }
 
-  // ── Landscape world ──
-  const pad = '72px 96px 72px 100px';
+  // ── Landscape world — cinematic background ──
+  const worldBg = slide.backgroundImageUrl || slide.imageUrl || imgs[0];
   return (
     <div style={baseStyle} className="slide-content">
-      {(slide.imageUrl || imgs[0]) && (
-        <div className="absolute inset-0">
-          <img src={slide.imageUrl || imgs[0]} alt="" className="w-full h-full object-cover" style={{ opacity: 0.15, filter: 'saturate(0.4) contrast(1.1) blur(2px)' }} />
-          <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, ${colors.bg}f0 0%, ${colors.bg}cc 40%, ${colors.bg}e0 100%)` }} />
-        </div>
-      )}
-      <EdgeAccent color={colors.accent} />
-      <div style={{ position: 'relative', zIndex: 1, padding: pad, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {worldBg && <CinematicBackground src={worldBg} colors={colors} overlayStrength="medium" overlayDirection="left-heavy" />}
+      {!worldBg && <EdgeAccent color={colors.accent} />}
+      <div style={{ position: 'relative', zIndex: 1, padding: '72px 96px 72px 100px', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <SectionTag label="The World" color={colors.accent} />
         <AccentRule color={colors.accent} />
         <h2 style={{ ...titleStyle, fontSize: 52, fontWeight: 600, marginBottom: 36, color: colors.text }}>{slide.title}</h2>
         <div style={{ display: 'flex', gap: 48, flex: 1, minHeight: 0 }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0, maxWidth: 680 }}>
             {slide.body && <p style={{ fontSize: 19, lineHeight: 1.65, color: colors.text, opacity: 0.92, fontFamily: `"${fontBody}", sans-serif`, marginBottom: 16 }}>{slide.body}</p>}
             {slide.bodySecondary && <p style={{ fontSize: 16, lineHeight: 1.6, color: colors.textMuted, fontFamily: `"${fontBody}", sans-serif` }}>{slide.bodySecondary}</p>}
             {slide.quote && (
