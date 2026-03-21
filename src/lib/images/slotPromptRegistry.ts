@@ -255,8 +255,12 @@ export function buildPromptFromTemplate(
   // Clean up empty placeholders and double spaces
   prompt = prompt.replace(/\s{2,}/g, ' ').replace(/\.\s*\./g, '.').trim();
 
+  // Append universal fidelity suffix
+  prompt = `${prompt} ${FIDELITY_SUFFIX}`;
+
   const negativePrompt = [
     ...template.negativeAdditions,
+    ...FIDELITY_NEGATIVES,
     'low quality', 'blurry', 'deformed', 'amateur',
   ].join(', ');
 
