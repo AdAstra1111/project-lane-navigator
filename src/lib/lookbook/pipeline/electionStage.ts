@@ -281,8 +281,21 @@ const SLIDE_ELECTION_SPECS: SlideElectionSpec[] = [
 export function runElectionStage(
   sectionPools: Record<PoolKey, ProjectImage[]>,
   allUniqueImages: ProjectImage[],
+  narrativeEvidence?: NarrativeEvidence,
+  identityBindings?: IdentityBindings,
 ): ElectionResult {
   const ctx = createElectionContext(sectionPools);
+
+  // Build bound principal IDs set from identity bindings
+  const boundPrincipalIds = new Set<string>();
+  if (identityBindings) {
+    for (const p of identityBindings.principals) {
+      if ((p.strength === 'locked' || p.strength === 'anchored') && p.characterId) {
+        boundPrincipalIds.add(p.characterId);
+      }
+    }
+  }
+  const hasSceneEvidence = (narrativeEvidence?.sceneEvidence?.length || 0) > 0;
 
   // 1. Poster hero — global election
   const posterHero = selectPosterHero(allUniqueImages);
