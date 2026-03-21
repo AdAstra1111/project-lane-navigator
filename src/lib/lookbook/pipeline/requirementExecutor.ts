@@ -28,6 +28,7 @@ import type { RequirementProgress, PipelineProgressCallback } from './types';
 import { PipelineStage } from './types';
 import { buildConstraintPromptSuffix } from './slideTypeConstraints';
 import { validateCandidateForSlidePurpose, isEditorialSlide } from './slotPurposeValidator';
+import { resolveProjectCastIdentity, type ActorIdentityAnchors } from '@/lib/aiCast/resolveActorIdentity';
 
 // ── Execution Result ─────────────────────────────────────────────────────────
 
@@ -41,50 +42,39 @@ export interface RequirementExecutionResult {
   totalBlocked: number;
 }
 
-// ── Identity Anchor Cache ────────────────────────────────────────────────────
+// ── Identity Anchor Adapter ──────────────────────────────────────────────────
+// Adapts the canonical ActorIdentityAnchors to the internal CharacterAnchorSet
+// shape consumed by the rest of this file.
 
 interface CharacterAnchorSet {
   headshot?: string;
   fullBody?: string;
   hasAnchors: boolean;
+  /** Source of identity resolution — actor_bound, fallback_project_images, or unresolved */
+  source: ActorIdentityAnchors['source'];
+  /** AI Actor ID if actor-bound */
+  aiActorId?: string | null;
+  /** Additional reference URLs from actor assets */
+  additionalRefs?: string[];
 }
 
 /**
- * Resolve identity anchors for all characters in a project.
+ * Resolve identity anchors using the canonical actor-aware resolver.
+ * Checks project_ai_cast → actor assets first, falls back to project_images.
  */
 async function resolveCharacterAnchors(projectId: string): Promise<Map<string, CharacterAnchorSet>> {
+  const canonicalMap = await resolveProjectCastIdentity(projectId);
   const map = new Map<string, CharacterAnchorSet>();
 
-  try {
-    // Query both character and character_identity asset groups
-    const { data: anchorImages } = await (supabase as any)
-      .from('project_images')
-      .select('subject, shot_type, storage_path, is_primary, generation_config, curation_state, asset_group')
-      .eq('project_id', projectId)
-      .eq('is_primary', true)
-      .in('shot_type', ['identity_headshot', 'identity_full_body'])
-      .in('curation_state', ['active', 'approved', 'locked']);
-
-    for (const img of anchorImages || []) {
-      const name = (img.subject || '').toLowerCase().trim();
-      if (!name) continue;
-
-      if (!map.has(name)) {
-        map.set(name, { hasAnchors: false });
-      }
-      const entry = map.get(name)!;
-
-      if (img.shot_type === 'identity_headshot' && img.storage_path) {
-        entry.headshot = img.storage_path;
-        entry.hasAnchors = true;
-      }
-      if (img.shot_type === 'identity_full_body' && img.storage_path) {
-        entry.fullBody = img.storage_path;
-        entry.hasAnchors = true;
-      }
-    }
-  } catch (e) {
-    console.warn('[ReqExecutor] Failed to resolve character anchors:', (e as Error).message);
+  for (const [key, anchors] of canonicalMap) {
+    map.set(key, {
+      headshot: anchors.headshot || undefined,
+      fullBody: anchors.fullBody || undefined,
+      hasAnchors: anchors.hasAnchors,
+      source: anchors.source,
+      aiActorId: anchors.aiActorId,
+      additionalRefs: anchors.additionalRefs,
+    });
   }
 
   return map;
@@ -155,7 +145,9 @@ export async function executeRequirements(
   log(`Identity anchors resolved: ${characterAnchors.size} characters with anchors`);
   for (const [name, anchors] of characterAnchors) {
     if (anchors.hasAnchors) {
-      log(`  ✓ ${name}: headshot=${!!anchors.headshot} fullBody=${!!anchors.fullBody}`);
+      log(`  ✓ ${name}: source=${anchors.source} headshot=${!!anchors.headshot} fullBody=${!!anchors.fullBody}${anchors.aiActorId ? ` actor=${anchors.aiActorId}` : ''}${anchors.additionalRefs?.length ? ` +${anchors.additionalRefs.length} refs` : ''}`);
+    } else if (anchors.source === 'actor_bound') {
+      log(`  ⚠ ${name}: actor-bound but no usable anchors (actor=${anchors.aiActorId})`);
     }
   }
 
