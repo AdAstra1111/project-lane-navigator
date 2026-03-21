@@ -514,8 +514,8 @@ export async function generateLookBookData(
     if (!img.subject || !img.signedUrl) continue;
     const key = img.subject.toLowerCase();
     let score = 0;
-    // Primary status (strongest signal)
-    if (img.is_primary) score += 20;
+    // Primary status — reduced from 20 to 5 so newer approved images can compete
+    if (img.is_primary) score += 5;
     // Identity-locked generation (trust these more)
     const gc = img.generation_config as Record<string, unknown> | null;
     if (gc?.identity_locked) score += 10;
