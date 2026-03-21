@@ -45,6 +45,7 @@ export default function LookBookPage() {
   const [lookBookData, setLookBookData] = useState<LookBookData | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [autoCompleting, setAutoCompleting] = useState(false);
   const [populatingSection, setPopulatingSection] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<LookbookMode>('workspace');
   const [lookbookBuildEpoch, setLookbookBuildEpoch] = useState(0);
