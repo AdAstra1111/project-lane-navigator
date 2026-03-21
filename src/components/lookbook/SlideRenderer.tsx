@@ -1495,9 +1495,12 @@ function ComparablesSlide({ slide, colors, titleStyle, baseStyle, fontBody, slid
    Portrait: vertically centered with generous spacing
    ═══════════════════════════════════════════════════════════════════════ */
 function StatementSlide({ slide, colors, titleStyle, baseStyle, fontBody, slideIndex, totalSlides, isPortrait }: SlideProps) {
+  const stBg = slide.backgroundImageUrl;
   return (
     <div style={baseStyle} className="slide-content">
+      {stBg && <CinematicBackground src={stBg} colors={colors} overlayStrength="heavy" overlayDirection="center-vignette" />}
       <div style={{
+        position: 'relative', zIndex: 1,
         height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: isPortrait ? '80px 72px' : '80px 180px',
       }}>
