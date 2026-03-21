@@ -10,7 +10,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
-import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions, SlideComposition } from './types';
+import type { LookBookData, LookBookVisualIdentity, SlideContent, SlideImageProvenance, LookBookColorSystem, SlideUserDecisions, SlideComposition, LayoutHint } from './types';
 import { resolveAllCanonImages } from './resolveCanonImages';
 import type { ResolvedImageProvenance, SectionImageResult } from './resolveCanonImages';
 import { isVerticalDrama as checkVD } from '@/lib/format-helpers';
