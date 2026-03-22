@@ -6,6 +6,7 @@
  * current project_ai_cast bindings.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeCharacterKey } from './normalizeCharacterKey';
 
 export interface ImpactEntry {
   output_id: string;
@@ -35,7 +36,7 @@ export async function evaluateCastImpact(projectId: string): Promise<CastImpactR
 
   const bindingMap: Record<string, string | null> = {};
   for (const b of bindings || []) {
-    bindingMap[b.character_key?.toLowerCase?.() || ''] = b.ai_actor_version_id;
+    bindingMap[normalizeCharacterKey(b.character_key || '')] = b.ai_actor_version_id;
   }
 
   // Fetch generated media with provenance
@@ -53,7 +54,7 @@ export async function evaluateCastImpact(projectId: string): Promise<CastImpactR
     if (!Array.isArray(provenance)) continue;
 
     for (const p of provenance) {
-      const charKey = (p.character_key || '').toLowerCase();
+      const charKey = normalizeCharacterKey(p.character_key || '');
       if (!charKey) continue;
 
       const currentVersion = bindingMap[charKey];

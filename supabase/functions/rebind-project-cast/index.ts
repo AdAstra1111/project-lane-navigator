@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { projectId, characterKey, nextActorId, nextActorVersionId, reason } = body;
+    const { projectId, characterKey, nextActorId, reason } = body;
 
     if (!projectId || !characterKey) {
       return new Response(
@@ -58,150 +58,29 @@ Deno.serve(async (req) => {
       });
     }
 
-    const isUnbind = !nextActorId;
+    // Delegate to atomic RPC
+    const { data: result, error: rpcErr } = await db.rpc("rebind_project_ai_cast", {
+      p_project_id: projectId,
+      p_character_key: characterKey,
+      p_next_actor_id: nextActorId || null,
+      p_reason: reason || null,
+      p_changed_by: user.id,
+    });
 
-    // 1. Fetch current binding
-    const { data: currentBinding } = await db
-      .from("project_ai_cast")
-      .select("id, ai_actor_id, ai_actor_version_id")
-      .eq("project_id", projectId)
-      .eq("character_key", characterKey)
-      .maybeSingle();
-
-    // 2. For rebind: validate next actor is roster-ready with approved version
-    if (!isUnbind) {
-      const { data: nextActor, error: actorErr } = await db
-        .from("ai_actors")
-        .select("id, roster_ready, approved_version_id")
-        .eq("id", nextActorId)
-        .maybeSingle();
-
-      if (actorErr || !nextActor) {
-        return new Response(
-          JSON.stringify({ error: "Actor not found" }),
-          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      if (!nextActor.roster_ready) {
-        return new Response(
-          JSON.stringify({ error: "Actor is not roster-ready" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Use provided version or fall back to actor's approved version
-      const resolvedVersionId = nextActorVersionId || nextActor.approved_version_id;
-      if (!resolvedVersionId) {
-        return new Response(
-          JSON.stringify({ error: "No approved version available for this actor" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Validate version belongs to actor
-      const { data: versionCheck } = await db
-        .from("ai_actor_versions")
-        .select("id")
-        .eq("id", resolvedVersionId)
-        .eq("actor_id", nextActorId)
-        .maybeSingle();
-
-      if (!versionCheck) {
-        return new Response(
-          JSON.stringify({ error: "Version does not belong to actor" }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // 3. Insert history row
-      await db.from("project_ai_cast_history").insert({
-        project_id: projectId,
-        character_key: characterKey,
-        previous_ai_actor_id: currentBinding?.ai_actor_id || null,
-        previous_ai_actor_version_id: currentBinding?.ai_actor_version_id || null,
-        next_ai_actor_id: nextActorId,
-        next_ai_actor_version_id: resolvedVersionId,
-        change_type: "rebind",
-        change_reason: reason || null,
-        changed_by: user.id,
-      });
-
-      // 4. Upsert binding
-      const { error: upsertErr } = await db
-        .from("project_ai_cast")
-        .upsert(
-          {
-            project_id: projectId,
-            character_key: characterKey,
-            ai_actor_id: nextActorId,
-            ai_actor_version_id: resolvedVersionId,
-          },
-          { onConflict: "project_id,character_key" }
-        );
-
-      if (upsertErr) {
-        return new Response(
-          JSON.stringify({ error: "Failed to update binding: " + upsertErr.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
+    if (rpcErr) {
+      const msg = rpcErr.message || "Rebind failed";
+      const status = msg.includes("not found") ? 404
+        : msg.includes("not roster-ready") || msg.includes("no approved version") ? 400
+        : 500;
       return new Response(
-        JSON.stringify({
-          action: "rebind",
-          character_key: characterKey,
-          previous_actor_id: currentBinding?.ai_actor_id || null,
-          next_actor_id: nextActorId,
-          next_actor_version_id: resolvedVersionId,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    } else {
-      // UNBIND
-      if (!currentBinding) {
-        return new Response(
-          JSON.stringify({ action: "unbind", character_key: characterKey, was_bound: false }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Insert history
-      await db.from("project_ai_cast_history").insert({
-        project_id: projectId,
-        character_key: characterKey,
-        previous_ai_actor_id: currentBinding.ai_actor_id,
-        previous_ai_actor_version_id: currentBinding.ai_actor_version_id,
-        next_ai_actor_id: null,
-        next_ai_actor_version_id: null,
-        change_type: "unbind",
-        change_reason: reason || null,
-        changed_by: user.id,
-      });
-
-      // Delete binding
-      const { error: delErr } = await db
-        .from("project_ai_cast")
-        .delete()
-        .eq("id", currentBinding.id);
-
-      if (delErr) {
-        return new Response(
-          JSON.stringify({ error: "Failed to unbind: " + delErr.message }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      return new Response(
-        JSON.stringify({
-          action: "unbind",
-          character_key: characterKey,
-          was_bound: true,
-          previous_actor_id: currentBinding.ai_actor_id,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: msg }),
+        { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    return new Response(JSON.stringify(result), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err.message || "Internal error" }),

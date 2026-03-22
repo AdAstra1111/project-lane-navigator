@@ -123,9 +123,9 @@ export default function ProjectCasting() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Rebind via edge function
+  // Rebind via edge function (version resolved canonically by backend RPC)
   const rebindMutation = useMutation({
-    mutationFn: async (params: { characterKey: string; nextActorId: string; nextActorVersionId?: string; reason?: string }) => {
+    mutationFn: async (params: { characterKey: string; nextActorId: string; reason?: string }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
       const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rebind-project-cast`, {
@@ -138,7 +138,6 @@ export default function ProjectCasting() {
           projectId,
           characterKey: params.characterKey,
           nextActorId: params.nextActorId,
-          nextActorVersionId: params.nextActorVersionId,
           reason: params.reason,
         }),
       });
@@ -151,7 +150,11 @@ export default function ProjectCasting() {
       return resp.json();
     },
     onSuccess: (data) => {
-      toast.success(`${data.action === 'unbind' ? 'Unbound' : 'Rebound'} successfully`);
+      if (data.no_op) {
+        toast.info('Already up to date');
+      } else {
+        toast.success(`${data.action === 'unbind' ? 'Unbound' : 'Rebound'} successfully`);
+      }
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -284,7 +287,6 @@ export default function ProjectCasting() {
                       onClick={() => rebindMutation.mutate({
                         characterKey: m.character_key,
                         nextActorId: m.ai_actor_id,
-                        nextActorVersionId: (actor as any).approved_version_id,
                         reason: 'Update to latest approved version',
                       })}
                       disabled={rebindMutation.isPending}
@@ -296,10 +298,9 @@ export default function ProjectCasting() {
                     characterKey={m.character_key}
                     currentActorId={m.ai_actor_id}
                     actors={actors}
-                    onRebind={(nextActorId, nextVersionId) => rebindMutation.mutate({
+                    onRebind={(nextActorId) => rebindMutation.mutate({
                       characterKey: m.character_key,
                       nextActorId,
-                      nextActorVersionId: nextVersionId,
                       reason: 'Manual rebind',
                     })}
                     disabled={rebindMutation.isPending}
@@ -333,7 +334,7 @@ export default function ProjectCasting() {
           </h3>
           <div className="space-y-2">
             {unmappedCharacters.map(charKey => {
-              const resolvedIdentity = identityMap?.[charKey.toLowerCase().trim()];
+              const resolvedIdentity = identityMap?.[normalizeCharacterKey(charKey)];
               return (
                 <CastCharacterRow
                   key={charKey}
@@ -386,7 +387,7 @@ export default function ProjectCasting() {
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
           <div className="rounded-lg border border-border/30 bg-muted/5 p-3 space-y-1.5">
             {allCharacters.map(charName => {
-              const key = charName.toLowerCase().trim();
+              const key = normalizeCharacterKey(charName);
               const entry = identityMap[key];
               return (
                 <div key={key} className="flex items-center gap-3 text-[11px]">
@@ -494,7 +495,7 @@ function RebindButton({ characterKey, currentActorId, actors, onRebind, disabled
   characterKey: string;
   currentActorId: string;
   actors: any[];
-  onRebind: (actorId: string, versionId?: string) => void;
+  onRebind: (actorId: string) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -513,8 +514,7 @@ function RebindButton({ characterKey, currentActorId, actors, onRebind, disabled
   return (
     <div className="flex items-center gap-1">
       <Select onValueChange={(val) => {
-        const actor = actors.find((a: any) => a.id === val);
-        onRebind(val, (actor as any)?.approved_version_id);
+        onRebind(val);
         setOpen(false);
       }}>
         <SelectTrigger className="h-7 text-[10px] w-[150px]"><SelectValue placeholder="Select..." /></SelectTrigger>
