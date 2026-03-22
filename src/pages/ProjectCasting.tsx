@@ -312,7 +312,13 @@ export default function ProjectCasting() {
             Map project characters to your AI actors for consistent identity across all pipelines
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowConsistency(!showConsistency); if (!showConsistency) refetchConsistency(); }}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> {showConsistency ? 'Hide' : ''} Consistency
+          </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowRegenJobs(!showRegenJobs); if (!showRegenJobs) refetchRegenJobs(); }}
