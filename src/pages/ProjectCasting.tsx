@@ -8,7 +8,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
   RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle,
-  Play, PlayCircle, RotateCcw
+  Play, PlayCircle, RotateCcw, Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,6 +61,7 @@ import {
   type RegenPolicySummary,
   type RegenPolicyItem,
 } from '@/lib/aiCast/regenPolicyEngine';
+import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
 
 interface CastMapping {
   id: string;
@@ -232,6 +233,22 @@ export default function ProjectCasting() {
         toast.success('Retry job queued');
       }
       refetchRegenJobs();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Auto-repair mutation (Phase 14)
+  const autoRepairMutation = useMutation({
+    mutationFn: (priorities: ('high' | 'medium' | 'low')[]) =>
+      executeAutoRepair(projectId!, { priorities }),
+    onSuccess: (result: AutoRepairResult) => {
+      if (result.created === 0 && result.skipped_duplicates === 0) {
+        toast.info('No eligible items to repair');
+      } else {
+        toast.success(`Created ${result.created} job(s)${result.skipped_duplicates > 0 ? `, ${result.skipped_duplicates} skipped (duplicates)` : ''}`);
+      }
+      refetchRegenJobs();
+      qc.invalidateQueries({ queryKey: ['regen-policy', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -730,7 +747,11 @@ export default function ProjectCasting() {
           {regenPolicyLoading ? (
             <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
           ) : regenPolicyData ? (
-            <RegenPolicyPanel data={regenPolicyData} />
+            <RegenPolicyPanel
+              data={regenPolicyData}
+              onRepair={(priorities) => autoRepairMutation.mutate(priorities)}
+              isRepairing={autoRepairMutation.isPending}
+            />
           ) : (
             <p className="text-xs text-muted-foreground">No policy data available.</p>
           )}
@@ -1597,7 +1618,15 @@ const POLICY_PRIORITY_CONFIG: Record<string, { label: string; dotClass: string; 
   low: { label: 'Low', dotClass: 'bg-muted-foreground', textClass: 'text-muted-foreground' },
 };
 
-function RegenPolicyPanel({ data }: { data: RegenPolicySummary }) {
+function RegenPolicyPanel({
+  data,
+  onRepair,
+  isRepairing,
+}: {
+  data: RegenPolicySummary;
+  onRepair: (priorities: ('high' | 'medium' | 'low')[]) => void;
+  isRepairing: boolean;
+}) {
   if (data.total_items === 0) {
     return <p className="text-xs text-muted-foreground">No regeneration recommendations — all outputs are healthy.</p>;
   }
@@ -1626,6 +1655,44 @@ function RegenPolicyPanel({ data }: { data: RegenPolicySummary }) {
         <span className="text-muted-foreground">
           Low: <strong>{data.low_priority}</strong>
         </span>
+      </div>
+
+      {/* Auto-repair actions */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {data.high_priority > 0 && (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-7 text-[11px]"
+            onClick={() => onRepair(['high'])}
+            disabled={isRepairing}
+          >
+            {isRepairing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
+            Fix High Priority
+          </Button>
+        )}
+        {(data.high_priority > 0 || data.medium_priority > 0) && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            onClick={() => onRepair(['high', 'medium'])}
+            disabled={isRepairing}
+          >
+            Fix High + Medium
+          </Button>
+        )}
+        {data.total_items > 0 && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-[11px]"
+            onClick={() => onRepair(['high', 'medium', 'low'])}
+            disabled={isRepairing}
+          >
+            Fix All
+          </Button>
+        )}
       </div>
 
       {/* Grouped by output */}
