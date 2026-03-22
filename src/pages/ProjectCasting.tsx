@@ -666,7 +666,7 @@ export default function ProjectCasting() {
         <div className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-            Pending Created Actors ({(pendingBinds || []).length})
+            Actors Awaiting Binding ({(pendingBinds || []).length})
           </h3>
           <div className="space-y-2">
             {(pendingBinds || []).map((pb) => {
