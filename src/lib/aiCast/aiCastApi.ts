@@ -100,6 +100,9 @@ export const aiCastApi = {
   deleteAsset: (assetId: string) =>
     callAiCast('delete_asset', { assetId }),
 
+  deleteActor: (actorId: string, force?: boolean) =>
+    callAiCast('delete_actor', { actorId, force: force || false }),
+
   generateScreenTest: (actorId: string, versionId: string, count?: number) =>
     callAiCast('generate_screen_test', { actorId, versionId, count }),
 
