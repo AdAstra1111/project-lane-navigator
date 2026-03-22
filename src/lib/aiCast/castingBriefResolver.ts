@@ -707,8 +707,14 @@ function meetsMinimumIdentityQuality(buckets: ActorIdentityBuckets): boolean {
  * Uses keyword detection to classify — deterministic, no LLM.
  */
 function classifyIntoBucket(signal: string, buckets: ActorIdentityBuckets): void {
-  const lower = signal.toLowerCase();
+  const lower = signal.toLowerCase().trim();
 
+  // Intercept standalone floating adjectives → route to archetype for completion-layer anchoring
+  const words = lower.split(/\s+/);
+  if (words.length === 1 && FLOATING_ADJECTIVES.has(words[0])) {
+    buckets.archetype.push(signal);
+    return;
+  }
   // Age patterns
   if (/\b(?:early|mid|late)\s*(?:teens|twenties|thirties|forties|fifties|sixties|seventies|eighties)\b/i.test(signal)
     || /\b\d{1,2}[\s-]*(?:year|yo)\b/i.test(signal)) {
