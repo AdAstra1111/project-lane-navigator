@@ -56,6 +56,11 @@ import {
   type SceneConsistencyResult,
   type SceneCharacterCheck,
 } from '@/lib/aiCast/sceneConsistency';
+import {
+  buildRegenPolicy,
+  type RegenPolicySummary,
+  type RegenPolicyItem,
+} from '@/lib/aiCast/regenPolicyEngine';
 
 interface CastMapping {
   id: string;
@@ -79,6 +84,7 @@ export default function ProjectCasting() {
   const [showConsistency, setShowConsistency] = useState(false);
   const [showContinuity, setShowContinuity] = useState(false);
   const [showSceneIntegrity, setShowSceneIntegrity] = useState(false);
+  const [showRegenPolicy, setShowRegenPolicy] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -166,6 +172,13 @@ export default function ProjectCasting() {
     queryKey: ['scene-integrity', projectId],
     queryFn: () => evaluateProjectSceneConsistency(projectId!),
     enabled: !!projectId && showSceneIntegrity,
+  });
+
+  // Regen policy (lazy)
+  const { data: regenPolicyData, isLoading: regenPolicyLoading, refetch: refetchRegenPolicy } = useQuery({
+    queryKey: ['regen-policy', projectId],
+    queryFn: () => buildRegenPolicy(projectId!),
+    enabled: !!projectId && showRegenPolicy,
   });
 
   // Queue all regen jobs mutation
@@ -359,6 +372,12 @@ export default function ProjectCasting() {
             onClick={() => { setShowSceneIntegrity(!showSceneIntegrity); if (!showSceneIntegrity) refetchSceneIntegrity(); }}
           >
             <Shield className="h-3.5 w-3.5" /> {showSceneIntegrity ? 'Hide' : ''} Scene Integrity
+          </Button>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowRegenPolicy(!showRegenPolicy); if (!showRegenPolicy) refetchRegenPolicy(); }}
+          >
+            <Eye className="h-3.5 w-3.5" /> {showRegenPolicy ? 'Hide' : ''} Regen Policy
           </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
@@ -698,6 +717,22 @@ export default function ProjectCasting() {
             <SceneIntegrityPanel data={sceneIntegrityData} />
           ) : (
             <p className="text-xs text-muted-foreground">No scene integrity data available.</p>
+          )}
+        </div>
+      )}
+
+      {/* Regen Policy Panel */}
+      {showRegenPolicy && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <Eye className="h-3.5 w-3.5" /> Regeneration Policy
+          </h3>
+          {regenPolicyLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : regenPolicyData ? (
+            <RegenPolicyPanel data={regenPolicyData} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No policy data available.</p>
           )}
         </div>
       )}
@@ -1549,6 +1584,79 @@ function SceneIntegrityPanel({ data }: { data: ProjectSceneConsistencySummary })
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ── Regen Policy Panel ──────────────────────────────────────────────────────
+
+const POLICY_PRIORITY_CONFIG: Record<string, { label: string; dotClass: string; textClass: string }> = {
+  high: { label: 'High', dotClass: 'bg-destructive', textClass: 'text-destructive' },
+  medium: { label: 'Medium', dotClass: 'bg-amber-500', textClass: 'text-amber-700' },
+  low: { label: 'Low', dotClass: 'bg-muted-foreground', textClass: 'text-muted-foreground' },
+};
+
+function RegenPolicyPanel({ data }: { data: RegenPolicySummary }) {
+  if (data.total_items === 0) {
+    return <p className="text-xs text-muted-foreground">No regeneration recommendations — all outputs are healthy.</p>;
+  }
+
+  // Group by output_id for readability
+  const grouped = new Map<string, RegenPolicyItem[]>();
+  for (const item of data.items) {
+    const list = grouped.get(item.output_id) || [];
+    list.push(item);
+    grouped.set(item.output_id, list);
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 text-[11px] flex-wrap">
+        <span className="text-muted-foreground">
+          Total: <strong className="text-foreground">{data.total_items}</strong>
+        </span>
+        <span className={data.high_priority > 0 ? 'text-destructive' : 'text-muted-foreground'}>
+          High: <strong>{data.high_priority}</strong>
+        </span>
+        <span className={data.medium_priority > 0 ? 'text-amber-700' : 'text-muted-foreground'}>
+          Medium: <strong>{data.medium_priority}</strong>
+        </span>
+        <span className="text-muted-foreground">
+          Low: <strong>{data.low_priority}</strong>
+        </span>
+      </div>
+
+      {/* Grouped by output */}
+      <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20 max-h-[400px] overflow-y-auto">
+        {[...grouped.entries()].map(([outputId, items]) => (
+          <div key={outputId} className="px-3 py-2 space-y-1">
+            <div className="text-[10px] font-mono text-muted-foreground">
+              {outputId.slice(0, 16)}…
+            </div>
+            {items.map((item, idx) => {
+              const pc = POLICY_PRIORITY_CONFIG[item.priority] || POLICY_PRIORITY_CONFIG.low;
+              return (
+                <div key={`${item.character_key}-${idx}`} className="flex items-center gap-2 text-[10px] pl-2">
+                  <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', pc.dotClass)} />
+                  <span className="font-medium text-foreground w-20 truncate">
+                    {item.character_key || 'ALL'}
+                  </span>
+                  <Badge variant="outline" className={cn('text-[8px] h-3.5', pc.textClass)}>
+                    {pc.label}
+                  </Badge>
+                  <span className="text-[9px] text-muted-foreground truncate flex-1">
+                    {item.reasons.map(r => r.replace(/_/g, ' ')).join(', ')}
+                  </span>
+                  <span className="text-[9px] text-muted-foreground/70 shrink-0">
+                    {item.confidence}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
