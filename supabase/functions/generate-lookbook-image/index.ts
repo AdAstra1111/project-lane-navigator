@@ -1216,6 +1216,69 @@ serve(async (req) => {
       compositionRuleHash = [resolvedCompositionRule.balance, resolvedCompositionRule.subject_scale, resolvedCompositionRule.density].join('|');
     }
 
+    // ── CAMERA LANGUAGE: Resolve for current section/slide ──
+    const CAMERA_LANGUAGE_MAP: Record<string, { style: string; movement: string; lens: string }> = {
+      characters:  { style: 'Observational — documentary intimacy', movement: 'Static — locked-off, deliberate', lens: 'Compressed — telephoto, subject isolation' },
+      world:       { style: 'Observational — present but unobtrusive', movement: 'Slow push — gradual reveal', lens: 'Stable — natural perspective' },
+      key_moments: { style: 'Dynamic — kinetic energy, urgency', movement: 'Tracking — following action', lens: 'Stable — undistorted' },
+      story_engine:{ style: 'Observational — discovering the scene', movement: 'Slow push — building intimacy', lens: 'Stable — clean perspective' },
+      visual_language: { style: 'Formal — deliberate, composed', movement: 'Static — photograph quality', lens: 'Stable — clean rendering' },
+      themes:      { style: 'Observational — atmosphere discovery', movement: 'Slow push — building mood', lens: 'Stable — natural' },
+      cover:       { style: 'Formal — every element placed with intention', movement: 'Static — composed stillness', lens: 'Compressed — flattened depth, isolation' },
+      closing:     { style: 'Observational — reflective distance', movement: 'Slow push — gentle retreat', lens: 'Stable — natural perspective' },
+      poster_directions: { style: 'Formal — iconic, deliberate', movement: 'Static — composed', lens: 'Compressed — heroic isolation' },
+    };
+    const resolvedCameraLanguage = CAMERA_LANGUAGE_MAP[slideType] || CAMERA_LANGUAGE_MAP[section] || null;
+    let cameraLanguagePromptBlock = '';
+    let cameraLanguageHash = '';
+    if (resolvedCameraLanguage) {
+      cameraLanguagePromptBlock = [
+        '[CAMERA LANGUAGE — DIRECTORIAL STYLE]',
+        `Camera: ${resolvedCameraLanguage.style}`,
+        `Movement: ${resolvedCameraLanguage.movement}`,
+        `Lens: ${resolvedCameraLanguage.lens}`,
+      ].join('\n');
+      cameraLanguageHash = [resolvedCameraLanguage.style.split(' ')[0], resolvedCameraLanguage.movement.split(' ')[0], resolvedCameraLanguage.lens.split(' ')[0]].join('|');
+    }
+
+    // ── PRODUCTION DESIGN: Resolve from canon ──
+    const canonData = canon?.canon_json as Record<string, unknown> | null;
+    const productionMaterials: string[] = [];
+    let productionArchitecture = 'naturalistic';
+    const productionEnvRules: string[] = [];
+    if (canonData) {
+      const worldDescPD = (typeof canonData.world_description === 'string' ? canonData.world_description : '') + ' ' + (typeof canonData.setting === 'string' ? canonData.setting : '');
+      const wdLower = worldDescPD.toLowerCase();
+      const MAT_KW: Record<string, string> = { wood: 'wood', stone: 'stone', marble: 'marble', concrete: 'concrete', steel: 'steel', glass: 'glass', brick: 'brick', ceramic: 'ceramic', silk: 'silk', leather: 'leather', bamboo: 'bamboo', iron: 'iron', lacquer: 'lacquer', porcelain: 'porcelain' };
+      for (const [kw, mat] of Object.entries(MAT_KW)) {
+        if (wdLower.includes(kw)) productionMaterials.push(mat);
+      }
+      const ARCH_KW: Array<[string[], string]> = [
+        [['feudal', 'castle', 'fortress'], 'feudal/medieval'], [['edo', 'shogunate', 'samurai'], 'traditional Japanese'],
+        [['victorian', 'georgian'], 'Victorian'], [['modern', 'skyscraper'], 'modern urban'],
+        [['rural', 'farm', 'village'], 'rural vernacular'], [['palace', 'court'], 'palatial'],
+        [['temple', 'shrine'], 'sacred'], [['industrial', 'factory'], 'industrial'],
+      ];
+      for (const [kws, style] of ARCH_KW) { if (kws.some(k => wdLower.includes(k))) { productionArchitecture = style; break; } }
+      if (canonData.world_rules && Array.isArray(canonData.world_rules)) {
+        productionEnvRules.push(...(canonData.world_rules as string[]).filter(r => typeof r === 'string').slice(0, 4));
+      }
+      const era = typeof canonData.era === 'string' ? canonData.era : typeof canonData.period === 'string' ? canonData.period : '';
+      if (era) productionEnvRules.push(`Period: ${era}`);
+    }
+    let productionDesignPromptBlock = '';
+    let productionDesignHash = '';
+    if (productionMaterials.length > 0 || productionEnvRules.length > 0) {
+      const lines = ['[PRODUCTION DESIGN — WORLD CONSISTENCY]'];
+      if (productionMaterials.length > 0) lines.push(`MATERIALS: ${productionMaterials.join(', ')}`);
+      lines.push(`ARCHITECTURE: ${productionArchitecture}`);
+      if (productionEnvRules.length > 0) { lines.push('ENVIRONMENT RULES:'); for (const r of productionEnvRules) lines.push(`  - ${r}`); }
+      lines.push('', 'All imagery must respect these production design constraints.');
+      productionDesignPromptBlock = lines.join('\n');
+      productionDesignHash = `${productionArchitecture}|${productionMaterials.sort().join(',')}`;
+    }
+    }
+
     // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
       .from("projects")
