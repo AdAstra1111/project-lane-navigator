@@ -1510,11 +1510,11 @@ export async function buildCharacterCastingBrief(
       }
     }
   }
-  }
 
   // ── 2. canon_json.characters ────────────────────────────────────────────
   // ALL canon_json.characters fields go to STORY CONTEXT ONLY.
   // They are narrative descriptions, not visual performer criteria.
+  // EXCEPT: role title is used for safe gender inference if not already resolved.
 
   const { data: canonRow } = await (supabase as any)
     .from('project_canon')
@@ -1526,6 +1526,7 @@ export async function buildCharacterCastingBrief(
     const canonChars = canonRow.canon_json.characters as Array<{
       name?: string;
       role?: string;
+      description?: string;
       traits?: string;
       goals?: string;
       secrets?: string;
@@ -1546,6 +1547,12 @@ export async function buildCharacterCastingBrief(
       if (matched.goals) storyNotes.push(`Goals: ${matched.goals}`);
       if (matched.secrets) storyNotes.push(`Secrets: ${matched.secrets}`);
       if (matched.relationships) storyNotes.push(`Relationships: ${matched.relationships}`);
+
+      // Gender inference from role title (deterministic, no plot bleed)
+      if (!genderPresentation) {
+        const inferredFromRole = inferGenderFromRoleText(matched.role || null, matched.description || null);
+        if (inferredFromRole) genderPresentation = inferredFromRole;
+      }
     }
   }
 
