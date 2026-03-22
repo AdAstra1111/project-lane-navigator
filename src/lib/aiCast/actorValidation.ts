@@ -107,7 +107,7 @@ export async function startValidationRun(actorId: string, actorVersionId?: strin
     .from('actor_validation_runs')
     .select('id, status')
     .eq('actor_id', actorId)
-    .in('status', ['pending', 'generating', 'scoring'])
+    .in('status', ['pending', 'generating', 'scoring', 'pack_generated'])
     .limit(1);
 
   if (existing && existing.length > 0) {
