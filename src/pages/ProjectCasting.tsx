@@ -1,12 +1,13 @@
 /**
  * ProjectCasting — Project-level AI cast mapping with identity source visibility,
- * binding freshness diagnostics, rebind/unbind actions, and impact analysis.
+ * binding freshness diagnostics, rebind/unbind actions, impact analysis,
+ * and Phase 8 Cast Health governance dashboard.
  */
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
-  RefreshCw, AlertTriangle, Activity
+  RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,14 @@ import { resolveProjectCastIdentity, type ActorIdentityAnchors, type IdentitySou
 import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
 import { evaluateCastBindingFreshness, type BindingFreshness } from '@/lib/aiCast/castBindingDiagnostics';
 import { evaluateCastImpact, type CastImpactResult } from '@/lib/aiCast/castImpactDiagnostics';
+import {
+  evaluateProjectCastHealth,
+  getImpactedOutputs,
+  type CastGovernanceResult,
+  type GovernanceSeverity,
+  type GovernanceRecommendation,
+  type CharacterGovernanceState,
+} from '@/lib/aiCast/castGovernance';
 
 interface CastMapping {
   id: string;
@@ -42,6 +51,7 @@ export default function ProjectCasting() {
   const qc = useQueryClient();
   const [newCharKey, setNewCharKey] = useState('');
   const [showImpact, setShowImpact] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -96,10 +106,18 @@ export default function ProjectCasting() {
     enabled: !!projectId && showImpact,
   });
 
+  // Cast Health governance (lazy)
+  const { data: healthData, isLoading: healthLoading, refetch: refetchHealth } = useQuery({
+    queryKey: ['cast-health', projectId],
+    queryFn: () => evaluateProjectCastHealth(projectId!),
+    enabled: !!projectId && showHealth,
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-impact', projectId] });
+    qc.invalidateQueries({ queryKey: ['cast-health', projectId] });
   };
 
   const addMapping = useMutation({
@@ -211,6 +229,12 @@ export default function ProjectCasting() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowHealth(!showHealth); if (!showHealth) refetchHealth(); }}
+          >
+            <ShieldCheck className="h-3.5 w-3.5" /> {showHealth ? 'Hide' : ''} Cast Health
+          </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowImpact(!showImpact); if (!showImpact) refetchImpact(); }}
@@ -381,7 +405,24 @@ export default function ProjectCasting() {
         </div>
       )}
 
-      {/* Identity Diagnostics Panel */}
+      {/* Cast Health Dashboard */}
+      {showHealth && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <ShieldCheck className="h-3.5 w-3.5" /> Cast Health Dashboard
+          </h3>
+          {healthLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : healthData ? (
+            <CastHealthPanel data={healthData} actors={actors} onRebind={(charKey, actorId) =>
+              rebindMutation.mutate({ characterKey: charKey, nextActorId: actorId, reason: 'Governance rebind' })
+            } />
+          ) : (
+            <p className="text-xs text-muted-foreground">No health data available.</p>
+          )}
+        </div>
+      )}
+
       {identityMap && Object.keys(identityMap).length > 0 && (
         <div className="border-t border-border/30 pt-4 space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
@@ -670,5 +711,145 @@ function IdentityStatusDot({ strength }: { strength: IdentityStrength }) {
       <span className={cn('h-1.5 w-1.5 rounded-full', config.className)} />
       <span className="text-[9px] text-muted-foreground">{config.label}</span>
     </span>
+  );
+}
+
+// ── Cast Health Panel ───────────────────────────────────────────────────────
+
+const SEVERITY_CONFIG: Record<GovernanceSeverity, { label: string; icon: typeof ShieldCheck; badgeClass: string; dotClass: string }> = {
+  healthy: { label: 'Healthy', icon: ShieldCheck, badgeClass: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', dotClass: 'bg-emerald-500' },
+  warning: { label: 'Warning', icon: Shield, badgeClass: 'bg-amber-500/15 text-amber-700 border-amber-500/30', dotClass: 'bg-amber-500' },
+  critical: { label: 'Critical', icon: ShieldAlert, badgeClass: 'bg-destructive/15 text-destructive border-destructive/30', dotClass: 'bg-destructive' },
+};
+
+const RECOMMENDATION_LABELS: Record<GovernanceRecommendation, string> = {
+  no_action: 'No action needed',
+  update_to_latest_version: 'Update to latest approved version',
+  rebind_required: 'Rebind to a roster-ready actor',
+  regenerate_outputs: 'Regenerate affected outputs',
+  investigate_missing_binding: 'Investigate missing binding',
+};
+
+function CastHealthPanel({ data, actors, onRebind }: {
+  data: CastGovernanceResult;
+  actors: any[];
+  onRebind: (charKey: string, actorId: string) => void;
+}) {
+  const OverallIcon = SEVERITY_CONFIG[data.overall_health].icon;
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 p-3 rounded-lg border border-border/50 bg-card/30">
+        <div className="flex items-center gap-2">
+          <OverallIcon className={cn('h-5 w-5', data.overall_health === 'healthy' ? 'text-emerald-600' : data.overall_health === 'warning' ? 'text-amber-600' : 'text-destructive')} />
+          <span className="text-sm font-medium text-foreground">
+            {data.overall_health === 'healthy' ? 'All Clear' : data.overall_health === 'warning' ? 'Needs Attention' : 'Action Required'}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground ml-auto">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> {data.severity_counts.healthy} healthy</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> {data.severity_counts.warning} warning</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-destructive" /> {data.severity_counts.critical} critical</span>
+        </div>
+      </div>
+
+      {/* Per-character rows */}
+      <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
+        {Object.values(data.characters).map((char) => (
+          <CastHealthRow
+            key={char.character_key}
+            state={char}
+            actors={actors}
+            onRebind={onRebind}
+          />
+        ))}
+        {Object.keys(data.characters).length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-4">No characters to evaluate.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CastHealthRow({ state, actors, onRebind }: {
+  state: CharacterGovernanceState;
+  actors: any[];
+  onRebind: (charKey: string, actorId: string) => void;
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+  const sevConfig = SEVERITY_CONFIG[state.severity];
+  const SevIcon = sevConfig.icon;
+  const actor = actors.find((a: any) => a.id === state.bound_actor_id);
+
+  return (
+    <div className="p-3 space-y-2">
+      <div className="flex items-center gap-3">
+        {/* Severity dot */}
+        <span className={cn('h-2 w-2 rounded-full shrink-0', sevConfig.dotClass)} />
+
+        {/* Character name */}
+        <span className="text-xs font-medium text-foreground w-28 truncate">{state.character_key}</span>
+
+        {/* Actor name */}
+        <span className="text-[11px] text-muted-foreground truncate w-24">
+          {actor?.name || (state.bound_actor_id ? state.bound_actor_id.slice(0, 8) : '—')}
+        </span>
+
+        {/* Freshness badge */}
+        <FreshnessBadge freshness={state.freshness} />
+
+        {/* Severity badge */}
+        <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium inline-flex items-center gap-0.5', sevConfig.badgeClass)}>
+          <SevIcon className="h-2.5 w-2.5" /> {sevConfig.label}
+        </span>
+
+        {/* Impact count */}
+        {state.impact_out_of_sync > 0 && (
+          <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700">
+            {state.impact_out_of_sync} out of sync
+          </Badge>
+        )}
+
+        {/* Actions */}
+        <div className="ml-auto flex items-center gap-1">
+          {state.recommendations.includes('update_to_latest_version') && state.bound_actor_id && (
+            <Button
+              size="sm" variant="outline"
+              className="h-6 text-[10px] gap-1 border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
+              onClick={() => onRebind(state.character_key, state.bound_actor_id!)}
+            >
+              <RefreshCw className="h-2.5 w-2.5" /> Update
+            </Button>
+          )}
+          <Button
+            size="icon" variant="ghost" className="h-6 w-6"
+            onClick={() => setShowDetails(!showDetails)}
+            title="View details"
+          >
+            <Eye className="h-3 w-3 text-muted-foreground" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Detail expansion */}
+      {showDetails && (
+        <div className="ml-5 pl-3 border-l-2 border-border/30 space-y-1">
+          <p className="text-[10px] text-muted-foreground">
+            <strong>Recommendations:</strong>
+          </p>
+          <ul className="list-disc list-inside text-[10px] text-muted-foreground space-y-0.5">
+            {state.recommendations.map((rec) => (
+              <li key={rec}>{RECOMMENDATION_LABELS[rec]}</li>
+            ))}
+          </ul>
+          {state.impact_total > 0 && (
+            <p className="text-[10px] text-muted-foreground">
+              {state.impact_total} tracked output{state.impact_total !== 1 ? 's' : ''}, {state.impact_out_of_sync} out of sync
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
