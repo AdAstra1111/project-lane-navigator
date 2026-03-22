@@ -1277,7 +1277,6 @@ serve(async (req) => {
       productionDesignPromptBlock = lines.join('\n');
       productionDesignHash = `${productionArchitecture}|${productionMaterials.sort().join(',')}`;
     }
-    }
 
     // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
