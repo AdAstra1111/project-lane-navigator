@@ -20,6 +20,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getActorThumbnail, getIdentityStrength, type IdentityStrength } from '@/lib/aiCast/identityStrength';
 import { resolveProjectCastIdentity, type ActorIdentityAnchors, type IdentitySource } from '@/lib/aiCast/resolveActorIdentity';
+import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
 
 interface CastMapping {
   id: string;
