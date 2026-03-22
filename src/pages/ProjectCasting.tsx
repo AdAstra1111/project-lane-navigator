@@ -823,11 +823,12 @@ const RECOMMENDATION_LABELS: Record<GovernanceRecommendation, string> = {
   investigate_missing_binding: 'Investigate missing binding',
 };
 
-function CastHealthPanel({ data, actors, projectId, onRebind }: {
+function CastHealthPanel({ data, actors, projectId, onRebind, onQueueRegen }: {
   data: CastGovernanceResult;
   actors: any[];
   projectId: string;
   onRebind: (charKey: string, actorId: string) => void;
+  onQueueRegen?: (characterKey: string) => void;
 }) {
   const OverallIcon = SEVERITY_CONFIG[data.overall_health].icon;
 
