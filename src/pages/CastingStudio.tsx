@@ -27,8 +27,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
-  runAnchorPrecheck, persistAnchorStatus,
-  type AnchorPrecheckResult,
+  runCandidateAnchorPrecheck, persistAnchorStatus,
+  type AnchorPrecheckResult, type CandidateAnchorPackage,
 } from '@/lib/aiCast/anchorValidation';
 
 // ── Types ───────────────────────────────────────────────────────────────────
