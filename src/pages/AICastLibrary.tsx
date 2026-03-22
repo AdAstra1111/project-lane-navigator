@@ -155,6 +155,7 @@ export default function AICastLibrary() {
             <SelectItem value="all" className="text-xs">All Status</SelectItem>
             <SelectItem value="active" className="text-xs">Active</SelectItem>
             <SelectItem value="draft" className="text-xs">Draft</SelectItem>
+            <SelectItem value="roster" className="text-xs">Roster Ready</SelectItem>
           </SelectContent>
         </Select>
         <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
@@ -165,6 +166,7 @@ export default function AICastLibrary() {
             <SelectItem value="recent" className="text-xs">Recent</SelectItem>
             <SelectItem value="name" className="text-xs">Name</SelectItem>
             <SelectItem value="usage" className="text-xs">Most Used</SelectItem>
+            <SelectItem value="quality" className="text-xs">Quality</SelectItem>
           </SelectContent>
         </Select>
       </div>
