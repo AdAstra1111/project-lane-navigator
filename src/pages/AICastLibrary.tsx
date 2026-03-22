@@ -5,6 +5,7 @@
  * Phase 16: Marketplace listing controls.
  */
 import { useState, useRef, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
@@ -80,7 +81,8 @@ export default function AICastLibrary() {
   }, [intelligenceData]);
 
   const [search, setSearch] = useState('');
-  const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedActorId, setSelectedActorId] = useState<string | null>(searchParams.get('actor'));
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateFromImages, setShowCreateFromImages] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('recent');
@@ -112,7 +114,7 @@ export default function AICastLibrary() {
       <ActorDetail
         actorId={selectedActorId}
         usageEntries={(usageData || []).filter(u => u.actorId === selectedActorId)}
-        onBack={() => setSelectedActorId(null)}
+        onBack={() => { setSelectedActorId(null); setSearchParams({}); }}
       />
     );
   }
