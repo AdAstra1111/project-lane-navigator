@@ -29,6 +29,8 @@ import { PipelineStage } from './types';
 import { buildConstraintPromptSuffix } from './slideTypeConstraints';
 import { validateCandidateForSlidePurpose, isEditorialSlide } from './slotPurposeValidator';
 import { resolveProjectCastIdentity, type ActorIdentityAnchors } from '@/lib/aiCast/resolveActorIdentity';
+import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
+import { assertIdentityFromResolver } from '@/lib/aiCast/assertCastResolution';
 
 // ── Execution Result ─────────────────────────────────────────────────────────
 
