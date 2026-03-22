@@ -951,6 +951,140 @@ export default function ProjectCasting() {
           )}
         </div>
       )}
+      {/* Cast Pack Panel (Phase 16.8) */}
+      {showCastPack && castPack && (
+        <div className="space-y-3 rounded-lg border border-primary/30 bg-card/20 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" /> Cast Pack
+            </h3>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => generatePackMutation.mutate()} disabled={generatePackMutation.isPending}>
+                <RefreshCw className="h-3 w-3 mr-1" /> Regenerate
+              </Button>
+            </div>
+          </div>
+          {/* Summary bar */}
+          {(() => {
+            const total = castPack.characters.length;
+            const withRecs = castPack.characters.filter(c => c.recommendations.length > 0).length;
+            const selected = Object.values(packSelections).filter(Boolean).length;
+            const alreadyBound = castPack.characters.filter(c => mappedKeys.has(c.character_key)).length;
+            const wouldApply = castPack.characters.filter(c => packSelections[c.character_key] && !mappedKeys.has(c.character_key)).length;
+            const wouldSkip = castPack.characters.filter(c => packSelections[c.character_key] && mappedKeys.has(c.character_key)).length;
+            return (
+              <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground bg-muted/10 rounded-md px-3 py-2">
+                <span>{total} characters</span>
+                <span className="text-foreground">{withRecs} with recs</span>
+                <span className="text-primary">{selected} selected</span>
+                <span className="text-emerald-500">{alreadyBound} bound</span>
+                <span className="text-sky-400">{wouldApply} would apply</span>
+                {wouldSkip > 0 && <span className="text-amber-400">{wouldSkip} would skip (existing)</span>}
+              </div>
+            );
+          })()}
+          {/* Per-character rows */}
+          <div className="space-y-2">
+            {castPack.characters.map(charChoice => {
+              const isBound = mappedKeys.has(charChoice.character_key);
+              const currentBinding = (mappings || []).find(m => m.character_key === charChoice.character_key);
+              const currentActor = currentBinding ? actors.find((a: any) => a.id === currentBinding.ai_actor_id) : null;
+              const selectedActorId = packSelections[charChoice.character_key];
+
+              return (
+                <div key={charChoice.character_key} className="rounded-md border border-border/30 bg-card/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{charChoice.character_key}</span>
+                      {isBound && currentActor && (
+                        <Badge variant="outline" className="text-[8px] h-4 text-emerald-500 border-emerald-500/30">
+                          Bound: {currentActor.name}
+                        </Badge>
+                      )}
+                      {!isBound && (
+                        <Badge variant="outline" className="text-[8px] h-4 text-muted-foreground border-border">
+                          Unbound
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  {charChoice.recommendations.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground">No matching actors available.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {charChoice.recommendations.map((rec) => {
+                        const isSelected = selectedActorId === rec.actor_id;
+                        return (
+                          <button
+                            key={rec.actor_id}
+                            onClick={() => {
+                              setPackSelections(prev => ({
+                                ...prev,
+                                [charChoice.character_key]: isSelected ? null : rec.actor_id,
+                              }));
+                            }}
+                            className={cn(
+                              'w-full flex items-center gap-3 p-2 rounded-md border text-left transition-colors',
+                              isSelected
+                                ? 'border-primary/50 bg-primary/5'
+                                : 'border-border/20 bg-muted/5 hover:bg-muted/10'
+                            )}
+                          >
+                            <div className={cn(
+                              'w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center',
+                              isSelected ? 'border-primary' : 'border-muted-foreground/30'
+                            )}>
+                              {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-foreground truncate">{rec.actor_name}</span>
+                                <Badge variant="outline" className={cn('text-[8px] h-4', {
+                                  'text-amber-400 border-amber-400/30': rec.reusability_tier === 'signature',
+                                  'text-emerald-400 border-emerald-400/30': rec.reusability_tier === 'reliable',
+                                  'text-sky-400 border-sky-400/30': rec.reusability_tier === 'emerging',
+                                  'text-muted-foreground border-border': rec.reusability_tier === 'unvalidated',
+                                })}>
+                                  {rec.reusability_tier}
+                                </Badge>
+                                <span className="text-[10px] font-mono text-primary">{rec.match_score}pts</span>
+                              </div>
+                              <div className="text-[9px] text-muted-foreground/70 mt-0.5 truncate">
+                                {rec.match_reasons.join(' · ')}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Apply CTAs */}
+          <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+            <Button
+              size="sm" className="h-8 text-xs gap-1.5"
+              onClick={() => applyPackMutation.mutate(false)}
+              disabled={applyPackMutation.isPending || Object.values(packSelections).filter(Boolean).length === 0}
+            >
+              {applyPackMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              Apply Unbound Only
+            </Button>
+            <Button
+              size="sm" variant="outline" className="h-8 text-xs gap-1.5"
+              onClick={() => applyPackMutation.mutate(true)}
+              disabled={applyPackMutation.isPending || Object.values(packSelections).filter(Boolean).length === 0}
+            >
+              Apply & Replace Existing
+            </Button>
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              {Object.values(packSelections).filter(Boolean).length} selected
+            </span>
+          </div>
+        </div>
+      )}
       {/* Cast from Library Dialog */}
       <CastFromLibraryDialog
         characterKey={showCastLibrary}
