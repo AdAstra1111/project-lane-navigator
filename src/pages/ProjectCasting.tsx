@@ -555,7 +555,7 @@ export default function ProjectCasting() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium text-foreground">{m.character_key}</span>
                     <span className="text-muted-foreground text-[10px]">→</span>
-                    <span className="text-xs text-primary font-medium">{actor?.name || m.ai_actor_id.slice(0, 8)}</span>
+                    <span className="text-xs text-primary font-medium">{resolveActorDisplayName(actor, { characterKey: m.character_key })}</span>
                     <FreshnessBadge freshness={freshness} />
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
