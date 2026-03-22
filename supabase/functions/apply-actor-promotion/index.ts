@@ -283,7 +283,7 @@ Deno.serve(async (req) => {
         p_actor_version_id: currentActor.approved_version_id,
         p_validation_run_id: null,
         p_validation_result_id: null,
-        p_scoring_model: null,
+        p_scoring_model: "none",
         p_policy_version: PROMOTION_POLICY_VERSION,
         p_eligible_for_promotion: false,
         p_review_required: false,
