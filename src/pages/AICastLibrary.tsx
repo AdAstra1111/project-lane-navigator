@@ -183,6 +183,8 @@ export default function AICastLibrary() {
 function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount: number; onClick: () => void }) {
   const thumbnail = getActorThumbnail(actor.ai_actor_versions);
   const identity = getIdentityStrength(actor.ai_actor_versions);
+  const coverageStatus = (actor as any).anchor_coverage_status as AnchorCoverageStatus | undefined;
+  const coherenceStatus = (actor as any).anchor_coherence_status as AnchorCoherenceStatus | undefined;
 
   return (
     <button onClick={onClick} className="text-left rounded-lg border border-border/50 bg-card/50 hover:bg-muted/20 transition-colors overflow-hidden group">
@@ -192,7 +194,12 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
         ) : (
           <div className="flex items-center justify-center h-full"><Users className="h-8 w-8 text-muted-foreground/30" /></div>
         )}
-        <div className="absolute top-2 right-2"><IdentityBadge strength={identity.strength} size="sm" /></div>
+        <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+          <IdentityBadge strength={identity.strength} size="sm" />
+          {coverageStatus && coverageStatus !== 'insufficient' && (
+            <AnchorCoverageBadge status={coverageStatus} />
+          )}
+        </div>
       </div>
       <div className="p-3 space-y-1.5">
         <div className="flex items-center justify-between">
@@ -221,6 +228,21 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
         )}
       </div>
     </button>
+  );
+}
+
+// ── Anchor Coverage Badge ───────────────────────────────────────────────────
+
+function AnchorCoverageBadge({ status }: { status: AnchorCoverageStatus }) {
+  const config = {
+    complete: { label: 'Anchors ✓', className: 'bg-emerald-500/90 text-white' },
+    partial: { label: 'Partial', className: 'bg-amber-500/90 text-white' },
+    insufficient: { label: 'Missing', className: 'bg-destructive/90 text-white' },
+  }[status];
+  return (
+    <span className={cn('rounded-full text-[8px] px-1.5 py-0.5 font-medium', config.className)}>
+      {config.label}
+    </span>
   );
 }
 
