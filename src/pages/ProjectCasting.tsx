@@ -2393,11 +2393,11 @@ function InlineCreateActorDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Section 1 — Role Context (read-only) */}
+            {/* Section 1 — Character Context (read-only, quarantined from actor criteria) */}
             {context && (
               <div className="rounded-md border border-border/40 bg-muted/10 p-3 space-y-1.5">
                 <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Role Context
+                  Character Context <span className="font-normal opacity-60">— story reference only</span>
                 </h4>
                 <p className="text-xs font-medium text-foreground">{context.display_name}</p>
                 {context.role_in_story && (
