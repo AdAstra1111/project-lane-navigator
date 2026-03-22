@@ -442,8 +442,8 @@ function inferGenderFromPassages(passages: string[]): string | null {
  */
 function inferGenderFromRoleText(role: string | null, description: string | null): string | null {
   const combined = `${role || ''} ${description || ''}`.toLowerCase();
-  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|waitress|actress|nun|geisha|courtesan)\b/.test(combined)) return 'woman';
-  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord)\b/.test(combined)) return 'man';
+  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|waitress|actress|nun|geisha|courtesan|bride|mistress|duchess|countess|baroness|governess|handmaiden|maiden|sorceress|witch)\b/.test(combined)) return 'woman';
+  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord|groom|duke|count|baron|knight|squire|sorcerer|wizard)\b/.test(combined)) return 'man';
   return null;
 }
 
