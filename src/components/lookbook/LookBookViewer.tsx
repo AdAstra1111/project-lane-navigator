@@ -450,7 +450,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
               onOverride={handleOverride}
             />
 
-            {/* ── Selection Score Diagnostics (Phase 16.5) ── */}
+            {/* ── Selection Score Diagnostics (Phase 16.5 + 16.6) ── */}
             {currentSlideData.roledImages && currentSlideData.roledImages.length > 0 && (
               <Collapsible className="mt-3">
                 <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
@@ -471,6 +471,17 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
                 </CollapsibleContent>
               </Collapsible>
             )}
+
+            {/* ── Composition Rule Diagnostics (Phase 16.6) ── */}
+            <Collapsible className="mt-2">
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
+                <Info className="h-3 w-3" />
+                Composition Rule
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1.5">
+                <CompositionRuleDiagnostic slideType={currentSlideData.type} />
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         )}
       </div>
