@@ -1063,6 +1063,9 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
         )}
       </div>
 
+      {/* Marketplace Listing */}
+      <MarketplaceListingPanel actorId={actorId} rosterReady={promotionState?.roster_ready || false} approvedVersionId={promotionState?.approved_version_id || null} />
+
       {/* Versions */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
