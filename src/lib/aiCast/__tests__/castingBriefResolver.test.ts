@@ -43,6 +43,7 @@ const {
   inferGenderFromPassages,
   inferGenderFromRoleText,
   inferAgeFromPassages,
+  derivePlayingAge,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
