@@ -117,6 +117,7 @@ export default function ProjectCasting() {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-impact', projectId] });
+    qc.invalidateQueries({ queryKey: ['cast-health', projectId] });
   };
 
   const addMapping = useMutation({
