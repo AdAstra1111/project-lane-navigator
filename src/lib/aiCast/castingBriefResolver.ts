@@ -505,6 +505,168 @@ function createEmptyBuckets(): ActorIdentityBuckets {
   };
 }
 
+// ── Phase 17.5: Identity Completion Layer ────────────────────────────────────
+
+/**
+ * SAFE PRESENCE EXPANSION MAP
+ * Transforms terse/ambiguous presence words into casting-grade phrasing.
+ */
+const PRESENCE_EXPANSION: Record<string, string> = {
+  'fierce': 'controlled intensity',
+  'quiet': 'quiet authority',
+  'bold': 'bold presence',
+  'gentle': 'gentle warmth',
+  'stern': 'stern composure',
+  'brooding': 'brooding intensity',
+  'serene': 'serene composure',
+  'luminous': 'luminous presence',
+  'formidable': 'formidable authority',
+};
+
+/**
+ * FLOATING ADJECTIVE DOMAIN ANCHORING
+ * Adjectives that must be attached to a physical domain, not left floating.
+ */
+const FLOATING_ADJECTIVES = new Set([
+  'dark', 'light', 'bright', 'rough', 'smooth',
+  'fine', 'thick', 'thin', 'heavy',
+]);
+
+/**
+ * Expand a terse presence marker into casting-grade phrasing.
+ */
+function expandPresenceMarker(marker: string): string {
+  const norm = marker.toLowerCase().trim();
+  return PRESENCE_EXPANSION[norm] || marker;
+}
+
+/**
+ * Check if a floating adjective can be anchored to a physical domain
+ * based on existing bucket contents. Returns the anchored form or null.
+ */
+function anchorFloatingAdjective(adj: string, buckets: ActorIdentityBuckets): string | null {
+  const norm = adj.toLowerCase().trim();
+  if (!FLOATING_ADJECTIVES.has(norm)) return null;
+
+  if (norm === 'dark' || norm === 'light') {
+    if (buckets.hair.length === 0) return `${norm} hair`;
+    if (buckets.eyes.length === 0) return `${norm} eyes`;
+    if (buckets.skin.length === 0) return `${norm} complexion`;
+  }
+  return null;
+}
+
+/**
+ * Phase 17.5: Deterministic identity completion.
+ *
+ * Fills sparse-but-required casting dimensions:
+ * - Anchors floating adjectives to physical domains
+ * - Expands terse presence markers into casting-grade phrasing
+ * - Adds period styling when supported by world context
+ * - Enforces richer completion for lead/protagonist roles
+ *
+ * INVARIANTS:
+ * - No LLM synthesis
+ * - No unsupported ethnicity/cultural invention
+ * - No plot language introduced
+ * - All completion is deterministic and source-grounded
+ */
+function completeActorIdentityBuckets(
+  buckets: ActorIdentityBuckets,
+  roleInStory: string | null,
+  worldStylingCues: string[],
+): ActorIdentityBuckets {
+  // Deep copy to avoid mutation
+  const completed: ActorIdentityBuckets = {
+    age: [...buckets.age],
+    gender: [...buckets.gender],
+    ethnicity: [...buckets.ethnicity],
+    build: [...buckets.build],
+    height: [...buckets.height],
+    face: [...buckets.face],
+    hair: [...buckets.hair],
+    eyes: [...buckets.eyes],
+    skin: [...buckets.skin],
+    scars_marks: [...buckets.scars_marks],
+    styling: [...buckets.styling],
+    presence: [...buckets.presence],
+    archetype: [...buckets.archetype],
+  };
+
+  // 1. Anchor floating adjectives from archetype bucket
+  const remainingArchetype: string[] = [];
+  for (const item of completed.archetype) {
+    const words = item.toLowerCase().trim().split(/\s+/);
+    if (words.length === 1 && FLOATING_ADJECTIVES.has(words[0])) {
+      const anchored = anchorFloatingAdjective(words[0], completed);
+      if (anchored) {
+        classifyIntoBucket(anchored, completed);
+      } else {
+        remainingArchetype.push(item);
+      }
+    } else {
+      remainingArchetype.push(item);
+    }
+  }
+  completed.archetype = remainingArchetype;
+
+  // 2. Expand terse presence markers into casting-grade phrasing
+  completed.presence = completed.presence.map(expandPresenceMarker);
+
+  // 3. Infer period/world styling if styling bucket is empty but world cues exist
+  if (completed.styling.length === 0 && worldStylingCues.length > 0) {
+    const periodCue = worldStylingCues.find(c =>
+      /period|victorian|edwardian|regency|medieval|meiji|edo|taisho|renaissance/i.test(c)
+    );
+    if (periodCue) {
+      completed.styling.push(`${periodCue.toLowerCase()} styling`);
+    } else {
+      completed.styling.push('period-appropriate styling');
+    }
+  }
+
+  // 4. Role weighting: leads get richer completion
+  const isLead = roleInStory
+    ? /\b(?:protagonist|lead|main\s*character|central|hero|heroine|principal)\b/i.test(roleInStory)
+    : false;
+
+  if (isLead) {
+    // Promote any performer-safe archetype terms to presence for leads
+    if (completed.presence.length === 0) {
+      const promotable = completed.archetype.filter(a => isPerformerSafePresence(a.toLowerCase()));
+      if (promotable.length > 0) {
+        completed.presence.push(...promotable.map(expandPresenceMarker));
+        completed.archetype = completed.archetype.filter(a => !promotable.includes(a));
+      }
+    }
+  }
+
+  return completed;
+}
+
+/**
+ * Phase 17.5: Count distinct identity dimensions covered.
+ */
+function countIdentityDimensions(buckets: ActorIdentityBuckets): number {
+  let count = 0;
+  if (buckets.gender.length > 0 || buckets.ethnicity.length > 0) count++;
+  if (buckets.age.length > 0) count++;
+  if (buckets.build.length > 0 || buckets.height.length > 0) count++;
+  if (buckets.face.length > 0 || buckets.hair.length > 0 || buckets.eyes.length > 0 || buckets.skin.length > 0) count++;
+  if (buckets.presence.length > 0) count++;
+  if (buckets.styling.length > 0) count++;
+  if (buckets.scars_marks.length > 0) count++;
+  return count;
+}
+
+/**
+ * Phase 17.5: Minimum identity quality gate.
+ * Returns true if at least 3 identity dimensions are covered.
+ */
+function meetsMinimumIdentityQuality(buckets: ActorIdentityBuckets): boolean {
+  return countIdentityDimensions(buckets) >= 3;
+}
+
 /**
  * Map a visual marker string into the appropriate identity bucket.
  * Uses keyword detection to classify — deterministic, no LLM.
@@ -1030,31 +1192,34 @@ export async function buildCharacterCastingBrief(
   };
 
   // ── Phase 17.4: Classify signals into identity buckets ──────────────────
-  const buckets = createEmptyBuckets();
+  const rawBuckets = createEmptyBuckets();
 
   // Seed buckets from structured hints (highest trust: canon_facts)
-  if (genderPresentation) buckets.gender.push(genderPresentation);
-  if (ageHint) buckets.age.push(ageHint);
-  if (ethnicityHint) buckets.ethnicity.push(ethnicityHint);
+  if (genderPresentation) rawBuckets.gender.push(genderPresentation);
+  if (ageHint) rawBuckets.age.push(ageHint);
+  if (ethnicityHint) rawBuckets.ethnicity.push(ethnicityHint);
 
   // Classify all visual markers into buckets
   for (const vm of visualMarkers) {
-    classifyIntoBucket(vm, buckets);
+    classifyIntoBucket(vm, rawBuckets);
   }
 
   // Presence markers (already performer-safe filtered)
   for (const pm of presenceMarkers) {
     if (isPerformerSafePresence(pm)) {
-      buckets.presence.push(pm);
+      rawBuckets.presence.push(pm);
     }
   }
 
   // Styling cues
   for (const sc of stylingCues) {
-    buckets.styling.push(sc);
+    rawBuckets.styling.push(sc);
   }
 
-  // ── Compose actor identity from buckets ────────────────────────────────
+  // ── Phase 17.5: Identity completion ────────────────────────────────────
+  const buckets = completeActorIdentityBuckets(rawBuckets, roleInStory, stylingCues);
+
+  // ── Compose actor identity from completed buckets ──────────────────────
   const composedDescription = composeActorDescriptionFromBuckets(buckets);
 
   // Final defensive sanitization
@@ -1072,13 +1237,16 @@ export async function buildCharacterCastingBrief(
   // Negative exclusions from project world/style
   const negativeExclusions = composeNegativePrompt(canonRow?.canon_json);
 
+  // Quality gate diagnostic (does not block, but informs)
+  const _qualityMet = meetsMinimumIdentityQuality(buckets);
+
   const brief: CastingBrief = {
     age_hint: ageHint,
     gender_presentation: genderPresentation,
     ethnicity_or_cultural_appearance: ethnicityHint,
     appearance_markers: [...new Set(visualMarkers)].slice(0, 8),
     visual_archetype: visualArchetype,
-    styling_cues: [...new Set(stylingCues)].slice(0, 5),
+    styling_cues: [...new Set(buckets.styling)].slice(0, 5),
     performance_vibe: dedupedPresence.slice(0, 5),
     negative_exclusions: negativeExclusions,
     suggested_actor_name: displayName,
@@ -1103,4 +1271,10 @@ export const _testHelpers = {
   composeActorDescriptionFromBuckets,
   composeActorTagsFromBuckets,
   dedupeAndResolveConflicts,
+  completeActorIdentityBuckets,
+  countIdentityDimensions,
+  meetsMinimumIdentityQuality,
+  expandPresenceMarker,
+  anchorFloatingAdjective,
+  FLOATING_ADJECTIVES,
 };
