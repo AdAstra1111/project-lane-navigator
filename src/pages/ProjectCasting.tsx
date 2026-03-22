@@ -78,6 +78,7 @@ import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrengt
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 // Legacy prefill wrapper removed — canonical path is buildCharacterCastingBrief
 import { buildCharacterCastingBrief, type CharacterCastingBriefResult, type CastingBrief, type CharacterContextSummary } from '@/lib/aiCast/castingBriefResolver';
+import { buildCastingSpecificityProfile, getSpecificityDimensionEntries, getSearchBehaviorLabel } from '@/lib/aiCast/castingSpecificity';
 import {
   createPendingActorBindContext,
   getPendingActorBindContextsForProject,
