@@ -915,8 +915,8 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
             </Button>
           )}
 
-          {/* Reject */}
-          {!promotionState?.roster_ready && promotionState?.promotion_status !== 'rejected' && (
+          {/* Reject — available when not roster-ready (rejection is a version-level decision, not actor-level) */}
+          {!promotionState?.roster_ready && (
             <Button
               size="sm" variant="outline" className="h-7 text-xs gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
               onClick={() => applyDecision.mutate({ actorId, action: 'reject', decisionNote })}
