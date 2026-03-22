@@ -1066,15 +1066,14 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
       {/* Marketplace Listing */}
       <MarketplaceListingPanel actorId={actorId} rosterReady={promotionState?.roster_ready || false} approvedVersionId={promotionState?.approved_version_id || null} />
 
-      {/* Versions */}
+      {/* Candidate Review — filmstrip + detail panel */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">Versions</h3>
-          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => createVersion.mutate({ actorId })}>
-            <Plus className="h-3 w-3" /> New Version
-          </Button>
-        </div>
-        {versions.map(ver => <VersionCard key={ver.id} ver={ver} actorId={actorId} />)}
+        <h3 className="text-sm font-medium text-foreground">Candidate Review</h3>
+        <ActorCandidateReview
+          actorId={actorId}
+          versions={versions}
+          approvedVersionId={(actor as any).approved_version_id}
+        />
       </div>
     </div>
   );
