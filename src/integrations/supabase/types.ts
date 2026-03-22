@@ -16402,6 +16402,7 @@ export type Database = {
           lighting_philosophy: string
           period: string
           project_id: string
+          style_lock_json: Json | null
           texture_materiality: string
           updated_at: string
         }
@@ -16419,6 +16420,7 @@ export type Database = {
           lighting_philosophy?: string
           period?: string
           project_id: string
+          style_lock_json?: Json | null
           texture_materiality?: string
           updated_at?: string
         }
@@ -16436,6 +16438,7 @@ export type Database = {
           lighting_philosophy?: string
           period?: string
           project_id?: string
+          style_lock_json?: Json | null
           texture_materiality?: string
           updated_at?: string
         }

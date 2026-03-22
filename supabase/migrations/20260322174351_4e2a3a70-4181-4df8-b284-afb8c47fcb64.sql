@@ -1,0 +1,1 @@
+ALTER TABLE public.project_visual_style ADD COLUMN IF NOT EXISTS style_lock_json jsonb DEFAULT NULL;
