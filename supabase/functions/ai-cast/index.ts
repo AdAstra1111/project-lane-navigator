@@ -250,9 +250,8 @@ Deno.serve(async (req) => {
         const { data: castMappings, error: castErr } = await db
           .from("project_ai_cast")
           .select(`
-            character_key, wardrobe_pack, notes,
-            ai_actors!inner(id, name, description, negative_prompt, tags, user_id),
-            ai_actor_versions(id, version_number, recipe_json, is_approved)
+            character_key, wardrobe_pack, notes, ai_actor_version_id,
+            ai_actors!inner(id, name, description, negative_prompt, tags, user_id, approved_version_id, roster_ready)
           `)
           .eq("project_id", projectId);
 
@@ -263,18 +262,26 @@ Deno.serve(async (req) => {
           (m: any) => (m as any).ai_actors?.user_id === userId
         );
 
-        // For each mapping, get reference assets
+        // For each mapping, resolve canonical approved version and assets
         const castContext: any[] = [];
         for (const mapping of ownedMappings) {
           const actor = (mapping as any).ai_actors;
-          const version = (mapping as any).ai_actor_versions;
+          // Use pinned version from binding, else Phase 4 canonical approved_version_id
+          const versionId = (mapping as any).ai_actor_version_id || actor?.approved_version_id || null;
 
+          let version: any = null;
           let assets: any[] = [];
-          if (version?.id) {
+          if (versionId) {
+            const { data: verData } = await db.from("ai_actor_versions")
+              .select("id, version_number, recipe_json")
+              .eq("id", versionId)
+              .maybeSingle();
+            version = verData;
+
             const { data: assetData } = await db.from("ai_actor_assets")
               .select("asset_type, storage_path, public_url, meta_json")
-              .eq("actor_version_id", version.id)
-              .in("asset_type", ["reference_image", "screen_test_still"]);
+              .eq("actor_version_id", versionId)
+              .in("asset_type", ["reference_image", "screen_test_still", "reference_headshot", "reference_full_body"]);
             assets = assetData || [];
           }
 
