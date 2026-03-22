@@ -819,6 +819,89 @@ export default function ProjectCasting() {
           </div>
         </div>
       )}
+      {/* Cast Recommendations Panel (Phase 16.7) */}
+      {showRecommendations && (
+        <div className="space-y-3 rounded-lg border border-border/50 bg-card/20 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Zap className="h-4 w-4 text-primary" /> Cast Recommendations
+            </h3>
+            <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => refetchRecommendations()}>
+              <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+            </Button>
+          </div>
+          {recommendationsLoading ? (
+            <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : !recommendationData || recommendationData.characters.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">No characters found for recommendations.</p>
+          ) : (
+            <div className="space-y-4">
+              {recommendationData.characters.map(charResult => {
+                const isBound = mappedKeys.has(charResult.character_key);
+                return (
+                  <div key={charResult.character_key} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{charResult.character_key}</span>
+                      {isBound && (
+                        <Badge variant="outline" className="text-[8px] h-4 text-emerald-500 border-emerald-500/30">Bound</Badge>
+                      )}
+                    </div>
+                    {charResult.recommendations.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground pl-2">No matching roster actors found.</p>
+                    ) : (
+                      <div className="space-y-1 pl-2">
+                        {charResult.recommendations.map((rec, idx) => (
+                          <div key={rec.actor_id} className="flex items-center gap-3 p-2 rounded-md border border-border/30 bg-muted/5">
+                            <span className="text-[10px] font-mono text-muted-foreground w-4 shrink-0">#{idx + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-foreground truncate">{rec.actor_name}</span>
+                                <Badge variant="outline" className={cn('text-[8px] h-4', {
+                                  'text-amber-400 border-amber-400/30': rec.reusability_tier === 'signature',
+                                  'text-emerald-400 border-emerald-400/30': rec.reusability_tier === 'reliable',
+                                  'text-sky-400 border-sky-400/30': rec.reusability_tier === 'emerging',
+                                  'text-muted-foreground border-border': rec.reusability_tier === 'unvalidated',
+                                })}>
+                                  {rec.reusability_tier}
+                                </Badge>
+                                <span className="text-[10px] font-mono text-primary">{rec.match_score}pts</span>
+                                {rec.quality_score != null && (
+                                  <span className="text-[9px] text-muted-foreground">Q:{rec.quality_score}</span>
+                                )}
+                                {rec.project_count > 0 && (
+                                  <span className="text-[9px] text-muted-foreground">{rec.project_count}proj</span>
+                                )}
+                              </div>
+                              <div className="text-[9px] text-muted-foreground/70 mt-0.5 truncate">
+                                {rec.match_reasons.join(' · ')}
+                              </div>
+                            </div>
+                            {!isBound && (
+                              <Button
+                                size="sm" variant="outline"
+                                className="h-6 text-[10px] shrink-0"
+                                onClick={() => {
+                                  addMapping.mutate({
+                                    character_key: charResult.character_key,
+                                    ai_actor_id: rec.actor_id,
+                                  });
+                                }}
+                                disabled={addMapping.isPending}
+                              >
+                                Cast
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
       {/* Cast from Library Dialog */}
       <CastFromLibraryDialog
         characterKey={showCastLibrary}
