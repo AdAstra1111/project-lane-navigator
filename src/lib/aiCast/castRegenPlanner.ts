@@ -95,31 +95,45 @@ export async function buildCastRegenPlan(projectId: string): Promise<RegenPlan> 
     }
   }
 
-  // E. Batch fetch actor state
-  const actorState: Record<string, { roster_ready: boolean; approved_version_id: string | null }> = {};
+  // E. Batch fetch actor roster state (for stale_roster_revoked)
+  const actorState: Record<string, { roster_ready: boolean }> = {};
   const actorIdArr = [...allActorIds];
   if (actorIdArr.length > 0) {
     const { data: actorRows } = await supabase
       .from('ai_actors')
-      .select('id, roster_ready, approved_version_id')
+      .select('id, roster_ready')
       .in('id', actorIdArr);
 
     for (const a of actorRows || []) {
-      actorState[a.id] = {
-        roster_ready: a.roster_ready,
-        approved_version_id: a.approved_version_id,
-      };
+      actorState[a.id] = { roster_ready: a.roster_ready };
     }
   }
 
-  // D + E. Classify each entry
+  // F. Batch fetch version existence (for invalid_missing_version)
+  const boundVersionIds = [...new Set(
+    (bindings || []).map((b: any) => b.ai_actor_version_id).filter(Boolean)
+  )];
+  const versionExists = new Set<string>();
+  if (boundVersionIds.length > 0) {
+    const { data: versionRows } = await supabase
+      .from('ai_actor_versions')
+      .select('id')
+      .in('id', boundVersionIds);
+
+    for (const v of versionRows || []) {
+      versionExists.add(v.id);
+    }
+  }
+
+  // G. Classify each entry
+  // Order: A) unbound → B) invalid_missing_version → C) stale_roster_revoked → D) in-sync skip → E) out_of_sync
   const items: RegenItem[] = [];
 
   for (const entry of rawEntries) {
     const binding = bindingMap[entry.charKey];
     const currentVersionId = binding?.version_id ?? null;
 
-    // No current binding → unbound
+    // A. No current binding → unbound
     if (!binding) {
       items.push({
         output_id: entry.outputId,
@@ -132,28 +146,42 @@ export async function buildCastRegenPlan(projectId: string): Promise<RegenPlan> 
       continue;
     }
 
-    // In sync → skip
-    if (entry.storedVersionId === currentVersionId) continue;
-
-    // Check actor-level conditions (override normal mismatch)
-    const actor = entry.storedActorId ? actorState[entry.storedActorId] : null;
-    const bindingActor = binding.actor_id ? actorState[binding.actor_id] : null;
-
-    let reason: RegenReason;
-
-    if (bindingActor && !bindingActor.roster_ready) {
-      reason = 'stale_roster_revoked';
-    } else if (currentVersionId && !bindingActor?.approved_version_id) {
-      reason = 'invalid_missing_version';
-    } else {
-      reason = 'out_of_sync_with_current_cast';
+    // B. Bound version row does not exist → invalid_missing_version
+    if (currentVersionId && !versionExists.has(currentVersionId)) {
+      items.push({
+        output_id: entry.outputId,
+        output_type: 'ai_generated_media',
+        character_key: entry.charKey,
+        reason: 'invalid_missing_version',
+        stored_actor_version_id: entry.storedVersionId,
+        current_actor_version_id: currentVersionId,
+      });
+      continue;
     }
 
+    // C. Bound actor roster revoked → stale_roster_revoked
+    const bindingActor = binding.actor_id ? actorState[binding.actor_id] : null;
+    if (bindingActor && !bindingActor.roster_ready) {
+      items.push({
+        output_id: entry.outputId,
+        output_type: 'ai_generated_media',
+        character_key: entry.charKey,
+        reason: 'stale_roster_revoked',
+        stored_actor_version_id: entry.storedVersionId,
+        current_actor_version_id: currentVersionId,
+      });
+      continue;
+    }
+
+    // D. In sync → skip
+    if (entry.storedVersionId === currentVersionId) continue;
+
+    // E. Version mismatch → out_of_sync_with_current_cast
     items.push({
       output_id: entry.outputId,
       output_type: 'ai_generated_media',
       character_key: entry.charKey,
-      reason,
+      reason: 'out_of_sync_with_current_cast',
       stored_actor_version_id: entry.storedVersionId,
       current_actor_version_id: currentVersionId,
     });
