@@ -401,8 +401,9 @@ function CastActorSelect({ actors, onSelect }: {
   return (
     <Select onValueChange={(val) => {
       const actor = actors.find((a: any) => a.id === val);
-      const approvedVer = actor?.ai_actor_versions?.find((v: any) => v.is_approved);
-      onSelect(val, approvedVer?.id);
+      // Use Phase 4 canonical approved_version_id, not legacy is_approved
+      const approvedVersionId = (actor as any)?.approved_version_id || null;
+      onSelect(val, approvedVersionId);
     }}>
       <SelectTrigger className="h-9 text-xs w-[200px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
       <SelectContent>

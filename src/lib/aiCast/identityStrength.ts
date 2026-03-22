@@ -72,9 +72,11 @@ export function getIdentityStrength(versions: AIActorVersion[] | undefined, appr
 /**
  * Get best thumbnail URL from an actor's versions/assets.
  */
-export function getActorThumbnail(versions: AIActorVersion[] | undefined): string | null {
+export function getActorThumbnail(versions: AIActorVersion[] | undefined, approvedVersionId?: string | null): string | null {
   if (!versions || versions.length === 0) return null;
-  const approved = versions.find(v => v.is_approved) || versions[versions.length - 1];
+  const approved = (approvedVersionId ? versions.find(v => v.id === approvedVersionId) : null)
+    || versions.find(v => v.is_approved)
+    || versions[versions.length - 1];
   const assets = approved?.ai_actor_assets || [];
 
   // Prefer headshot, then reference_image, then any asset with a URL
