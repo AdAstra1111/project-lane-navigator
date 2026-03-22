@@ -50,6 +50,12 @@ import {
   type ProjectContinuitySummary,
   type CharacterContinuityResult,
 } from '@/lib/aiCast/continuityDiagnostics';
+import {
+  evaluateProjectSceneConsistency,
+  type ProjectSceneConsistencySummary,
+  type SceneConsistencyResult,
+  type SceneCharacterCheck,
+} from '@/lib/aiCast/sceneConsistency';
 
 interface CastMapping {
   id: string;
