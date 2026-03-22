@@ -62,6 +62,7 @@ async function resolveCharacters(
 
   // Fallback: if no canon characters, resolve from project_images subjects
   if (charMap.size === 0) {
+    // Try subject_type = 'character' first
     const { data: imgSubjects } = await supabase
       .from("project_images")
       .select("subject")
@@ -75,6 +76,42 @@ async function resolveCharacters(
       if (name && !seen.has(name)) {
         seen.add(name);
         charMap.set(name, { name, traits: [], dna: null });
+      }
+    }
+
+    // Also check identity shot types (subject_type may be null for older images)
+    if (charMap.size === 0) {
+      const { data: identityImgs } = await supabase
+        .from("project_images")
+        .select("subject")
+        .eq("project_id", projectId)
+        .in("shot_type", ["identity_headshot", "identity_full_body"])
+        .not("subject", "is", null);
+
+      for (const row of identityImgs || []) {
+        const name = (row.subject || "").trim();
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          charMap.set(name, { name, traits: [], dna: null });
+        }
+      }
+    }
+
+    // Final fallback: any project_images with a non-null subject that isn't a location
+    if (charMap.size === 0) {
+      const { data: allSubjects } = await supabase
+        .from("project_images")
+        .select("subject, subject_type")
+        .eq("project_id", projectId)
+        .not("subject", "is", null);
+
+      for (const row of allSubjects || []) {
+        const name = (row.subject || "").trim();
+        const stype = (row.subject_type || "").toLowerCase();
+        if (name && !seen.has(name) && stype !== "location") {
+          seen.add(name);
+          charMap.set(name, { name, traits: [], dna: null });
+        }
       }
     }
   }
