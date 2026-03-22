@@ -529,7 +529,8 @@ const PRESENCE_EXPANSION: Record<string, string> = {
  */
 const FLOATING_ADJECTIVES = new Set([
   'dark', 'light', 'bright', 'rough', 'smooth',
-  'fine', 'thick', 'thin', 'heavy',
+  'fine', 'thick', 'thin', 'heavy', 'sharp', 'soft',
+  'strong', 'delicate', 'fair',
 ]);
 
 /**
