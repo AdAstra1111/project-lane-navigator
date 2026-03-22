@@ -67,6 +67,7 @@ export default function CastingStudio() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [promoteDialogIds, setPromoteDialogIds] = useState<string[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // ── Fetch candidates ──
   const { data: candidates = [], isLoading } = useQuery({
