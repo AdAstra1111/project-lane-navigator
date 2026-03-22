@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   Users, Sparkles, Star, StarOff, X, Check, Loader2, Eye, ArrowLeft,
   ChevronRight, RefreshCw, Crown, Maximize2, XCircle, Filter, LayoutGrid,
-  UserPlus, Columns, Trash2
+  UserPlus, Columns, Trash2, ShieldCheck, ShieldAlert, AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +26,10 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import {
+  runAnchorPrecheck, persistAnchorStatus,
+  type AnchorPrecheckResult,
+} from '@/lib/aiCast/anchorValidation';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -277,8 +281,8 @@ export default function CastingStudio() {
               className="h-8 text-xs gap-1.5"
               onClick={() => setPromoteDialogIds(shortlistedIds)}
             >
-              <Crown className="h-3.5 w-3.5" />
-              Promote Shortlist ({shortlistedIds.length})
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Validate & Promote ({shortlistedIds.length})
             </Button>
           )}
         </div>
@@ -676,7 +680,7 @@ function CandidateExpanded({
         )}
         {(candidate.status === 'shortlisted' || candidate.status === 'generated') && (
           <Button size="sm" className="text-xs gap-1" onClick={onPromote}>
-            <Crown className="h-3 w-3" /> Promote to Actor
+            <ShieldCheck className="h-3 w-3" /> Validate & Promote
           </Button>
         )}
       </DialogFooter>
@@ -711,11 +715,12 @@ function PromoteDialog({
   const handlePromote = async () => {
     setPromoting(true);
     let successCount = 0;
+    const precheckWarnings: string[] = [];
+
     try {
       for (const cand of toPromote) {
         if (cand.status === 'promoted') { successCount++; continue; }
 
-        // Create AI Actor
         const actorName = getName(cand);
         const result = await aiCastApi.createActor({
           name: actorName,
@@ -726,7 +731,6 @@ function PromoteDialog({
         const actorId = result.actor?.id;
         if (!actorId) continue;
 
-        // If we have images, create version + assets
         if (cand.headshot_url || cand.full_body_url) {
           const versionResult = await aiCastApi.createVersion(actorId, {
             invariants: [`Promoted casting candidate for ${cand.character_key}`],
@@ -754,12 +758,21 @@ function PromoteDialog({
                 meta_json: { source: 'casting_promotion' },
               });
             }
-            // Approve the version
             await aiCastApi.approveVersion(actorId, versionId);
           }
         }
 
-        // Mark candidate as promoted
+        // ── PG-00 / PG-01: Anchor Pre-check ──
+        try {
+          const precheck = await runAnchorPrecheck(actorId);
+          await persistAnchorStatus(actorId, precheck.coverageStatus, precheck.coherenceStatus);
+          if (precheck.blocked) {
+            precheckWarnings.push(`${actorName}: ${precheck.reasons.join('; ')}`);
+          }
+        } catch (e) {
+          console.warn(`[PromoteDialog] Precheck error for ${actorName}:`, (e as Error).message);
+        }
+
         await (supabase as any)
           .from('casting_candidates')
           .update({
@@ -773,7 +786,14 @@ function PromoteDialog({
         successCount++;
       }
 
-      toast.success(`${successCount} candidate(s) promoted to AI Actors`);
+      if (precheckWarnings.length > 0) {
+        toast.warning(
+          `${successCount} actor(s) created. ${precheckWarnings.length} have incomplete anchors — add missing references to strengthen identity.`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.success(`${successCount} candidate(s) promoted to AI Actors`);
+      }
       onPromoted();
     } catch (e: any) {
       toast.error(`Promotion error: ${e.message}`);
@@ -787,12 +807,12 @@ function PromoteDialog({
       <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Crown className="h-5 w-5 text-primary" />
-            Promote to AI Actors
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            Validate & Promote
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Create permanent AI Actor identities from {toPromote.length} shortlisted candidate(s).
-            Assign names before confirming.
+            Create AI Actor identities from {toPromote.length} candidate(s).
+            Each will be checked for anchor coverage and coherence.
           </DialogDescription>
         </DialogHeader>
 
@@ -822,10 +842,18 @@ function PromoteDialog({
           ))}
         </div>
 
+        <div className="rounded-md bg-muted/30 p-3 text-[10px] text-muted-foreground space-y-1">
+          <p className="font-medium text-foreground text-[11px] flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" /> Anchor Requirements
+          </p>
+          <p>Full validation requires <strong>headshot</strong>, <strong>profile</strong>, and <strong>full body</strong> references.</p>
+          <p>Actors with incomplete anchors will be created but flagged for completion.</p>
+        </div>
+
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} disabled={promoting}>Cancel</Button>
           <Button size="sm" className="gap-1.5" onClick={handlePromote} disabled={promoting}>
-            {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Crown className="h-3.5 w-3.5" />}
+            {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
             Promote {toPromote.filter(c => c.status !== 'promoted').length} Actor(s)
           </Button>
         </DialogFooter>

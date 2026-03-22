@@ -92,6 +92,8 @@ export type Database = {
       }
       ai_actors: {
         Row: {
+          anchor_coherence_status: string
+          anchor_coverage_status: string
           created_at: string
           description: string
           id: string
@@ -103,6 +105,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          anchor_coherence_status?: string
+          anchor_coverage_status?: string
           created_at?: string
           description?: string
           id?: string
@@ -114,6 +118,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          anchor_coherence_status?: string
+          anchor_coverage_status?: string
           created_at?: string
           description?: string
           id?: string
