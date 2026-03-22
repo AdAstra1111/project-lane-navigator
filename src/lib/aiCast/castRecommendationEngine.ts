@@ -30,7 +30,13 @@
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeCharacterKey } from './normalizeCharacterKey';
 import { getRosterActorsForCasting, type ActorIntelligenceProfile } from './actorIntelligence';
-import { buildCharacterCastingBrief } from './castingBriefResolver';
+import { buildCharacterCastingBrief, type CastingBrief } from './castingBriefResolver';
+import {
+  buildCastingSpecificityProfile,
+  buildCastingSearchPlan,
+  type CastingSpecificityProfile,
+  type CastingSearchPlan,
+} from './castingSpecificity';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +47,7 @@ export interface ProjectCharacterCandidate {
   age_hint?: string | null;
   gender_hint?: string | null;
   tags: string[];
+  brief?: CastingBrief;
 }
 
 export interface ActorRecommendation {
@@ -59,6 +66,12 @@ export interface ActorRecommendation {
 export interface CharacterRecommendationResult {
   character_key: string;
   recommendations: ActorRecommendation[];
+  specificity?: {
+    score: number;
+    band: 'low' | 'medium' | 'high';
+    mode: 'exploration' | 'precision';
+    diversityStrategy: 'wide' | 'balanced' | 'narrow';
+  };
 }
 
 export interface ProjectCastRecommendationResult {
@@ -103,12 +116,11 @@ async function resolveProjectCharacters(projectId: string): Promise<ProjectChara
         results.push({
           character_key: normalizeCharacterKey(subject),
           display_name: subject,
-          // traits_text now uses actor_description (visual only, plot-sanitized)
           traits_text: briefResult.brief.actor_description,
           age_hint: briefResult.brief.age_hint,
           gender_hint: briefResult.brief.gender_presentation,
-          // tags from casting brief (visual/appearance tags only)
           tags: briefResult.brief.actor_tags,
+          brief: briefResult.brief,
         });
       } catch {
         // Fallback: minimal entry if brief resolution fails
@@ -276,11 +288,33 @@ function scoreActorForCharacter(
   return { match_score, reasons };
 }
 
+// ── Specificity-aware result sizing ──────────────────────────────────────────
+
+/** Return max recommendations based on diversity strategy */
+function getMaxRecommendations(strategy: 'wide' | 'balanced' | 'narrow'): number {
+  switch (strategy) {
+    case 'wide': return 8;     // exploration: show more diverse candidates
+    case 'balanced': return 6;
+    case 'narrow': return MAX_RECOMMENDATIONS; // precision: tight slate
+  }
+}
+
+/** Minimum match score threshold based on specificity */
+function getMinScoreThreshold(strategy: 'wide' | 'balanced' | 'narrow'): number {
+  switch (strategy) {
+    case 'wide': return 0;      // exploration: include all, let user decide
+    case 'balanced': return 5;
+    case 'narrow': return 10;   // precision: drop clearly irrelevant
+  }
+}
+
 // ── Main Entry Point ─────────────────────────────────────────────────────────
 
 /**
  * Build deterministic cast recommendations for a project.
  * Returns top-N actor suggestions per character, ranked by match_score.
+ * Uses the Casting Specificity Layer to adjust result size and filtering
+ * based on how much appearance data exists for each character.
  * READ-ONLY — no bindings are created or mutated.
  */
 export async function buildProjectCastRecommendations(
@@ -304,8 +338,31 @@ export async function buildProjectCastRecommendations(
     };
   }
 
-  // 3. Score actors per character
+  // 3. Score actors per character, with specificity-aware result shaping
   const results: CharacterRecommendationResult[] = characters.map(character => {
+    // Compute specificity profile and search plan if brief available
+    let specificityMeta: CharacterRecommendationResult['specificity'];
+    let diversityStrategy: 'wide' | 'balanced' | 'narrow' = 'balanced';
+
+    if (character.brief) {
+      const profile = buildCastingSpecificityProfile(character.brief);
+      const plan = buildCastingSearchPlan(character.brief, profile);
+      diversityStrategy = plan.diversityStrategy;
+      specificityMeta = {
+        score: profile.specificityScore,
+        band: profile.specificityBand,
+        mode: plan.mode,
+        diversityStrategy: plan.diversityStrategy,
+      };
+
+      if (typeof console !== 'undefined') {
+        console.debug(`[CastRec] ${character.display_name}: specificity=${profile.specificityScore} band=${profile.specificityBand} mode=${plan.mode} diversity=${plan.diversityStrategy} grounded=${plan.groundedFilters.length} soft=${plan.softSignals.length}`);
+      }
+    }
+
+    const maxResults = getMaxRecommendations(diversityStrategy);
+    const minScore = getMinScoreThreshold(diversityStrategy);
+
     const scored = rosterActors.map(actor => {
       const { match_score, reasons } = scoreActorForCharacter(character, actor);
       return {
@@ -320,7 +377,7 @@ export async function buildProjectCastRecommendations(
         match_score,
         match_reasons: reasons,
       };
-    });
+    }).filter(r => r.match_score >= minScore);
 
     // 4. Deterministic sorting: match_score DESC, quality DESC, name ASC, id ASC
     scored.sort((a, b) => {
@@ -332,7 +389,8 @@ export async function buildProjectCastRecommendations(
 
     return {
       character_key: character.character_key,
-      recommendations: scored.slice(0, MAX_RECOMMENDATIONS),
+      recommendations: scored.slice(0, maxResults),
+      specificity: specificityMeta,
     };
   });
 
