@@ -974,7 +974,8 @@ function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): stri
 
 /**
  * Compose clean, concise actor tags from identity buckets.
- * Tags are lowercase, underscore-separated, deduped, reusable.
+ * Tags are PHRASE-LEVEL tokens (underscore-separated), not split-word debris.
+ * "dark hair" → "dark_hair", NOT "dark" + "hair".
  */
 function composeActorTagsFromBuckets(
   buckets: ActorIdentityBuckets,
@@ -982,9 +983,9 @@ function composeActorTagsFromBuckets(
 ): string[] {
   const raw: string[] = [];
 
-  if (genderHint) raw.push(genderHint);
+  if (genderHint) raw.push(genderHint.toLowerCase().trim());
 
-  // Flatten all buckets into tag candidates
+  // Flatten all buckets into tag candidates — PHRASE-LEVEL, not word-level
   const allBuckets = [
     buckets.age, buckets.ethnicity, buckets.build, buckets.height,
     buckets.face, buckets.hair, buckets.eyes, buckets.skin,
@@ -993,12 +994,14 @@ function composeActorTagsFromBuckets(
 
   for (const bucket of allBuckets) {
     for (const item of bucket) {
-      // Split compound phrases into individual tag tokens
-      const tokens = item.toLowerCase()
-        .replace(/[,;.!?()]+/g, ' ')
-        .split(/\s+/)
-        .filter(t => t.length > 2 && t.length < 25);
-      raw.push(...tokens);
+      // Normalize the whole phrase as a single tag token
+      const phrase = item.toLowerCase().trim()
+        .replace(/[,;.!?()]+/g, '')
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_-]/g, '');
+      if (phrase.length >= 3 && phrase.length <= 30) {
+        raw.push(phrase);
+      }
     }
   }
 
@@ -1006,13 +1009,12 @@ function composeActorTagsFromBuckets(
   const seen = new Set<string>();
   const tags: string[] = [];
   for (const r of raw) {
-    const norm = r.replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
-    if (!norm || norm.length < 3 || norm.length > 25) continue;
-    if (seen.has(norm)) continue;
+    if (!r || r.length < 3 || r.length > 30) continue;
+    if (seen.has(r)) continue;
     // Final personality check — reject any personality terms that snuck through
-    if (PERSONALITY_DENYLIST.has(norm.replace(/_/g, ' '))) continue;
-    seen.add(norm);
-    tags.push(norm);
+    if (PERSONALITY_DENYLIST.has(r.replace(/_/g, ' '))) continue;
+    seen.add(r);
+    tags.push(r);
   }
 
   return tags.slice(0, 15);
