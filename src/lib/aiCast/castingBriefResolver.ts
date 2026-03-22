@@ -1,5 +1,5 @@
 /**
- * castingBriefResolver — Phase 17.2 (Hardened): Character → Casting Brief Separation.
+ * castingBriefResolver — Phase 17.3: Document-Aware Casting Brief Enrichment.
  *
  * Strictly separates character canon (story truth) from casting brief (visual performer requirements).
  * Actor creation, recommendations, and matching must consume the casting brief only.
@@ -14,10 +14,13 @@
  *
  * Sources (priority order):
  * 1. canon_facts
- * 2. canon_json.characters (via project_canon)
+ * 2. Document-enriched appearance signals (character_bible, character_profile)
  * 3. character_visual_dna
- * 4. project_images character descriptors
- * 5. minimal fallback
+ * 4. canon_json.characters (story context only)
+ * 5. Document support signals (treatment, story_outline, scripts)
+ * 6. World bible styling cues
+ * 7. project_images character descriptors
+ * 8. minimal fallback
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -266,7 +269,210 @@ const DNA_PRESENCE_CATEGORIES = new Set([
   'posture', 'energy', 'presence', 'vibe', 'bearing', 'gait',
 ]);
 
-// ── Core Function ────────────────────────────────────────────────────────────
+// ── Document-Aware Enrichment Helpers ────────────────────────────────────────
+// Reads project_documents + project_document_versions for appearance-safe signals.
+// Character Bible > character_profile > treatment > scripts > world_bible.
+
+/** Doc types ranked by priority for character appearance enrichment */
+const DOC_TYPE_PRIORITY_FOR_APPEARANCE: string[] = [
+  'character_bible',
+  'character_profile',
+  'treatment',
+  'story_outline',
+  'feature_script',
+  'episode_script',
+  'screenplay_draft',
+  'season_script',
+];
+
+const DOC_TYPE_STYLING_ONLY: string[] = [
+  'world_bible',
+  'series_bible',
+  'story_bible',
+];
+
+/**
+ * Appearance-safe extraction patterns.
+ * Each regex targets a visual descriptor class; matched content is a candidate signal.
+ */
+const APPEARANCE_EXTRACTION_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'age', pattern: /\b(?:early|mid|late)\s*(?:teens|twenties|thirties|forties|fifties|sixties|seventies|eighties)\b/gi },
+  { label: 'age', pattern: /\b(?:\d{1,2}[\s-]*(?:year[\s-]*old|years[\s-]*old|yo))\b/gi },
+  { label: 'hair', pattern: /\b(?:(?:dark|light|blonde?|auburn|red|black|white|grey|gray|silver|brown|chestnut|raven|platinum|copper|golden|jet[\s-]*black)\s+hair\w*)\b/gi },
+  { label: 'hair', pattern: /\b(?:hair\s+(?:is|was)\s+\w+(?:\s+\w+)?)\b/gi },
+  { label: 'hair', pattern: /\b(?:cropped|shaved|braided|curly|wavy|straight|long|short)\s+hair\b/gi },
+  { label: 'eyes', pattern: /\b(?:(?:dark|light|blue|green|brown|hazel|grey|gray|amber|black|bright|piercing|deep[\s-]*set|almond[\s-]*shaped|wide[\s-]*set|narrow|hooded)\s+eyes?)\b/gi },
+  { label: 'build', pattern: /\b(?:(?:slender|lean|stocky|muscular|athletic|petite|tall|short|heavyset|wiry|compact|broad[\s-]*shouldered|lithe|thin|slight|imposing|statuesque)\s+(?:build|frame|figure|physique|stature)?)\b/gi },
+  { label: 'skin', pattern: /\b(?:(?:dark|light|olive|pale|fair|tanned|sun[\s-]*kissed|brown|ebony|ivory|porcelain|weathered|freckled)\s+(?:skin|complexion|tone)?)\b/gi },
+  { label: 'face', pattern: /\b(?:(?:angular|round|oval|square|heart[\s-]*shaped|chiseled|gaunt|broad|high|sharp|prominent|delicate|soft)\s+(?:face|jaw|cheekbones?|features?|chin|brow|forehead)?)\b/gi },
+  { label: 'height', pattern: /\b(?:(?:tall|short|petite|statuesque|towering|diminutive)\s*(?:woman|man|person|figure|frame)?)\b/gi },
+  { label: 'scar', pattern: /\b(?:scar\w*(?:\s+(?:across|on|over|down)\s+\w+(?:\s+\w+)?)?)\b/gi },
+  { label: 'tattoo', pattern: /\btattoo\w*\b/gi },
+  { label: 'clothing', pattern: /\b(?:wears?|dressed\s+in|wearing|clad\s+in)\s+[\w\s,]+(?:dress|suit|uniform|coat|kimono|gown|robe|tunic|armor|cloak|vest|jacket|shirt)\b/gi },
+];
+
+/** Styling-only patterns for world-bible enrichment */
+const STYLING_EXTRACTION_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'period', pattern: /\b(?:Victorian|Edwardian|Regency|Georgian|Medieval|Renaissance|Art[\s-]*Deco|Art[\s-]*Nouveau|Meiji|Edo|Taisho|1920s|1930s|1940s|1950s|1960s|1970s|1980s)\b/gi },
+  { label: 'material', pattern: /\b(?:silk|linen|cotton|wool|leather|velvet|satin|lace|brocade|tweed|denim|fur|muslin)\b/gi },
+  { label: 'class', pattern: /\b(?:aristocrat\w*|working[\s-]*class|upper[\s-]*class|nobility|peasant|bourgeois|royal|courtly|servant|elite)\b/gi },
+];
+
+interface DocumentCandidate {
+  doc_type: string;
+  plaintext: string;
+}
+
+/**
+ * Load project document plaintext candidates for a project, ordered by appearance-enrichment priority.
+ * Returns the latest/current version plaintext for each relevant doc type.
+ */
+async function loadCharacterDocumentCandidates(
+  projectId: string,
+  docTypes: string[],
+): Promise<DocumentCandidate[]> {
+  // Fetch docs of relevant types
+  const { data: docs } = await supabase
+    .from('project_documents')
+    .select('id, doc_type, plaintext, extracted_text')
+    .eq('project_id', projectId)
+    .in('doc_type', docTypes);
+
+  if (!docs || docs.length === 0) return [];
+
+  const candidates: DocumentCandidate[] = [];
+  const docIds = docs.map(d => d.id);
+
+  // Fetch current/latest version plaintext for these docs
+  const { data: versions } = await (supabase as any)
+    .from('project_document_versions')
+    .select('document_id, plaintext, is_current, version_number')
+    .in('document_id', docIds)
+    .order('version_number', { ascending: false });
+
+  // Build map: doc_id → best plaintext
+  const versionMap: Record<string, string> = {};
+  for (const v of versions || []) {
+    // Prefer current version, otherwise latest
+    if (!versionMap[v.document_id] || v.is_current) {
+      if (v.plaintext && v.plaintext.trim().length > 20) {
+        versionMap[v.document_id] = v.plaintext;
+      }
+    }
+  }
+
+  for (const doc of docs) {
+    const text = versionMap[doc.id] || doc.plaintext || doc.extracted_text || '';
+    if (text.trim().length < 20) continue;
+    candidates.push({ doc_type: doc.doc_type, plaintext: text });
+  }
+
+  // Sort by priority
+  candidates.sort((a, b) => {
+    const allTypes = [...docTypes];
+    return allTypes.indexOf(a.doc_type) - allTypes.indexOf(b.doc_type);
+  });
+
+  return candidates;
+}
+
+/**
+ * Extract character-specific paragraphs/lines from document plaintext.
+ * Returns only passages that mention the character name.
+ */
+function extractCharacterPassages(text: string, displayName: string, characterKey: string): string[] {
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 15);
+  const namePatterns = [
+    new RegExp(`\\b${escapeRegex(displayName)}\\b`, 'i'),
+    new RegExp(`\\b${escapeRegex(characterKey)}\\b`, 'i'),
+  ];
+
+  // Find lines mentioning the character
+  const matches = lines.filter(line =>
+    namePatterns.some(pat => pat.test(line))
+  );
+
+  // Prioritize early introduction-style passages (first 30% of doc)
+  const earlyThreshold = Math.floor(lines.length * 0.3);
+  const earlyMatches = matches.filter(m => {
+    const idx = lines.indexOf(m);
+    return idx >= 0 && idx < earlyThreshold;
+  });
+
+  // Return early matches first, then rest, limited
+  const ordered = [...earlyMatches, ...matches.filter(m => !earlyMatches.includes(m))];
+  return ordered.slice(0, 15);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Extract appearance-safe visual signals from character-relevant passages.
+ * Returns only signals that pass through visual allowlists and plot sanitization.
+ */
+function extractAppearanceSignalsFromPassages(passages: string[]): {
+  visualMarkers: string[];
+  ageSignals: string[];
+  stylingSignals: string[];
+  presenceSignals: string[];
+} {
+  const visualMarkers: string[] = [];
+  const ageSignals: string[] = [];
+  const stylingSignals: string[] = [];
+  const presenceSignals: string[] = [];
+
+  const combined = passages.join(' ');
+
+  for (const { label, pattern } of APPEARANCE_EXTRACTION_PATTERNS) {
+    const matches = combined.match(pattern) || [];
+    for (const m of matches) {
+      const cleaned = m.trim();
+      if (!cleaned || cleaned.length < 3) continue;
+      // Apply plot-language sanitizer
+      const sanitized = sanitizePlotLanguage(cleaned);
+      if (!sanitized) continue;
+
+      if (label === 'age') {
+        ageSignals.push(sanitized);
+      } else if (label === 'clothing') {
+        stylingSignals.push(sanitized);
+      } else {
+        visualMarkers.push(sanitized);
+      }
+    }
+  }
+
+  // Extract performer presence terms from passages
+  const words = combined.toLowerCase().split(/[\s,;.!?()]+/).filter(Boolean);
+  for (const w of words) {
+    if (isPerformerSafePresence(w) && !presenceSignals.includes(w)) {
+      presenceSignals.push(w);
+    }
+  }
+
+  return { visualMarkers, ageSignals, stylingSignals, presenceSignals };
+}
+
+/**
+ * Extract styling-only signals from world bible type documents.
+ */
+function extractStylingSignalsFromText(text: string): string[] {
+  const signals: string[] = [];
+  for (const { pattern } of STYLING_EXTRACTION_PATTERNS) {
+    const matches = text.match(pattern) || [];
+    for (const m of matches) {
+      const cleaned = m.trim();
+      if (cleaned && cleaned.length >= 3 && !signals.includes(cleaned.toLowerCase())) {
+        signals.push(cleaned);
+      }
+    }
+  }
+  return signals;
+}
+
+
 
 export async function buildCharacterCastingBrief(
   projectId: string,
@@ -335,6 +541,62 @@ export async function buildCharacterCastingBrief(
         // UNKNOWN predicate — goes to story context ONLY
         // IEL: unknown predicates MUST NOT influence actor criteria
         storyNotes.push(obj);
+      }
+    }
+  }
+
+  // ── 1b. Document-enriched appearance signals (character_bible, profile, etc.) ──
+  // Priority source #2: richer than canon_json, read from project_documents.
+  {
+    const docCandidates = await loadCharacterDocumentCandidates(
+      projectId,
+      DOC_TYPE_PRIORITY_FOR_APPEARANCE,
+    );
+
+    for (const doc of docCandidates) {
+      const passages = extractCharacterPassages(doc.plaintext, displayName, characterKey);
+      if (passages.length === 0) continue;
+
+      const signals = extractAppearanceSignalsFromPassages(passages);
+
+      // Age: only set if not already resolved from canon_facts
+      if (!ageHint && signals.ageSignals.length > 0) {
+        ageHint = signals.ageSignals[0];
+        tags.push(signals.ageSignals[0].toLowerCase());
+      }
+
+      // Visual markers: add unique values
+      for (const vm of signals.visualMarkers) {
+        if (!visualMarkers.includes(vm)) {
+          visualMarkers.push(vm);
+          tags.push(vm.toLowerCase());
+        }
+      }
+
+      // Styling from clothing mentions
+      for (const sc of signals.stylingSignals) {
+        if (!stylingCues.includes(sc)) {
+          stylingCues.push(sc);
+        }
+      }
+
+      // Presence markers from document text
+      for (const pm of signals.presenceSignals) {
+        if (!presenceMarkers.includes(pm)) {
+          presenceMarkers.push(pm);
+        }
+      }
+
+      // Also enrich story context from character bible passages
+      if (doc.doc_type === 'character_bible' || doc.doc_type === 'character_profile') {
+        // Find the richest intro passage for story context
+        const introPassage = passages[0];
+        if (introPassage && storyNotes.length < 5) {
+          const sanitizedForContext = introPassage.length > 200
+            ? introPassage.slice(0, 200) + '…'
+            : introPassage;
+          storyNotes.push(sanitizedForContext);
+        }
       }
     }
   }
@@ -422,6 +684,23 @@ export async function buildCharacterCastingBrief(
   // ── 4. project_images subjects ──────────────────────────────────────────
   // Only used for display name resolution (already handled in identity resolver)
   // No additional actor criteria derived from project_images
+
+  // ── 5. World bible styling enrichment (styling_cues + negative_exclusions only) ──
+  {
+    const worldDocs = await loadCharacterDocumentCandidates(
+      projectId,
+      DOC_TYPE_STYLING_ONLY,
+    );
+
+    for (const doc of worldDocs) {
+      const signals = extractStylingSignalsFromText(doc.plaintext);
+      for (const s of signals) {
+        if (!stylingCues.includes(s)) {
+          stylingCues.push(s);
+        }
+      }
+    }
+  }
 
   // ── Build context summary ──────────────────────────────────────────────
 
