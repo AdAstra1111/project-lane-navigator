@@ -37,6 +37,9 @@ const {
   FLOATING_ADJECTIVES,
   expandIdentityBuckets,
   composeActorCriteriaHighlights,
+  formatActorRosterNumber,
+  generateSyntheticActorName,
+  composeActorRosterName,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
@@ -791,5 +794,81 @@ describe('Phase 17.6 — expandIdentityBuckets', () => {
 
     // Chips are phrase-level highlights
     expect(chips.some(c => c.includes(' '))).toBe(true);
+});
+
+// ── O. Phase 17.7: 4-digit roster numbering + synthetic naming ───────────
+
+describe('formatActorRosterNumber — 4-digit zero-padded', () => {
+  it('pads single digit to 4', () => {
+    expect(formatActorRosterNumber(1)).toBe('0001');
   });
+
+  it('pads double digit to 4', () => {
+    expect(formatActorRosterNumber(42)).toBe('0042');
+  });
+
+  it('pads triple digit to 4', () => {
+    expect(formatActorRosterNumber(123)).toBe('0123');
+  });
+
+  it('keeps 4-digit number as-is', () => {
+    expect(formatActorRosterNumber(1000)).toBe('1000');
+    expect(formatActorRosterNumber(9999)).toBe('9999');
+  });
+
+  it('handles 5+ digits gracefully', () => {
+    expect(formatActorRosterNumber(10000)).toBe('10000');
+  });
+});
+
+describe('generateSyntheticActorName — deterministic cultural naming', () => {
+  it('generates Japanese female name when ethnicity is Japanese', () => {
+    const name = generateSyntheticActorName('Japanese', 'woman', 1);
+    expect(name).toMatch(/^\S+ \S+$/); // First + Surname
+    expect(name).not.toBe('');
+  });
+
+  it('generates Japanese male name', () => {
+    const name = generateSyntheticActorName('Japanese', 'man', 1);
+    expect(name).toMatch(/^\S+ \S+$/);
+  });
+
+  it('generates generic name when no ethnicity', () => {
+    const name = generateSyntheticActorName(null, 'woman', 5);
+    expect(name).toMatch(/^\S+ \S+$/);
+  });
+
+  it('is deterministic — same seed produces same name', () => {
+    const a = generateSyntheticActorName('Japanese', 'woman', 7);
+    const b = generateSyntheticActorName('Japanese', 'woman', 7);
+    expect(a).toBe(b);
+  });
+
+  it('different seeds produce different names', () => {
+    const a = generateSyntheticActorName(null, 'woman', 1);
+    const b = generateSyntheticActorName(null, 'woman', 2);
+    // Not guaranteed but highly likely with different seeds
+    expect(typeof a).toBe('string');
+    expect(typeof b).toBe('string');
+  });
+});
+
+describe('composeActorRosterName — full format', () => {
+  it('produces NNNN — FirstName Surname format', () => {
+    const result = composeActorRosterName(1, 'Japanese', 'woman');
+    expect(result).toMatch(/^0001 — \S+ \S+$/);
+  });
+
+  it('uses em dash separator', () => {
+    const result = composeActorRosterName(42, null, 'man');
+    expect(result).toContain(' — ');
+    expect(result).toMatch(/^0042 — /);
+  });
+
+  it('never contains character names', () => {
+    const result = composeActorRosterName(1, 'Japanese', 'woman');
+    // Should be a synthetic name, not a character name like "Hana"
+    expect(result).toMatch(/^\d{4} — /);
+  });
+});
 });
