@@ -298,10 +298,9 @@ export default function ProjectCasting() {
                     characterKey={m.character_key}
                     currentActorId={m.ai_actor_id}
                     actors={actors}
-                    onRebind={(nextActorId, nextVersionId) => rebindMutation.mutate({
+                    onRebind={(nextActorId) => rebindMutation.mutate({
                       characterKey: m.character_key,
                       nextActorId,
-                      nextActorVersionId: nextVersionId,
                       reason: 'Manual rebind',
                     })}
                     disabled={rebindMutation.isPending}
