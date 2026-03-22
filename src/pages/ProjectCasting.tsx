@@ -1,12 +1,13 @@
 /**
  * ProjectCasting — Project-level AI cast mapping with identity source visibility,
- * binding freshness diagnostics, rebind/unbind actions, and impact analysis.
+ * binding freshness diagnostics, rebind/unbind actions, impact analysis,
+ * and Phase 8 Cast Health governance dashboard.
  */
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
-  RefreshCw, AlertTriangle, Activity
+  RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,14 @@ import { resolveProjectCastIdentity, type ActorIdentityAnchors, type IdentitySou
 import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
 import { evaluateCastBindingFreshness, type BindingFreshness } from '@/lib/aiCast/castBindingDiagnostics';
 import { evaluateCastImpact, type CastImpactResult } from '@/lib/aiCast/castImpactDiagnostics';
+import {
+  evaluateProjectCastHealth,
+  getImpactedOutputs,
+  type CastGovernanceResult,
+  type GovernanceSeverity,
+  type GovernanceRecommendation,
+  type CharacterGovernanceState,
+} from '@/lib/aiCast/castGovernance';
 
 interface CastMapping {
   id: string;
