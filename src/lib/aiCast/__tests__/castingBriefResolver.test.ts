@@ -984,9 +984,19 @@ describe('inferAgeFromPassages', () => {
     expect(inferAgeFromPassages(passages)).toBe('late sixties');
   });
 
-  it('infers late fifties from "battle-worn" descriptor', () => {
+  it('returns null from "battle-worn" (removed as speculative)', () => {
     const passages = ['A battle-worn soldier with scars across his face.'];
-    expect(inferAgeFromPassages(passages)).toBe('late fifties');
+    expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null from "retired" (removed as speculative)', () => {
+    const passages = ['A retired general reflecting on past glory.'];
+    expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null from "veteran" without reinforcement', () => {
+    const passages = ['A veteran of many campaigns.'];
+    expect(inferAgeFromPassages(passages)).toBeNull();
   });
 
   it('returns null when no age-adjacent descriptors', () => {
