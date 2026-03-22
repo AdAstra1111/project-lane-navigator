@@ -2,6 +2,7 @@
  * AI Actors Agency — Global actor registry with search, filter, identity strength, usage tracking.
  * Includes: create from project images, actor detail, version management, anchor validation badges.
  * Phase 3: Scoring results display, auto-trigger scoring, hard fail visibility.
+ * Phase 16: Marketplace listing controls.
  */
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
