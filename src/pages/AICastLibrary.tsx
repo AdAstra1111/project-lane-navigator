@@ -64,6 +64,7 @@ type FilterStatus = 'all' | 'active' | 'draft' | 'roster';
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AICastLibrary() {
+  const navigate = useNavigate();
   const { data, isLoading } = useAIActors();
   const actors: AIActor[] = data?.actors || [];
   const { data: usageData } = useActorUsage();
