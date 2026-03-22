@@ -134,6 +134,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showRegenJobs,
   });
 
+  // Cast consistency verification (lazy)
+  const { data: consistencyData, isLoading: consistencyLoading, refetch: refetchConsistency } = useQuery({
+    queryKey: ['cast-consistency', projectId],
+    queryFn: () => evaluateProjectCastConsistency(projectId!),
+    enabled: !!projectId && showConsistency,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
