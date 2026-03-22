@@ -2418,7 +2418,7 @@ function InlineCreateActorDialog({
             {/* Section 2 — Suggested Actor Criteria (editable) */}
             <div className="space-y-3">
               <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Suggested Actor Criteria
+                Actor Criteria <span className="font-normal opacity-60">— physical appearance &amp; presence</span>
               </h4>
 
               {/* Brief metadata badges */}
