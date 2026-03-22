@@ -295,12 +295,58 @@ describe('composeActorDescriptionFromBuckets', () => {
     expect(result).toBe('');
   });
 
-  it('appends "presence" suffix to presence markers', () => {
+  it('handles presence terms without redundant "presence" suffix', () => {
+    const b = createEmptyBuckets();
+    b.presence.push('controlled intensity');
+    b.presence.push('quiet authority');
+    const result = composeActorDescriptionFromBuckets(b);
+    // Should NOT have double "presence" — the terms already imply it
+    expect(result).toContain('controlled intensity');
+    expect(result).toContain('quiet authority');
+  });
+
+  it('adds "presence" suffix only when needed', () => {
     const b = createEmptyBuckets();
     b.presence.push('commanding');
-    b.presence.push('elegant');
     const result = composeActorDescriptionFromBuckets(b);
-    expect(result).toContain('presence');
+    expect(result).toContain('commanding presence');
+  });
+
+  it('no floating adjectives survive in final output', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.face.push('sharp features');
+    b.hair.push('dark hair');
+    const result = composeActorDescriptionFromBuckets(b);
+    // "sharp" alone must not appear — only "sharp features"
+    expect(result).not.toMatch(/\bsharp\b(?!\s+features)/);
+    expect(result).toContain('sharp features');
+  });
+
+  it('base anchor includes gender and age', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.hair.push('dark hair');
+    const result = composeActorDescriptionFromBuckets(b);
+    expect(result).toMatch(/^woman/i);
+    expect(result).toContain('early twenties');
+  });
+
+  it('enforces max 220 char length', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.build.push('slender athletic build');
+    b.face.push('sharp angular features with prominent cheekbones');
+    b.hair.push('long flowing dark hair');
+    b.eyes.push('deep set piercing dark eyes');
+    b.skin.push('olive complexion');
+    b.presence.push('commanding authority');
+    b.presence.push('controlled intensity');
+    b.styling.push('elaborate period-appropriate Victorian styling');
+    const result = composeActorDescriptionFromBuckets(b);
+    expect(result.length).toBeLessThanOrEqual(220);
   });
 });
 
@@ -530,21 +576,48 @@ describe('meetsMinimumIdentityQuality', () => {
 describe('Phase 17.5 — sparse input produces casting-grade output', () => {
   it('transforms "tall, sharp, fierce, quiet" into anchored identity', () => {
     const b = createEmptyBuckets();
-    b.height.push('tall');
-    b.archetype.push('sharp');
-    b.presence.push('fierce');
-    b.presence.push('quiet');
+    classifyIntoBucket('tall', b);
+    classifyIntoBucket('sharp', b);
+    classifyIntoBucket('fierce', b);
+    classifyIntoBucket('quiet', b);
 
     const completed = completeActorIdentityBuckets(b, null, []);
     const desc = composeActorDescriptionFromBuckets(completed);
 
     // Must not be raw tag soup
     expect(desc).not.toBe('tall, sharp, fierce, quiet');
+    // "sharp" must be anchored to features
+    expect(desc).toContain('sharp features');
+    // "sharp" standalone must not survive
+    expect(desc).not.toMatch(/,\s*sharp\s*,/);
     // fierce/quiet should be expanded
-    expect(desc).not.toContain('fierce');
-    expect(desc).not.toContain(', quiet,');
+    expect(desc).not.toMatch(/\bfierce\b/);
     // Should contain anchored or expanded forms
     expect(desc.length).toBeGreaterThan(15);
+  });
+
+  it('Hana-like protagonist gets structured casting identity', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    classifyIntoBucket('tall', b);
+    classifyIntoBucket('sharp', b);
+    classifyIntoBucket('dark', b);
+
+    const completed = completeActorIdentityBuckets(b, 'protagonist', ['period-drama']);
+    const desc = composeActorDescriptionFromBuckets(completed);
+
+    // Must start with base anchor
+    expect(desc).toMatch(/^woman/i);
+    expect(desc).toContain('early twenties');
+    // Physical traits must be anchored
+    expect(desc).toContain('sharp features');
+    expect(desc).toContain('dark hair');
+    // No floating adjectives
+    expect(desc).not.toMatch(/,\s*sharp\s*,/);
+    expect(desc).not.toMatch(/,\s*dark\s*,/);
+    // Must read like a casting identity sentence
+    expect(desc.split(',').length).toBeGreaterThanOrEqual(3);
   });
 
   it('lead character gets richer output than non-lead', () => {
