@@ -1277,7 +1277,6 @@ serve(async (req) => {
       productionDesignPromptBlock = lines.join('\n');
       productionDesignHash = `${productionArchitecture}|${productionMaterials.sort().join(',')}`;
     }
-    }
 
     // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
@@ -1900,7 +1899,7 @@ FRAMING RULES:
         } else {
           results.push({ image_id: imgRecord.id, status: "ready", shot_type: shotType || undefined, identity_locked: identityLockUsed });
         }
-      } catch (err: unknown) {
+      } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         console.error(`[lookbook-image] generation error for ${section} ${shotType || `variant ${i}`}:`, msg);
         results.push({ image_id: "", status: "failed", shot_type: shotType || undefined, error: msg });
@@ -1919,7 +1918,7 @@ FRAMING RULES:
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (err: unknown) {
+  } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error("generate-lookbook-image error:", errMsg);
     return new Response(JSON.stringify({ error: errMsg }), {
