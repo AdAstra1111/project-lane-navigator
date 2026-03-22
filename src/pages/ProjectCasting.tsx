@@ -95,13 +95,19 @@ export default function ProjectCasting() {
 
   const addMapping = useMutation({
     mutationFn: async (params: { character_key: string; ai_actor_id: string; ai_actor_version_id?: string }) => {
+      // Validate actor is roster-ready with a canonical approved version
+      const actor = actors.find((a: any) => a.id === params.ai_actor_id);
+      const approvedVersionId = (actor as any)?.approved_version_id || params.ai_actor_version_id || null;
+      if (!(actor as any)?.roster_ready || !approvedVersionId) {
+        throw new Error('Only roster-ready actors with an approved version can be cast');
+      }
       const { error } = await supabase
         .from('project_ai_cast' as any)
         .upsert({
           project_id: projectId,
           character_key: params.character_key,
           ai_actor_id: params.ai_actor_id,
-          ai_actor_version_id: params.ai_actor_version_id || null,
+          ai_actor_version_id: approvedVersionId,
         } as any, { onConflict: 'project_id,character_key' });
       if (error) throw error;
     },
