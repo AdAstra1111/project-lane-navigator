@@ -62,6 +62,11 @@ import {
   type RegenPolicyItem,
 } from '@/lib/aiCast/regenPolicyEngine';
 import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
+import { getRosterActorsForCasting, type ActorIntelligenceProfile } from '@/lib/aiCast/actorIntelligence';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
 
 interface CastMapping {
   id: string;
