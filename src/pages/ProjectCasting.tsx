@@ -763,9 +763,9 @@ export default function ProjectCasting() {
                         <RefreshCw className="h-3 w-3" /> Replace
                       </Button>
                     )}
-                    <Link to="/ai-cast">
+                    <Link to={`/ai-cast?actor=${pb.actor_id}`}>
                       <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1">
-                        <Eye className="h-3 w-3" /> Review
+                        <Eye className="h-3 w-3" /> Open Actor
                       </Button>
                     </Link>
                     <ConfirmDialog
