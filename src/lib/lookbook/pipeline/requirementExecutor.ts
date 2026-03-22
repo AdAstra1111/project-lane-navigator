@@ -254,6 +254,15 @@ export async function executeRequirements(
         }
 
         if (identityCharCount > 0) {
+          // Anti-drift guard: assert resolver was used for identity injection
+          for (const cn of allCharNames) {
+            assertIdentityFromResolver({
+              characterKey: cn,
+              resolverWasCalled: true,
+              identityBeingInjected: !!resolvedAnchors[cn],
+            });
+          }
+
           // Single vs multi-character payload
           if (identityCharCount === 1) {
             const [name, anch] = Object.entries(resolvedAnchors)[0];
@@ -284,6 +293,13 @@ export async function executeRequirements(
           };
           log(`[${section}] No identity anchors for characters [${allCharNames.join(', ')}] — generating without lock`);
         }
+
+        // ── BUILD CAST PROVENANCE ──
+        const castProvenance = allCharNames.map(cn => ({
+          character_key: normalizeCharacterKey(cn),
+          actor_id: resolvedActorIds[cn] || null,
+          actor_version_id: resolvedActorVersionIds[cn] || null,
+        }));
 
         try {
           const { data, error } = await (supabase as any).functions.invoke('generate-lookbook-image', {
