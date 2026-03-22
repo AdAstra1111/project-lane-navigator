@@ -6,7 +6,8 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
-  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert
+  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert,
+  FlaskConical, Clock, XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,10 @@ import {
   evaluateAnchorCoverage, persistAnchorStatus,
   type AnchorCoverageStatus, type AnchorCoherenceStatus,
 } from '@/lib/aiCast/anchorValidation';
+import {
+  useLatestValidationRun, useValidationImages, useStartValidation,
+  VALIDATION_SLOTS, type ValidationRun, type ValidationImage,
+} from '@/lib/aiCast/actorValidation';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -246,7 +251,26 @@ function AnchorCoverageBadge({ status }: { status: AnchorCoverageStatus }) {
   );
 }
 
-// ── Identity Strength Badge ─────────────────────────────────────────────────
+// ── Validation Status Chip ──────────────────────────────────────────────────
+
+function ValidationStatusChip({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string; icon: React.ElementType }> = {
+    pending: { label: 'Queued', className: 'bg-muted text-muted-foreground', icon: Clock },
+    generating: { label: 'Generating…', className: 'bg-primary/15 text-primary border-primary/30', icon: Loader2 },
+    scoring: { label: 'Scoring…', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: FlaskConical },
+    complete: { label: 'Validated', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icon: CheckCircle2 },
+    failed: { label: 'Failed', className: 'bg-destructive/15 text-destructive border-destructive/30', icon: XCircle },
+  };
+  const cfg = config[status] || config.pending;
+  const Icon = cfg.icon;
+  return (
+    <Badge variant="outline" className={cn('text-[9px] h-5 gap-0.5', cfg.className)}>
+      <Icon className={cn('h-2.5 w-2.5', status === 'generating' && 'animate-spin')} /> {cfg.label}
+    </Badge>
+  );
+}
+
+
 
 function IdentityBadge({ strength, size = 'sm' }: { strength: IdentityStrength; size?: 'sm' | 'md' }) {
   const config = {
@@ -562,6 +586,9 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const { data, isLoading } = useAIActor(actorId);
   const { updateActor, createVersion } = useAICastMutations();
   const actor: AIActor | undefined = data?.actor;
+  const startValidation = useStartValidation();
+  const { data: latestRun } = useLatestValidationRun(actorId);
+  const { data: validationImages } = useValidationImages(latestRun?.id);
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
@@ -654,6 +681,95 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
           </div>
         </div>
       )}
+
+      {/* Validation Section */}
+      <div className="border border-border/50 rounded-lg p-4 space-y-3 bg-card/30">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <FlaskConical className="h-3 w-3" /> Identity Validation
+          </h3>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1"
+            onClick={() => startValidation.mutate({ actorId })}
+            disabled={startValidation.isPending || (latestRun?.status === 'generating') || (latestRun?.status === 'pending')}
+          >
+            {(startValidation.isPending || latestRun?.status === 'generating' || latestRun?.status === 'pending')
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <FlaskConical className="h-3 w-3" />
+            }
+            {latestRun?.status === 'generating' ? 'Generating…' : latestRun?.status === 'pending' ? 'Queued…' : 'Run Validation'}
+          </Button>
+        </div>
+
+        {!latestRun ? (
+          <p className="text-[10px] text-muted-foreground">No validation runs yet. Run a quick validation to generate 22 test images across 11 controlled conditions.</p>
+        ) : (
+          <div className="space-y-3">
+            {/* Status + Coverage */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <ValidationStatusChip status={latestRun.status} />
+              {latestRun.pack_coverage && (latestRun.pack_coverage as any).coverage_percent != null && (
+                <span className="text-[10px] text-muted-foreground">
+                  Coverage: {(latestRun.pack_coverage as any).completed_images || 0}/22 images · {(latestRun.pack_coverage as any).coverage_percent}%
+                </span>
+              )}
+              {latestRun.completed_at && (
+                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                  <Clock className="h-2.5 w-2.5" /> {new Date(latestRun.completed_at).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+
+            {/* Validation Images Grid */}
+            {validationImages && validationImages.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] text-muted-foreground font-medium">Validation Pack</p>
+                <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-1.5">
+                  {VALIDATION_SLOTS.map(slot => {
+                    const slotImages = validationImages.filter((i: ValidationImage) => i.slot_key === slot.key);
+                    const hasComplete = slotImages.some((i: ValidationImage) => i.status === 'complete' && i.public_url);
+                    const primaryImage = slotImages.find((i: ValidationImage) => i.status === 'complete' && i.public_url);
+                    const isPending = slotImages.some((i: ValidationImage) => i.status === 'pending' || i.status === 'generating');
+                    const isFailed = slotImages.length > 0 && slotImages.every((i: ValidationImage) => i.status === 'failed');
+
+                    return (
+                      <div key={slot.key} className="space-y-0.5">
+                        <div className={cn(
+                          'aspect-square rounded-md overflow-hidden border',
+                          hasComplete ? 'border-border/50' : isPending ? 'border-primary/30' : isFailed ? 'border-destructive/30' : 'border-border/20'
+                        )}>
+                          {primaryImage?.public_url ? (
+                            <img src={primaryImage.public_url} alt={slot.label} className="w-full h-full object-cover" />
+                          ) : isPending ? (
+                            <div className="flex items-center justify-center h-full bg-muted/10">
+                              <Loader2 className="h-3 w-3 animate-spin text-primary/50" />
+                            </div>
+                          ) : isFailed ? (
+                            <div className="flex items-center justify-center h-full bg-destructive/5">
+                              <XCircle className="h-3 w-3 text-destructive/50" />
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center h-full bg-muted/5">
+                              <Image className="h-3 w-3 text-muted-foreground/20" />
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-[7px] text-muted-foreground truncate text-center">{slot.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {latestRun.error && (
+              <p className="text-[10px] text-destructive">{latestRun.error}</p>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Versions */}
       <div className="space-y-3">

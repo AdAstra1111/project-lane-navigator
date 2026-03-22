@@ -14,6 +14,151 @@ export type Database = {
   }
   public: {
     Tables: {
+      actor_validation_images: {
+        Row: {
+          created_at: string
+          error: string | null
+          generation_config: Json | null
+          id: string
+          public_url: string | null
+          slot_key: string
+          status: string
+          storage_path: string | null
+          validation_run_id: string
+          variant_index: number
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          generation_config?: Json | null
+          id?: string
+          public_url?: string | null
+          slot_key: string
+          status?: string
+          storage_path?: string | null
+          validation_run_id: string
+          variant_index?: number
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          generation_config?: Json | null
+          id?: string
+          public_url?: string | null
+          slot_key?: string
+          status?: string
+          storage_path?: string | null
+          validation_run_id?: string
+          variant_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actor_validation_images_validation_run_id_fkey"
+            columns: ["validation_run_id"]
+            isOneToOne: false
+            referencedRelation: "actor_validation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      actor_validation_results: {
+        Row: {
+          advisory_penalty_codes: string[] | null
+          axis_scores: Json | null
+          confidence: string | null
+          created_at: string
+          hard_fail_codes: string[] | null
+          id: string
+          overall_score: number | null
+          score_band: string | null
+          validation_run_id: string
+        }
+        Insert: {
+          advisory_penalty_codes?: string[] | null
+          axis_scores?: Json | null
+          confidence?: string | null
+          created_at?: string
+          hard_fail_codes?: string[] | null
+          id?: string
+          overall_score?: number | null
+          score_band?: string | null
+          validation_run_id: string
+        }
+        Update: {
+          advisory_penalty_codes?: string[] | null
+          axis_scores?: Json | null
+          confidence?: string | null
+          created_at?: string
+          hard_fail_codes?: string[] | null
+          id?: string
+          overall_score?: number | null
+          score_band?: string | null
+          validation_run_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actor_validation_results_validation_run_id_fkey"
+            columns: ["validation_run_id"]
+            isOneToOne: true
+            referencedRelation: "actor_validation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      actor_validation_runs: {
+        Row: {
+          actor_id: string
+          actor_version_id: string | null
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          id: string
+          pack_coverage: Json | null
+          status: string
+          triggered_by: string | null
+          validation_phase: string
+        }
+        Insert: {
+          actor_id: string
+          actor_version_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          pack_coverage?: Json | null
+          status?: string
+          triggered_by?: string | null
+          validation_phase?: string
+        }
+        Update: {
+          actor_id?: string
+          actor_version_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          pack_coverage?: Json | null
+          status?: string
+          triggered_by?: string | null
+          validation_phase?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actor_validation_runs_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actor_validation_runs_actor_version_id_fkey"
+            columns: ["actor_version_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actor_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_actor_assets: {
         Row: {
           actor_version_id: string
