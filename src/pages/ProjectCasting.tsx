@@ -330,7 +330,11 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
   onCast: (actorId: string, versionId?: string) => void;
 }) {
   const [selecting, setSelecting] = useState(false);
-  const activeActors = actors.filter((a: any) => a.status === 'active' || a.status === 'draft');
+  // Prefer roster-ready actors; show all active/draft as fallback if no roster actors exist
+  const rosterActors = actors.filter((a: any) => (a as any).roster_ready === true);
+  const activeActors = rosterActors.length > 0
+    ? rosterActors
+    : actors.filter((a: any) => a.status === 'active' || a.status === 'draft');
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-border/50 bg-muted/5">
