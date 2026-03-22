@@ -3,12 +3,12 @@
  * binding freshness diagnostics, rebind/unbind actions, impact analysis,
  * and Phase 8 Cast Health governance dashboard.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
   RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle,
-  Play, PlayCircle, RotateCcw, Zap
+  Play, PlayCircle, RotateCcw, Zap, Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
