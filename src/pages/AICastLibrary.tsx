@@ -1080,6 +1080,79 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
           anchorCoverageStatus={(actor as any).anchor_coverage_status || 'insufficient'}
         />
       </div>
+
+      {/* Danger Zone — Delete Actor */}
+      <div className="border border-destructive/30 rounded-lg p-4 space-y-3 bg-destructive/5">
+        <h3 className="text-xs font-medium text-destructive uppercase tracking-wider flex items-center gap-1.5">
+          <Trash2 className="h-3 w-3" /> Danger Zone
+        </h3>
+        <p className="text-[10px] text-muted-foreground">
+          Permanently delete this actor profile and all associated versions, assets, validation data, and marketplace listings. This cannot be undone.
+        </p>
+        {usageEntries.length > 0 && (
+          <p className="text-[10px] text-amber-400 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            This actor is currently used in {usageEntries.length} project{usageEntries.length > 1 ? 's' : ''}. Cast bindings will be removed.
+          </p>
+        )}
+        {(actor as any).roster_ready && (
+          <p className="text-[10px] text-amber-400 flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            This actor is roster-ready. Deletion requires force confirmation.
+          </p>
+        )}
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogTrigger asChild>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-xs gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete Actor Permanently
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2">
+                <Trash2 className="h-4 w-4" /> Delete Actor Permanently
+              </DialogTitle>
+              <DialogDescription className="text-xs space-y-2">
+                <span className="block">
+                  This will permanently delete <strong>{actor.name}</strong> and all associated data:
+                </span>
+                <span className="block text-muted-foreground">
+                  • All versions and generated assets<br />
+                  • Validation runs and results<br />
+                  • Promotion decisions<br />
+                  • Marketplace listings<br />
+                  • Cast bindings in projects
+                </span>
+                <span className="block font-medium text-destructive">This action cannot be undone.</span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowDeleteConfirm(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="text-xs gap-1.5"
+                disabled={deleteActor.isPending}
+                onClick={() => {
+                  deleteActor.mutate(
+                    { actorId, force: !!(actor as any).roster_ready },
+                    { onSuccess: () => { setShowDeleteConfirm(false); onBack(); } }
+                  );
+                }}
+              >
+                {deleteActor.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Delete Permanently
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }
