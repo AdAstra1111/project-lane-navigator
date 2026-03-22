@@ -1465,6 +1465,15 @@ export async function buildCharacterCastingBrief(
         ageHint = signals.ageSignals[0];
         tags.push(signals.ageSignals[0].toLowerCase());
       }
+      // Age: infer from contextual descriptors if still missing
+      if (!ageHint && signals.inferredAge) {
+        ageHint = signals.inferredAge;
+      }
+
+      // Gender: infer from pronoun usage if not already resolved
+      if (!genderPresentation && signals.inferredGender) {
+        genderPresentation = signals.inferredGender;
+      }
 
       // Visual markers: add unique values
       for (const vm of signals.visualMarkers) {
@@ -1500,6 +1509,7 @@ export async function buildCharacterCastingBrief(
         }
       }
     }
+  }
   }
 
   // ── 2. canon_json.characters ────────────────────────────────────────────
