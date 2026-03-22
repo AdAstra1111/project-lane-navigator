@@ -269,7 +269,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { projectId, characterKey, reasons, dryRun } = body;
+    const { projectId, characterKey, reasons, dryRun, exactItems } = body;
 
     if (!projectId) {
       return new Response(
@@ -296,19 +296,46 @@ Deno.serve(async (req) => {
     // ── A. Build canonical regen plan (server-side) ──
     const plan = await buildCastRegenPlan(db, projectId);
 
-    // ── B. Filter by caller intent ──
-    let filtered: RegenItem[] = [];
+    // Build a canonical item lookup set for validation
+    const canonicalSet = new Set<string>();
     for (const reason of Object.keys(plan.by_reason) as RegenReason[]) {
-      filtered.push(...plan.by_reason[reason]);
+      for (const item of plan.by_reason[reason]) {
+        canonicalSet.add(`${item.output_id}|${item.character_key}|${item.reason}`);
+      }
     }
 
-    if (characterKey) {
-      const normKey = normalizeCharacterKey(characterKey);
-      filtered = filtered.filter((i) => i.character_key === normKey);
-    }
-    if (reasons && Array.isArray(reasons) && reasons.length > 0) {
-      const reasonSet = new Set(reasons);
-      filtered = filtered.filter((i) => reasonSet.has(i.reason));
+    // ── B. Determine filtered items ──
+    let filtered: RegenItem[] = [];
+
+    if (Array.isArray(exactItems) && exactItems.length > 0) {
+      // EXACT-ITEM MODE: validate each requested item against canonical plan
+      for (const req of exactItems) {
+        const normKey = normalizeCharacterKey(req.character_key || "");
+        const lookupKey = `${req.output_id}|${normKey}|${req.reason}`;
+        if (canonicalSet.has(lookupKey)) {
+          // Find the full canonical item for complete data
+          const allItems = Object.values(plan.by_reason).flat();
+          const match = allItems.find(
+            (i) => i.output_id === req.output_id && i.character_key === normKey && i.reason === req.reason
+          );
+          if (match) filtered.push(match);
+        }
+        // Items not in canonical plan are silently skipped (invalid request)
+      }
+    } else {
+      // STANDARD MODE: filter by characterKey/reasons
+      for (const reason of Object.keys(plan.by_reason) as RegenReason[]) {
+        filtered.push(...plan.by_reason[reason]);
+      }
+
+      if (characterKey) {
+        const normKey = normalizeCharacterKey(characterKey);
+        filtered = filtered.filter((i) => i.character_key === normKey);
+      }
+      if (reasons && Array.isArray(reasons) && reasons.length > 0) {
+        const reasonSet = new Set(reasons);
+        filtered = filtered.filter((i) => reasonSet.has(i.reason));
+      }
     }
 
     // ── C. Dry run: return plan without creating jobs ──
