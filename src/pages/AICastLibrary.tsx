@@ -122,6 +122,15 @@ export default function AICastLibrary() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Navigation */}
+      <div className="flex items-center gap-2 text-xs">
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground" onClick={() => navigate('/dashboard')}>
+          <ArrowLeft className="h-3 w-3" /> Dashboard
+        </Button>
+        <span className="text-muted-foreground">/</span>
+        <span className="text-foreground font-medium">AI Actors Agency</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
