@@ -2421,6 +2421,20 @@ function InlineCreateActorDialog({
                 Actor Criteria <span className="font-normal opacity-60">— physical appearance &amp; presence</span>
               </h4>
 
+              {/* Source quality notice */}
+              {brief && brief.prefill_quality === 'source_thin' && (
+                <Alert variant="default" className="py-2 px-3">
+                  <AlertDescription className="text-[10px] text-muted-foreground">
+                    Limited appearance data found in project documents. Current prefill is based on available canon/context only. You can manually enrich the fields below.
+                  </AlertDescription>
+                </Alert>
+              )}
+              {brief && brief.prefill_quality === 'source_partial' && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                  Some appearance details were inferred from context. Review and adjust as needed.
+                </p>
+              )}
+
               {/* Brief metadata badges */}
               {brief && (
                 <div className="flex flex-wrap gap-1">
