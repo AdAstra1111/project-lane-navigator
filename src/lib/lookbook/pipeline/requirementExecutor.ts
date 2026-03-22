@@ -29,6 +29,8 @@ import { PipelineStage } from './types';
 import { buildConstraintPromptSuffix } from './slideTypeConstraints';
 import { validateCandidateForSlidePurpose, isEditorialSlide } from './slotPurposeValidator';
 import { resolveProjectCastIdentity, type ActorIdentityAnchors } from '@/lib/aiCast/resolveActorIdentity';
+import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
+import { assertIdentityFromResolver } from '@/lib/aiCast/assertCastResolution';
 
 // ── Execution Result ─────────────────────────────────────────────────────────
 
@@ -237,7 +239,7 @@ export async function executeRequirements(
         const identitySources: Record<string, string> = {};
 
         for (const cn of allCharNames) {
-          const key = cn.toLowerCase().trim();
+          const key = normalizeCharacterKey(cn);
           const anchors = characterAnchors.get(key);
           if (anchors?.hasAnchors) {
             resolvedAnchors[cn] = {
@@ -252,6 +254,15 @@ export async function executeRequirements(
         }
 
         if (identityCharCount > 0) {
+          // Anti-drift guard: assert resolver was used for identity injection
+          for (const cn of allCharNames) {
+            assertIdentityFromResolver({
+              characterKey: cn,
+              resolverWasCalled: true,
+              identityBeingInjected: !!resolvedAnchors[cn],
+            });
+          }
+
           // Single vs multi-character payload
           if (identityCharCount === 1) {
             const [name, anch] = Object.entries(resolvedAnchors)[0];
@@ -283,6 +294,13 @@ export async function executeRequirements(
           log(`[${section}] No identity anchors for characters [${allCharNames.join(', ')}] — generating without lock`);
         }
 
+        // ── BUILD CAST PROVENANCE ──
+        const castProvenance = allCharNames.map(cn => ({
+          character_key: normalizeCharacterKey(cn),
+          actor_id: resolvedActorIds[cn] || null,
+          actor_version_id: resolvedActorVersionIds[cn] || null,
+        }));
+
         try {
           const { data, error } = await (supabase as any).functions.invoke('generate-lookbook-image', {
             body: {
@@ -302,11 +320,12 @@ export async function executeRequirements(
                 slide_type: targetReq.slideType,
                 pass,
                 requested_shot_type: targetReq.shotType,
-                // ── ACTOR ATTRIBUTION: persisted on generated rows ──
+                // ── ACTOR ATTRIBUTION + CAST PROVENANCE: persisted on generated rows ──
                 resolved_character_names: allCharNames,
                 ai_actor_ids: Object.keys(resolvedActorIds).length > 0 ? resolvedActorIds : undefined,
                 ai_actor_version_ids: Object.keys(resolvedActorVersionIds).length > 0 ? resolvedActorVersionIds : undefined,
                 identity_sources: Object.keys(identitySources).length > 0 ? identitySources : undefined,
+                cast_provenance: castProvenance.length > 0 ? castProvenance : undefined,
               },
             },
           });
@@ -634,7 +653,7 @@ export async function executeRequirements(
       status = 'blocked';
       // Provide specific blocking reason for character requirements
       if (req.subjectType === 'character' && req.promptContext.characterName) {
-        const key = req.promptContext.characterName.toLowerCase().trim();
+        const key = normalizeCharacterKey(req.promptContext.characterName);
         const anchors = characterAnchors.get(key);
         if (anchors?.hasAnchors) {
           blockingReason = `Identity anchors present for "${req.promptContext.characterName}" but no compliant generations matched`;
@@ -737,7 +756,7 @@ function identityPayloadForReq(
   const allNames = resolveAllCharacterNamesFromReq(req);
   if (allNames.length === 0) return {};
   for (const n of allNames) {
-    const a = anchors.get(n.toLowerCase().trim());
+    const a = anchors.get(normalizeCharacterKey(n));
     if (a?.hasAnchors) return { identity_mode: true };
   }
   return {};
