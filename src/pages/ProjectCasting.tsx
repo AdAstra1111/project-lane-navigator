@@ -334,7 +334,7 @@ export default function ProjectCasting() {
           </h3>
           <div className="space-y-2">
             {unmappedCharacters.map(charKey => {
-              const resolvedIdentity = identityMap?.[charKey.toLowerCase().trim()];
+              const resolvedIdentity = identityMap?.[normalizeCharacterKey(charKey)];
               return (
                 <CastCharacterRow
                   key={charKey}
