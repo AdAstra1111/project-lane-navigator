@@ -99,6 +99,9 @@ export default function ProjectCasting() {
   const [showRegenPolicy, setShowRegenPolicy] = useState(false);
   const [showCastLibrary, setShowCastLibrary] = useState<string | null>(null); // character key to cast
   const [showRecommendations, setShowRecommendations] = useState(false);
+  const [showCastPack, setShowCastPack] = useState(false);
+  const [castPack, setCastPack] = useState<ProjectCastPack | null>(null);
+  const [packSelections, setPackSelections] = useState<Record<string, string | null>>({});
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
