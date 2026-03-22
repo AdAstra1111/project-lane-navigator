@@ -222,7 +222,7 @@ describe('classifyIntoBucket', () => {
   it('classifies face signals into face bucket', () => {
     const b = createEmptyBuckets();
     classifyIntoBucket('angular features', b);
-    classifyIntoBucket('high cheekbones', b);
+    classifyIntoBucket('chiseled jawline', b);
     expect(b.face.length).toBe(2);
   });
 
