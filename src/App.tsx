@@ -86,6 +86,7 @@ const Showcase = lazy(() => import("./pages/Showcase"));
 const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
 const AIContentPage = lazy(() => import("./pages/AIContentPage"));
 const AICastLibrary = lazy(() => import("./pages/AICastLibrary"));
+const ActorMarketplace = lazy(() => import("./pages/ActorMarketplace"));
 const ProjectCasting = lazy(() => import("./pages/ProjectCasting"));
 const CastingStudio = lazy(() => import("./pages/CastingStudio"));
 const NarrativeDna = lazy(() => import("./pages/NarrativeDna"));
@@ -192,6 +193,7 @@ const AnimatedRoutes = () => {
           <Route path="/exemplars" element={<ProtectedRoute><ExemplarBrowser /></ProtectedRoute>} />
           <Route path="/ci-blueprint" element={<ProtectedRoute><CIBlueprintEngine /></ProtectedRoute>} />
           <Route path="/ai-cast" element={<ProtectedRoute><AICastLibrary /></ProtectedRoute>} />
+          <Route path="/actor-marketplace" element={<ProtectedRoute><ActorMarketplace /></ProtectedRoute>} />
           <Route path="/calibration-lab" element={<ProtectedRoute><CalibrationLab /></ProtectedRoute>} />
           <Route path="/demo" element={<GuidedDemo />} />
           <Route path="/demo/cinematic" element={<CinematicDemo />} />
