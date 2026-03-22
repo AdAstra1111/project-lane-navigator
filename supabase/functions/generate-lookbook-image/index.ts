@@ -1098,6 +1098,96 @@ serve(async (req) => {
       vsalPromptBlock = null;
     }
 
+    // ── CINEMATIC STYLE LOCK: Resolve from project_visual_style.style_lock_json ──
+    let cinematicStyleLock: Record<string, string> | null = null;
+    let cinematicStylePromptBlock = '';
+    let cinematicStyleHash = '';
+    {
+      const { data: vsRow } = await supabase.from("project_visual_style")
+        .select("style_lock_json")
+        .eq("project_id", project_id)
+        .maybeSingle();
+      if (vsRow?.style_lock_json && typeof vsRow.style_lock_json === 'object') {
+        cinematicStyleLock = vsRow.style_lock_json as Record<string, string>;
+        // Build deterministic hash
+        const sl = cinematicStyleLock;
+        cinematicStyleHash = [sl.color_profile, sl.contrast_curve, sl.grain_level, sl.lens_profile, sl.lighting_style, sl.time_of_day_bias].filter(Boolean).join('|');
+
+        // Build prompt block inline (server-side, same logic as client styleLock.ts)
+        const COLOR_MAP: Record<string, string> = {
+          warm_filmic: 'Warm filmic color grading — amber highlights, rich shadows, Kodak warmth',
+          cool_noir: 'Cool desaturated palette — blue-steel shadows, clinical highlights, noir tones',
+          neutral_cinematic: 'Neutral cinematic color — balanced grading, natural skin tones, restrained palette',
+        };
+        const CONTRAST_MAP: Record<string, string> = {
+          soft: 'Soft contrast curve — lifted shadows, gentle highlights, dreamy quality',
+          medium: 'Medium contrast — balanced shadow/highlight ratio, cinematic dynamic range',
+          high: 'High contrast — deep blacks, bright highlights, dramatic tonal separation',
+        };
+        const GRAIN_MAP: Record<string, string> = {
+          none: 'Clean digital capture — no visible grain',
+          light: 'Light organic film grain — subtle texture without distraction',
+          film_35mm: 'Pronounced 35mm film grain — visible texture, analog character, photochemical feel',
+        };
+        const LENS_MAP: Record<string, string> = {
+          anamorphic: 'Anamorphic lens characteristics — oval bokeh, horizontal flares, wide field compression',
+          spherical: 'Spherical lens — clean bokeh circles, natural perspective, minimal distortion',
+          portrait_85mm: '85mm portrait lens — compressed background, creamy bokeh, flattering perspective',
+        };
+        const LIGHTING_MAP: Record<string, string> = {
+          naturalistic: 'Naturalistic lighting — motivated sources, available light feel, gentle fill',
+          dramatic: 'Dramatic lighting — strong key-to-fill ratio, sculpted shadows, chiaroscuro influence',
+          high_key: 'High-key lighting — even illumination, minimal shadows, bright and airy',
+          low_key: 'Low-key lighting — dominant shadows, selective illumination, mystery and tension',
+        };
+        const TOD_MAP: Record<string, string> = {
+          golden_hour: 'Golden hour bias — warm directional light, long shadows, amber atmosphere',
+          daylight: 'Daylight bias — overhead natural light, clear visibility, neutral temperature',
+          night: 'Night bias — artificial/moonlit sources, cool tones, pools of light in darkness',
+          mixed: 'Mixed time-of-day — varied lighting scenarios appropriate to each scene',
+        };
+        cinematicStylePromptBlock = [
+          '[CINEMATIC STYLE LOCK — ALL IMAGES MUST MATCH]',
+          '',
+          `COLOR: ${COLOR_MAP[sl.color_profile || ''] || sl.color_profile || ''}`,
+          `CONTRAST: ${CONTRAST_MAP[sl.contrast_curve || ''] || sl.contrast_curve || ''}`,
+          `GRAIN: ${GRAIN_MAP[sl.grain_level || ''] || sl.grain_level || ''}`,
+          `LENS: ${LENS_MAP[sl.lens_profile || ''] || sl.lens_profile || ''}`,
+          `LIGHTING: ${LIGHTING_MAP[sl.lighting_style || ''] || sl.lighting_style || ''}`,
+          `TIME OF DAY: ${TOD_MAP[sl.time_of_day_bias || ''] || sl.time_of_day_bias || ''}`,
+          '',
+          'Every image in this project MUST share these visual characteristics.',
+        ].join('\n');
+        console.log(`[CinematicStyleLock] Resolved: hash=${cinematicStyleHash}`);
+      }
+    }
+
+    // ── SHOT INTENT: Resolve for current section/slide ──
+    const slideType = autoCompleteContext?.slide_type || section;
+    const SHOT_INTENT_MAP: Record<string, Record<string, string>> = {
+      characters:  { framing: 'Close-up', subject: 'Character dominant', angle: 'Eye-level', dof: 'Shallow', motion: 'Static' },
+      world:       { framing: 'Wide', subject: 'Environment dominant', angle: 'Eye-level', dof: 'Deep', motion: 'Static' },
+      key_moments: { framing: 'Medium', subject: 'Character in context', angle: 'Eye-level', dof: 'Shallow', motion: 'Dynamic' },
+      story_engine:{ framing: 'Medium', subject: 'Character in context', angle: 'Eye-level', dof: 'Shallow', motion: 'Static' },
+      visual_language: { framing: 'Close-up', subject: 'Environment/texture dominant', angle: 'Eye-level', dof: 'Shallow', motion: 'Static' },
+      themes:      { framing: 'Wide', subject: 'Environment/atmosphere dominant', angle: 'Eye-level', dof: 'Deep', motion: 'Static' },
+      cover:       { framing: 'Medium', subject: 'Character heroic', angle: 'Low', dof: 'Shallow', motion: 'Static' },
+      closing:     { framing: 'Wide', subject: 'Environment dominant', angle: 'Eye-level', dof: 'Deep', motion: 'Static' },
+      poster_directions: { framing: 'Medium', subject: 'Character heroic', angle: 'Low', dof: 'Shallow', motion: 'Static' },
+    };
+    const resolvedShotIntent = SHOT_INTENT_MAP[slideType] || SHOT_INTENT_MAP[section] || null;
+    let shotIntentPromptBlock = '';
+    if (resolvedShotIntent) {
+      shotIntentPromptBlock = [
+        '[SHOT INTENT — SLOT-SPECIFIC CAMERA DIRECTION]',
+        `Framing: ${resolvedShotIntent.framing}`,
+        `Subject: ${resolvedShotIntent.subject}`,
+        `Camera Angle: ${resolvedShotIntent.angle}`,
+        `Depth of Field: ${resolvedShotIntent.dof}`,
+        `Motion Feel: ${resolvedShotIntent.motion}`,
+      ].join('\n');
+    }
+
     // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
       .from("projects")
