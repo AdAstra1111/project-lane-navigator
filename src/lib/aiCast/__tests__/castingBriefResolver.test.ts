@@ -611,7 +611,7 @@ describe('Phase 17.5 — sparse input produces casting-grade output', () => {
 
     // Must start with base anchor
     expect(desc).toMatch(/^woman/i);
-    expect(desc).toContain('early twenties');
+    expect(desc).toContain('playing age 20–25');
     // Physical traits must be anchored
     expect(desc).toContain('sharp features');
     expect(desc).toContain('dark hair');
