@@ -1607,4 +1607,6 @@ export const _testHelpers = {
   expandIdentityBuckets,
   composeActorCriteriaHighlights,
   inferEthnicityFromCanonContext,
+  derivePlayingAge,
+  generateActorPlaceholderName,
 };
