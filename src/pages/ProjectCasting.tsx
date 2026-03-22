@@ -11,6 +11,7 @@ import {
   Play, PlayCircle, RotateCcw, Zap, Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -86,6 +87,12 @@ import {
   abandonPendingActorBindContext,
   type PendingActorBindContext,
 } from '@/lib/aiCast/pendingBindRecovery';
+import {
+  resolveActorDisplayName,
+  resolveActorPipelineState,
+  getPipelineStateLabel,
+  getPipelineStateStyle,
+} from '@/lib/aiCast/actorDisplayName';
 
 interface CastMapping {
   id: string;
@@ -555,7 +562,7 @@ export default function ProjectCasting() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-medium text-foreground">{m.character_key}</span>
                     <span className="text-muted-foreground text-[10px]">→</span>
-                    <span className="text-xs text-primary font-medium">{actor?.name || m.ai_actor_id.slice(0, 8)}</span>
+                    <span className="text-xs text-primary font-medium">{resolveActorDisplayName(actor, { characterKey: m.character_key })}</span>
                     <FreshnessBadge freshness={freshness} />
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -660,7 +667,7 @@ export default function ProjectCasting() {
         <div className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
-            Pending Created Actors ({(pendingBinds || []).length})
+            Actors Awaiting Binding ({(pendingBinds || []).length})
           </h3>
           <div className="space-y-2">
             {(pendingBinds || []).map((pb) => {
@@ -676,21 +683,21 @@ export default function ProjectCasting() {
                   className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium text-foreground">{pb.character_key}</span>
                       <span className="text-muted-foreground text-[10px]">→</span>
                       <span className="text-xs text-primary font-medium">
-                        {actor?.name || pb.actor_id.slice(0, 8)}
+                        {resolveActorDisplayName(actor, { characterKey: pb.character_key })}
                       </span>
-                      {isBindable ? (
-                        <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
-                          Ready to Bind
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[9px] h-4 border-amber-500/40 text-amber-700 bg-amber-500/10">
-                          Pending Validation
-                        </Badge>
-                      )}
+                      {(() => {
+                        const pipelineState = resolveActorPipelineState(actor as any, pb.status);
+                        const stateStyle = getPipelineStateStyle(pipelineState);
+                        return (
+                          <Badge variant="outline" className={`text-[9px] h-4 ${stateStyle.border} ${stateStyle.text} ${stateStyle.bg}`}>
+                            {getPipelineStateLabel(pipelineState)}
+                          </Badge>
+                        );
+                      })()}
                       {alreadyBound && (
                         <Badge variant="outline" className="text-[9px] h-4 border-muted-foreground/30 text-muted-foreground">
                           Character Already Bound
@@ -720,7 +727,7 @@ export default function ProjectCasting() {
                             );
                             await resolvePendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
                             invalidateAll();
-                            toast.success(`Bound ${actor?.name || 'actor'} to ${pb.character_key}`);
+                            toast.success(`Bound ${resolveActorDisplayName(actor, { characterKey: pb.character_key })} to ${pb.character_key}`);
                           } catch (err: any) {
                             toast.error(err.message || 'Bind failed');
                           }
@@ -761,22 +768,29 @@ export default function ProjectCasting() {
                         <Eye className="h-3 w-3" /> Review
                       </Button>
                     </Link>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-[10px] gap-1 text-muted-foreground"
-                      onClick={async () => {
+                    <ConfirmDialog
+                      title="Remove from queue?"
+                      description="This removes the pending bind from this queue. The actor will remain in your library and can be bound later."
+                      confirmLabel="Remove from Queue"
+                      variant="default"
+                      onConfirm={async () => {
                         try {
                           await abandonPendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
                           refetchPendingBinds();
-                          toast.info('Pending bind dismissed');
+                          toast.info('Removed from binding queue — actor preserved in library');
                         } catch (err: any) {
-                          toast.error(err.message || 'Dismiss failed');
+                          toast.error(err.message || 'Failed to remove');
                         }
                       }}
                     >
-                      <XCircle className="h-3 w-3" /> Dismiss
-                    </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px] gap-1 text-muted-foreground"
+                      >
+                        <XCircle className="h-3 w-3" /> Remove from Queue
+                      </Button>
+                    </ConfirmDialog>
                   </div>
                 </div>
               );
