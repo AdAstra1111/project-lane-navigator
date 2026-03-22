@@ -659,3 +659,137 @@ describe('Phase 17.5 — sparse input produces casting-grade output', () => {
     expect(completed.ethnicity.length).toBe(0);
   });
 });
+
+// ── L. Phase 17.6: Phrase-level tags ─────────────────────────────────────
+
+describe('Phase 17.6 — phrase-level tags', () => {
+  it('preserves "dark hair" as dark_hair, not split into dark + hair', () => {
+    const b = createEmptyBuckets();
+    b.hair.push('dark hair');
+    b.face.push('sharp features');
+    const tags = composeActorTagsFromBuckets(b, null);
+    expect(tags).toContain('dark_hair');
+    expect(tags).toContain('sharp_features');
+    expect(tags).not.toContain('dark');
+    expect(tags).not.toContain('hair');
+    expect(tags).not.toContain('sharp');
+    expect(tags).not.toContain('features');
+  });
+
+  it('preserves "controlled intensity" as single tag', () => {
+    const b = createEmptyBuckets();
+    b.presence.push('controlled intensity');
+    const tags = composeActorTagsFromBuckets(b, null);
+    expect(tags).toContain('controlled_intensity');
+    expect(tags).not.toContain('controlled');
+    expect(tags).not.toContain('intensity');
+  });
+
+  it('preserves "period-appropriate styling" as single tag', () => {
+    const b = createEmptyBuckets();
+    b.styling.push('period-appropriate styling');
+    const tags = composeActorTagsFromBuckets(b, null);
+    expect(tags.some(t => t.includes('period'))).toBe(true);
+    // Should be one tag, not three
+    const periodTags = tags.filter(t => t.includes('period'));
+    expect(periodTags.length).toBe(1);
+  });
+
+  it('includes gender hint as tag', () => {
+    const b = createEmptyBuckets();
+    b.age.push('early twenties');
+    const tags = composeActorTagsFromBuckets(b, 'female');
+    expect(tags).toContain('female');
+    expect(tags).toContain('early_twenties');
+  });
+});
+
+// ── M. Phase 17.6: Curated chip highlights ───────────────────────────────
+
+describe('Phase 17.6 — composeActorCriteriaHighlights', () => {
+  it('returns phrase-level highlights, not raw fragments', () => {
+    const b = createEmptyBuckets();
+    b.face.push('sharp features');
+    b.hair.push('dark hair');
+    b.height.push('tall');
+    b.presence.push('controlled intensity');
+    b.styling.push('period-appropriate styling');
+
+    const highlights = composeActorCriteriaHighlights(b);
+    expect(highlights).toContain('sharp features');
+    expect(highlights).toContain('dark hair');
+    expect(highlights).toContain('tall');
+    expect(highlights).toContain('controlled intensity');
+    expect(highlights.length).toBeLessThanOrEqual(6);
+  });
+
+  it('returns empty for empty buckets', () => {
+    const b = createEmptyBuckets();
+    expect(composeActorCriteriaHighlights(b).length).toBe(0);
+  });
+
+  it('dedupes highlights', () => {
+    const b = createEmptyBuckets();
+    b.face.push('sharp features');
+    b.face.push('sharp features');
+    const highlights = composeActorCriteriaHighlights(b);
+    expect(highlights.filter(h => h === 'sharp features').length).toBe(1);
+  });
+});
+
+// ── N. Phase 17.6: Identity expansion ────────────────────────────────────
+
+describe('Phase 17.6 — expandIdentityBuckets', () => {
+  it('adds build when height exists but build is empty', () => {
+    const b = createEmptyBuckets();
+    b.height.push('tall');
+    const expanded = expandIdentityBuckets(b, null, []);
+    expect(expanded.build.length).toBeGreaterThan(0);
+    expect(expanded.build[0]).toContain('slender');
+  });
+
+  it('adds period styling when world cues available and styling empty', () => {
+    const b = createEmptyBuckets();
+    const expanded = expandIdentityBuckets(b, null, ['Victorian']);
+    expect(expanded.styling.length).toBeGreaterThan(0);
+  });
+
+  it('promotes archetype to presence for leads when presence empty', () => {
+    const b = createEmptyBuckets();
+    b.archetype.push('elegant');
+    const expanded = expandIdentityBuckets(b, 'protagonist', []);
+    expect(expanded.presence.length).toBeGreaterThan(0);
+  });
+
+  it('does not invent data for empty input', () => {
+    const b = createEmptyBuckets();
+    const expanded = expandIdentityBuckets(b, null, []);
+    expect(expanded.hair.length).toBe(0);
+    expect(expanded.age.length).toBe(0);
+    expect(expanded.ethnicity.length).toBe(0);
+  });
+
+  it('description/tags/chips serve different roles', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.face.push('sharp features');
+    b.hair.push('dark hair');
+    b.presence.push('controlled intensity');
+    b.styling.push('period-appropriate styling');
+
+    const desc = composeActorDescriptionFromBuckets(b);
+    const tags = composeActorTagsFromBuckets(b, 'female');
+    const chips = composeActorCriteriaHighlights(b);
+
+    // Description is a sentence
+    expect(desc).toContain('woman');
+    expect(desc.split(',').length).toBeGreaterThan(2);
+
+    // Tags are underscore-separated tokens
+    expect(tags.every(t => !t.includes(' '))).toBe(true);
+
+    // Chips are phrase-level highlights
+    expect(chips.some(c => c.includes(' '))).toBe(true);
+  });
+});
