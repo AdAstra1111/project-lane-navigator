@@ -332,7 +332,7 @@ describe('composeActorDescriptionFromBuckets', () => {
     b.hair.push('dark hair');
     const result = composeActorDescriptionFromBuckets(b);
     expect(result).toMatch(/^woman/i);
-    expect(result).toContain('early twenties');
+    expect(result).toContain('playing age 20–25');
   });
 
   it('enforces max 220 char length', () => {
