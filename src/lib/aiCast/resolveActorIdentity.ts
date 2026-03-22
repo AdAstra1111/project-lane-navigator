@@ -91,7 +91,7 @@ export async function resolveProjectCastIdentity(
       .in('curation_state', ['active', 'approved', 'locked']);
 
     for (const img of anchorImages || []) {
-      const name = (img.subject || '').toLowerCase().trim();
+      const name = normalizeCharacterKey(img.subject || '');
       if (!name || actorBoundNames.has(name)) continue;
 
       if (!map.has(name)) {
