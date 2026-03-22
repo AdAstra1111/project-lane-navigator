@@ -196,7 +196,7 @@ export function pickBackgroundImage(
   if (bestLandscape) return bestLandscape.img.signedUrl!;
   if (scored.length > 0) return scored[0].img.signedUrl!;
 
-  // Global fallback
+  // Global fallback — also uses composition-aware augmented scoring (Phase 16.6)
   const allSectionImages: ProjectImage[] = [];
   for (const pool of Object.values(ctx.sectionPools)) {
     for (const img of pool) {
@@ -207,8 +207,12 @@ export function pickBackgroundImage(
   }
   const globalFallback = (fallbackPool.length > 0 ? fallbackPool : allSectionImages)
     .filter(i => !isExcluded(i))
-    .map(img => ({ img, score: scoreImageForSlide(img, slideType, true, scoringCtx) }));
-  globalFallback.sort((a, b) => b.score - a.score);
+    .map(img => {
+      const base = scoreImageForSlide(img, slideType, true, scoringCtx);
+      const { total } = computeAugmentedScore(img, slideType, base, selectionCtx || null);
+      return { img, score: total };
+    });
+  globalFallback.sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
   const globalLandscape = globalFallback.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
   if (globalLandscape) return globalLandscape.img.signedUrl!;
   if (globalFallback.length > 0) return globalFallback[0].img.signedUrl!;
