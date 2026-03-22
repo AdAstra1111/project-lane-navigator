@@ -239,7 +239,7 @@ export async function executeRequirements(
         const identitySources: Record<string, string> = {};
 
         for (const cn of allCharNames) {
-          const key = cn.toLowerCase().trim();
+          const key = normalizeCharacterKey(cn);
           const anchors = characterAnchors.get(key);
           if (anchors?.hasAnchors) {
             resolvedAnchors[cn] = {

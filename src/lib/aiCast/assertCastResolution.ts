@@ -23,7 +23,7 @@ export function assertCastResolved(params: {
   if (params.resolved.bound) return;
 
   // If unbound with explicit reason, that's acceptable — no binding exists
-  if (!params.resolved.bound && params.resolved.reason === 'no_cast_binding') return;
+  if (!params.resolved.bound && 'reason' in params.resolved && params.resolved.reason === 'no_cast_binding') return;
 
   // Any other unbound state without a reason is suspicious
   throw new Error(
