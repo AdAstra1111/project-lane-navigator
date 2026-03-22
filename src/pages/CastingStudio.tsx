@@ -281,8 +281,8 @@ export default function CastingStudio() {
               className="h-8 text-xs gap-1.5"
               onClick={() => setPromoteDialogIds(shortlistedIds)}
             >
-              <Crown className="h-3.5 w-3.5" />
-              Promote Shortlist ({shortlistedIds.length})
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Validate & Promote ({shortlistedIds.length})
             </Button>
           )}
         </div>
