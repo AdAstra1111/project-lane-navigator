@@ -118,11 +118,44 @@ export default function ProjectCasting() {
     enabled: !!projectId && showHealth,
   });
 
+  // Regen jobs list (lazy)
+  const { data: regenJobs, isLoading: regenJobsLoading, refetch: refetchRegenJobs } = useQuery({
+    queryKey: ['cast-regen-jobs', projectId],
+    queryFn: () => listCastRegenJobs(projectId!),
+    enabled: !!projectId && showRegenJobs,
+  });
+
+  // Queue all regen jobs mutation
+  const queueAllRegenMutation = useMutation({
+    mutationFn: async (opts?: { characterKey?: string }) => {
+      return queueCastRegenJobs(projectId!, opts);
+    },
+    onSuccess: (result) => {
+      if (result.created_count > 0) {
+        toast.success(`Queued ${result.created_count} regen job(s)${result.skipped_duplicates > 0 ? `, ${result.skipped_duplicates} already queued` : ''}`);
+      } else if (result.skipped_duplicates > 0) {
+        toast.info(`All ${result.skipped_duplicates} job(s) already queued`);
+      } else {
+        toast.info('No outputs need regeneration');
+      }
+      refetchRegenJobs();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Cancel regen job mutation
+  const cancelRegenMutation = useMutation({
+    mutationFn: cancelCastRegenJob,
+    onSuccess: () => { toast.success('Job cancelled'); refetchRegenJobs(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-impact', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-health', projectId] });
+    qc.invalidateQueries({ queryKey: ['cast-regen-jobs', projectId] });
   };
 
   const addMapping = useMutation({
