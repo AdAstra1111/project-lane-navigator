@@ -104,9 +104,11 @@ export async function evaluateCharacterContinuity(
     const continuityScore = Math.round((dominantCount / outputsChecked) * 100);
 
     let status: CharacterContinuityResult['status'];
-    if (distinctIds.length === 1) {
+    if (distinctIds.length === 1 && continuityScore === 100) {
+      // Truly stable: one version, no null/unusable entries
       status = 'stable';
     } else if (continuityScore >= 50) {
+      // Mixed: multiple versions or one version with null gaps
       status = 'mixed';
     } else {
       status = 'broken';
