@@ -26917,6 +26917,29 @@ export type Database = {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean
       }
+      claim_next_cast_regen_job: {
+        Args: never
+        Returns: {
+          character_key: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          output_id: string
+          output_type: string
+          project_id: string
+          reason: string
+          requested_by: string | null
+          started_at: string | null
+          status: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "cast_regen_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_next_devseed_items: {
         Args: { p_claimed_by: string; p_job_id: string; p_limit: number }
         Returns: {
