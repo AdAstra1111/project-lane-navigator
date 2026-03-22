@@ -356,6 +356,12 @@ export default function ProjectCasting() {
           </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowSceneIntegrity(!showSceneIntegrity); if (!showSceneIntegrity) refetchSceneIntegrity(); }}
+          >
+            <Shield className="h-3.5 w-3.5" /> {showSceneIntegrity ? 'Hide' : ''} Scene Integrity
+          </Button>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowRegenJobs(!showRegenJobs); if (!showRegenJobs) refetchRegenJobs(); }}
           >
             <ListChecks className="h-3.5 w-3.5" /> {showRegenJobs ? 'Hide' : ''} Regen Jobs
