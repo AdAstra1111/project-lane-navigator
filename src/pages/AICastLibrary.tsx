@@ -1,11 +1,12 @@
 /**
  * AI Actors Agency — Global actor registry with search, filter, identity strength, usage tracking.
+ * Includes: create from project images, actor detail, version management.
  */
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
-  ImagePlus, ShieldCheck, Trash2, Upload, X, ArrowLeft, Film, Shield,
-  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown
+  ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
+  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +25,7 @@ import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import type { AIActor, AIActorVersion, AIActorAsset } from '@/lib/aiCast/aiCastApi';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useActorUsage, getActorUsageCounts } from '@/lib/aiCast/useActorUsage';
 import { getIdentityStrength, getActorThumbnail, type IdentityStrength } from '@/lib/aiCast/identityStrength';
 
@@ -33,6 +34,8 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 type SortMode = 'recent' | 'name' | 'usage';
 type FilterStatus = 'all' | 'active' | 'draft';
+
+// ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AICastLibrary() {
   const { data, isLoading } = useAIActors();
@@ -43,6 +46,7 @@ export default function AICastLibrary() {
   const [search, setSearch] = useState('');
   const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showCreateFromImages, setShowCreateFromImages] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
 
@@ -52,17 +56,12 @@ export default function AICastLibrary() {
       a.tags.some(t => t.toLowerCase().includes(search.toLowerCase())) ||
       a.description?.toLowerCase().includes(search.toLowerCase())
     );
-
-    if (filterStatus !== 'all') {
-      list = list.filter(a => a.status === filterStatus);
-    }
-
+    if (filterStatus !== 'all') list = list.filter(a => a.status === filterStatus);
     list.sort((a, b) => {
       if (sortMode === 'name') return a.name.localeCompare(b.name);
       if (sortMode === 'usage') return (usageCounts.get(b.id) || 0) - (usageCounts.get(a.id) || 0);
       return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
     });
-
     return list;
   }, [actors, search, filterStatus, sortMode, usageCounts]);
 
@@ -88,34 +87,33 @@ export default function AICastLibrary() {
             Create, manage and cast reusable AI actor identities across productions
           </p>
         </div>
-        <Dialog open={showCreate} onOpenChange={setShowCreate}>
-          <DialogTrigger asChild>
-            <Button size="sm" className="h-8 text-xs gap-1.5">
-              <Plus className="h-3.5 w-3.5" /> New Actor
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Create AI Actor</DialogTitle></DialogHeader>
-            <CreateActorForm onCreated={(id) => { setShowCreate(false); setSelectedActorId(id); }} />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateFromImages(true)}>
+            <Image className="h-3.5 w-3.5" /> From Images
+          </Button>
+          <Dialog open={showCreate} onOpenChange={setShowCreate}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="h-8 text-xs gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> New Actor
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Create AI Actor</DialogTitle></DialogHeader>
+              <CreateActorForm onCreated={(id) => { setShowCreate(false); setSelectedActorId(id); }} />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Search + Filters */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, tags, description..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-9 h-9 text-xs"
-          />
+          <Input placeholder="Search by name, tags, description..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-9 text-xs" />
         </div>
         <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as FilterStatus)}>
           <SelectTrigger className="h-9 w-[120px] text-xs">
-            <SlidersHorizontal className="h-3 w-3 mr-1" />
-            <SelectValue />
+            <SlidersHorizontal className="h-3 w-3 mr-1" /><SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all" className="text-xs">All Status</SelectItem>
@@ -125,8 +123,7 @@ export default function AICastLibrary() {
         </Select>
         <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
           <SelectTrigger className="h-9 w-[120px] text-xs">
-            <ArrowUpDown className="h-3 w-3 mr-1" />
-            <SelectValue />
+            <ArrowUpDown className="h-3 w-3 mr-1" /><SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="recent" className="text-xs">Recent</SelectItem>
@@ -136,7 +133,7 @@ export default function AICastLibrary() {
         </Select>
       </div>
 
-      {/* Stats bar */}
+      {/* Stats */}
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
         <span>{actors.length} actor{actors.length !== 1 ? 's' : ''}</span>
         <span>{actors.filter(a => a.status === 'active').length} active</span>
@@ -145,92 +142,66 @@ export default function AICastLibrary() {
 
       {/* Grid */}
       {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
+        <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12 space-y-2">
           <Users className="h-8 w-8 mx-auto text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground">
-            {actors.length === 0
-              ? 'No AI actors yet. Create your first one to start building your cast.'
-              : 'No actors match your search.'}
+            {actors.length === 0 ? 'No AI actors yet. Create your first one to start building your cast.' : 'No actors match your search.'}
           </p>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map(actor => (
-            <ActorCard
-              key={actor.id}
-              actor={actor}
-              usageCount={usageCounts.get(actor.id) || 0}
-              onClick={() => setSelectedActorId(actor.id)}
-            />
+            <ActorCard key={actor.id} actor={actor} usageCount={usageCounts.get(actor.id) || 0} onClick={() => setSelectedActorId(actor.id)} />
           ))}
         </div>
       )}
+
+      {/* Create from images dialog */}
+      <Dialog open={showCreateFromImages} onOpenChange={setShowCreateFromImages}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Actor from Project Images</DialogTitle>
+            <DialogDescription className="text-xs">
+              Select existing identity images from a project to seed a new actor.
+            </DialogDescription>
+          </DialogHeader>
+          <CreateActorFromImagesFlow onCreated={(id) => { setShowCreateFromImages(false); setSelectedActorId(id); }} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // ── Actor Card ──────────────────────────────────────────────────────────────
 
-function ActorCard({ actor, usageCount, onClick }: {
-  actor: AIActor;
-  usageCount: number;
-  onClick: () => void;
-}) {
+function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount: number; onClick: () => void }) {
   const thumbnail = getActorThumbnail(actor.ai_actor_versions);
   const identity = getIdentityStrength(actor.ai_actor_versions);
 
   return (
-    <button
-      onClick={onClick}
-      className="text-left rounded-lg border border-border/50 bg-card/50 hover:bg-muted/20 transition-colors overflow-hidden group"
-    >
-      {/* Thumbnail */}
+    <button onClick={onClick} className="text-left rounded-lg border border-border/50 bg-card/50 hover:bg-muted/20 transition-colors overflow-hidden group">
       <div className="aspect-[3/2] bg-muted/10 relative overflow-hidden">
         {thumbnail ? (
-          <img
-            src={thumbnail}
-            alt={actor.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+          <img src={thumbnail} alt={actor.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
-          <div className="flex items-center justify-center h-full">
-            <Users className="h-8 w-8 text-muted-foreground/30" />
-          </div>
+          <div className="flex items-center justify-center h-full"><Users className="h-8 w-8 text-muted-foreground/30" /></div>
         )}
-        {/* Identity strength badge */}
-        <div className="absolute top-2 right-2">
-          <IdentityBadge strength={identity.strength} size="sm" />
-        </div>
+        <div className="absolute top-2 right-2"><IdentityBadge strength={identity.strength} size="sm" /></div>
       </div>
-
-      {/* Info */}
       <div className="p-3 space-y-1.5">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-foreground truncate">{actor.name}</span>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
-        <p className="text-[11px] text-muted-foreground line-clamp-2">
-          {actor.description || 'No description'}
-        </p>
+        <p className="text-[11px] text-muted-foreground line-clamp-2">{actor.description || 'No description'}</p>
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge
-            variant={actor.status === 'active' ? 'default' : 'secondary'}
-            className="text-[10px] h-5"
-          >
-            {actor.status}
-          </Badge>
+          <Badge variant={actor.status === 'active' ? 'default' : 'secondary'} className="text-[10px] h-5">{actor.status}</Badge>
           {actor.ai_actor_versions?.some(v => v.is_approved) && (
-            <Badge variant="outline" className="text-[10px] h-5 gap-0.5">
-              <CheckCircle2 className="h-2.5 w-2.5" /> Approved
-            </Badge>
+            <Badge variant="outline" className="text-[10px] h-5 gap-0.5"><CheckCircle2 className="h-2.5 w-2.5" /> Approved</Badge>
           )}
-          <span className="text-[10px] text-muted-foreground">
-            {actor.ai_actor_versions?.length || 0} ver.
-          </span>
+          <span className="text-[10px] text-muted-foreground">{actor.ai_actor_versions?.length || 0} ver.</span>
           {usageCount > 0 && (
             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
               <Film className="h-2.5 w-2.5" /> {usageCount} project{usageCount > 1 ? 's' : ''}
@@ -240,9 +211,7 @@ function ActorCard({ actor, usageCount, onClick }: {
         {actor.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {actor.tags.slice(0, 4).map(tag => (
-              <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {tag}
-              </span>
+              <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{tag}</span>
             ))}
           </div>
         )}
@@ -259,19 +228,16 @@ function IdentityBadge({ strength, size = 'sm' }: { strength: IdentityStrength; 
     partial: { icon: Eye, label: 'Partial', className: 'bg-amber-500/90 text-white' },
     weak: { icon: AlertTriangle, label: 'Weak', className: 'bg-destructive/90 text-white' },
   }[strength];
-
   const Icon = config.icon;
   const sizeClasses = size === 'sm' ? 'text-[9px] px-1.5 py-0.5' : 'text-[10px] px-2 py-1';
-
   return (
     <span className={cn('rounded-full inline-flex items-center gap-1 font-medium', config.className, sizeClasses)}>
-      <Icon className={size === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
-      {config.label}
+      <Icon className={size === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3'} />{config.label}
     </span>
   );
 }
 
-// ── Create Actor Form ───────────────────────────────────────────────────────
+// ── Create Actor Form (manual) ──────────────────────────────────────────────
 
 function CreateActorForm({ onCreated }: { onCreated: (id: string) => void }) {
   const { createActor } = useAICastMutations();
@@ -286,9 +252,7 @@ function CreateActorForm({ onCreated }: { onCreated: (id: string) => void }) {
       description,
       negative_prompt: negativePrompt,
       tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
-    }, {
-      onSuccess: (data) => onCreated(data.actor.id),
-    });
+    }, { onSuccess: (data) => onCreated(data.actor.id) });
   };
 
   return (
@@ -299,21 +263,11 @@ function CreateActorForm({ onCreated }: { onCreated: (id: string) => void }) {
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Description (identity prompt)</label>
-        <Textarea
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          placeholder="A weathered detective in her late 40s, sharp eyes, silver-streaked dark hair..."
-          className="text-xs min-h-[80px]"
-        />
+        <Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="A weathered detective in her late 40s..." className="text-xs min-h-[80px]" />
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Negative prompt</label>
-        <Input
-          value={negativePrompt}
-          onChange={e => setNegativePrompt(e.target.value)}
-          placeholder="celebrity, real person, cartoon, anime..."
-          className="text-xs h-9"
-        />
+        <Input value={negativePrompt} onChange={e => setNegativePrompt(e.target.value)} placeholder="celebrity, real person, cartoon..." className="text-xs h-9" />
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
@@ -322,6 +276,251 @@ function CreateActorForm({ onCreated }: { onCreated: (id: string) => void }) {
       <Button onClick={handleSubmit} disabled={createActor.isPending} className="w-full h-9 text-xs">
         {createActor.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
         Create Actor
+      </Button>
+    </div>
+  );
+}
+
+// ── Create Actor From Project Images ────────────────────────────────────────
+
+type AssetClassification = 'reference_headshot' | 'reference_full_body' | 'reference_image';
+
+interface SelectedProjectImage {
+  id: string;
+  subject: string;
+  storage_path: string;
+  public_url: string;
+  shot_type: string;
+  classification: AssetClassification;
+}
+
+function CreateActorFromImagesFlow({ onCreated }: { onCreated: (id: string) => void }) {
+  const { createActor } = useAICastMutations();
+  const qc = useQueryClient();
+  const [step, setStep] = useState<'select_project' | 'select_images' | 'confirm'>('select_project');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedImages, setSelectedImages] = useState<SelectedProjectImage[]>([]);
+  const [actorName, setActorName] = useState('');
+  const [actorDesc, setActorDesc] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  // Fetch user's projects
+  const { data: projects } = useQuery({
+    queryKey: ['user-projects-list'],
+    queryFn: async () => {
+      const { data } = await supabase.from('projects').select('id, title').order('updated_at', { ascending: false }).limit(50);
+      return data || [];
+    },
+  });
+
+  // Fetch identity images for selected project
+  const { data: projectImages, isLoading: imagesLoading } = useQuery({
+    queryKey: ['project-identity-images', selectedProjectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('project_images' as any)
+        .select('id, subject, storage_path, shot_type, curation_state')
+        .eq('project_id', selectedProjectId!)
+        .in('shot_type', ['identity_headshot', 'identity_full_body', 'identity_profile', 'close_up', 'medium', 'three_quarter'])
+        .in('curation_state', ['active', 'approved', 'locked'])
+        .limit(100) as { data: any };
+      if (!data) return [];
+      // Generate public URLs
+      return data.map((img: any) => {
+        const { data: urlData } = supabase.storage.from('project-images').getPublicUrl(img.storage_path);
+        return { ...img, public_url: urlData?.publicUrl || img.storage_path };
+      });
+    },
+    enabled: !!selectedProjectId,
+  });
+
+  const toggleImage = (img: any) => {
+    const existing = selectedImages.find(s => s.id === img.id);
+    if (existing) {
+      setSelectedImages(prev => prev.filter(s => s.id !== img.id));
+    } else {
+      // Auto-classify based on shot_type
+      let classification: AssetClassification = 'reference_image';
+      if (img.shot_type === 'identity_headshot' || img.shot_type === 'close_up') classification = 'reference_headshot';
+      else if (img.shot_type === 'identity_full_body' || img.shot_type === 'medium' || img.shot_type === 'three_quarter') classification = 'reference_full_body';
+
+      setSelectedImages(prev => [...prev, {
+        id: img.id,
+        subject: img.subject || '',
+        storage_path: img.storage_path,
+        public_url: img.public_url,
+        shot_type: img.shot_type,
+        classification,
+      }]);
+
+      // Auto-fill name from first selected image's subject
+      if (selectedImages.length === 0 && img.subject) {
+        setActorName(img.subject);
+      }
+    }
+  };
+
+  const updateClassification = (imageId: string, classification: AssetClassification) => {
+    setSelectedImages(prev => prev.map(s => s.id === imageId ? { ...s, classification } : s));
+  };
+
+  const handleCreate = async () => {
+    if (selectedImages.length === 0) { toast.error('Select at least one image'); return; }
+    setCreating(true);
+    try {
+      // 1. Create actor
+      const actorResult = await aiCastApi.createActor({
+        name: actorName || 'Unnamed Actor',
+        description: actorDesc,
+        tags: [],
+      });
+      const actorId = actorResult.actor.id;
+
+      // 2. Create version
+      const versionResult = await aiCastApi.createVersion(actorId);
+      const versionId = versionResult.version.id;
+
+      // 3. Add assets — reuse existing storage paths, no file duplication
+      for (const img of selectedImages) {
+        await aiCastApi.addAsset(versionId, {
+          asset_type: img.classification,
+          storage_path: img.storage_path,
+          public_url: img.public_url,
+          meta_json: {
+            shot_type: img.classification === 'reference_headshot' ? 'headshot'
+              : img.classification === 'reference_full_body' ? 'full_body'
+              : 'reference',
+            source_project_id: selectedProjectId,
+            source_image_id: img.id,
+            original_shot_type: img.shot_type,
+            created_at: new Date().toISOString(),
+          },
+        });
+      }
+
+      toast.success(`Actor "${actorName || 'Unnamed Actor'}" created with ${selectedImages.length} reference images`);
+      qc.invalidateQueries({ queryKey: ['ai-actors'] });
+      onCreated(actorId);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create actor');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // Step 1: Select project
+  if (step === 'select_project') {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Select a project to browse identity images:</p>
+        <div className="max-h-[300px] overflow-y-auto space-y-1">
+          {(projects || []).map(p => (
+            <button
+              key={p.id}
+              onClick={() => { setSelectedProjectId(p.id); setStep('select_images'); }}
+              className="w-full text-left px-3 py-2 rounded text-xs hover:bg-muted/30 transition-colors border border-transparent hover:border-border/30"
+            >
+              {p.title || 'Untitled'}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2: Select images
+  if (step === 'select_images') {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <button onClick={() => { setStep('select_project'); setSelectedImages([]); }} className="text-xs text-muted-foreground hover:text-foreground">
+            ← Change project
+          </button>
+          <span className="text-xs text-muted-foreground">{selectedImages.length} selected</span>
+        </div>
+
+        {imagesLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+        ) : !projectImages || projectImages.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-8">No identity images found in this project.</p>
+        ) : (
+          <div className="grid grid-cols-4 gap-2 max-h-[350px] overflow-y-auto">
+            {projectImages.map((img: any) => {
+              const isSelected = selectedImages.some(s => s.id === img.id);
+              return (
+                <button
+                  key={img.id}
+                  onClick={() => toggleImage(img)}
+                  className={cn(
+                    'relative aspect-square rounded-lg overflow-hidden border-2 transition-colors',
+                    isSelected ? 'border-primary' : 'border-transparent hover:border-border/50'
+                  )}
+                >
+                  <img src={img.public_url} alt={img.subject || ''} className="w-full h-full object-cover" />
+                  {isSelected && (
+                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                      <CheckCircle2 className="h-5 w-5 text-primary" />
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1">
+                    <span className="text-[8px] text-white/80 truncate block">{img.subject || img.shot_type}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedImages.length > 0 && (
+          <Button onClick={() => setStep('confirm')} className="w-full h-8 text-xs">
+            Continue with {selectedImages.length} image{selectedImages.length > 1 ? 's' : ''}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  // Step 3: Classify + confirm
+  return (
+    <div className="space-y-4">
+      <button onClick={() => setStep('select_images')} className="text-xs text-muted-foreground hover:text-foreground">
+        ← Back to selection
+      </button>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Actor Name</label>
+        <Input value={actorName} onChange={e => setActorName(e.target.value)} placeholder="Character name..." className="text-xs h-9" />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Description</label>
+        <Textarea value={actorDesc} onChange={e => setActorDesc(e.target.value)} placeholder="Visual description..." className="text-xs min-h-[60px]" />
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-muted-foreground">Classify Images</label>
+        {selectedImages.map(img => (
+          <div key={img.id} className="flex items-center gap-3 p-2 rounded border border-border/30 bg-card/30">
+            <div className="w-10 h-10 rounded overflow-hidden shrink-0">
+              <img src={img.public_url} alt="" className="w-full h-full object-cover" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-muted-foreground truncate">{img.subject || 'Unknown'} · {img.shot_type}</p>
+            </div>
+            <Select value={img.classification} onValueChange={(v) => updateClassification(img.id, v as AssetClassification)}>
+              <SelectTrigger className="h-7 w-[140px] text-[10px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="reference_headshot" className="text-xs">Headshot</SelectItem>
+                <SelectItem value="reference_full_body" className="text-xs">Full Body</SelectItem>
+                <SelectItem value="reference_image" className="text-xs">Reference</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+      </div>
+
+      <Button onClick={handleCreate} disabled={creating} className="w-full h-9 text-xs">
+        {creating && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+        Create Actor with {selectedImages.length} Image{selectedImages.length > 1 ? 's' : ''}
       </Button>
     </div>
   );
@@ -341,25 +540,22 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editNeg, setEditNeg] = useState('');
-  const [initialized, setInitialized] = useState(false);
 
-  if (actor && !initialized) {
-    setEditName(actor.name);
-    setEditDesc(actor.description);
-    setEditNeg(actor.negative_prompt);
-    setInitialized(true);
-  }
+  // Safe state init via useEffect — replaces render-time setState
+  useEffect(() => {
+    if (actor) {
+      setEditName(actor.name);
+      setEditDesc(actor.description);
+      setEditNeg(actor.negative_prompt);
+    }
+  }, [actor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = () => {
     updateActor.mutate({ actorId, name: editName, description: editDesc, negative_prompt: editNeg });
   };
 
   if (isLoading || !actor) {
-    return (
-      <div className="flex justify-center py-12">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
   }
 
   const versions: AIActorVersion[] = actor.ai_actor_versions || [];
@@ -372,15 +568,13 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
         <ArrowLeft className="h-3 w-3" /> Back to library
       </button>
 
-      {/* Actor header with thumbnail */}
+      {/* Actor header */}
       <div className="flex gap-4">
         <div className="w-20 h-20 rounded-lg border border-border/50 overflow-hidden shrink-0 bg-muted/10">
           {thumbnail ? (
             <img src={thumbnail} alt={actor.name} className="w-full h-full object-cover" />
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <Users className="h-6 w-6 text-muted-foreground/30" />
-            </div>
+            <div className="flex items-center justify-center h-full"><Users className="h-6 w-6 text-muted-foreground/30" /></div>
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -394,11 +588,7 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
           </div>
           {identity.totalAssets > 0 && (
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              {identity.hasHeadshot ? '✓ Headshot' : '✗ No headshot'}
-              {' · '}
-              {identity.hasFullBody ? '✓ Full body' : '✗ No full body'}
-              {' · '}
-              {identity.totalAssets} asset{identity.totalAssets !== 1 ? 's' : ''}
+              {identity.hasHeadshot ? '✓ Headshot' : '✗ No headshot'} · {identity.hasFullBody ? '✓ Full body' : '✗ No full body'} · {identity.totalAssets} asset{identity.totalAssets !== 1 ? 's' : ''}
             </p>
           )}
         </div>
@@ -418,9 +608,7 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
           <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Negative Prompt</label>
           <Input value={editNeg} onChange={e => setEditNeg(e.target.value)} className="text-xs h-9" />
         </div>
-        <Button size="sm" onClick={handleSave} disabled={updateActor.isPending} className="h-8 text-xs">
-          Save Changes
-        </Button>
+        <Button size="sm" onClick={handleSave} disabled={updateActor.isPending} className="h-8 text-xs">Save Changes</Button>
       </div>
 
       {/* Project Usage */}
@@ -449,9 +637,7 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
             <Plus className="h-3 w-3" /> New Version
           </Button>
         </div>
-        {versions.map(ver => (
-          <VersionCard key={ver.id} ver={ver} actorId={actorId} />
-        ))}
+        {versions.map(ver => <VersionCard key={ver.id} ver={ver} actorId={actorId} />)}
       </div>
     </div>
   );
@@ -460,7 +646,7 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
 // ── Version Card ────────────────────────────────────────────────────────────
 
 function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string }) {
-  const { approveVersion, generateScreenTest, deleteAsset } = useAICastMutations();
+  const { approveVersion, generateScreenTest } = useAICastMutations();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -472,23 +658,14 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
     e.target.value = '';
     setUploading(true);
     let successCount = 0;
-
     for (const file of Array.from(files)) {
-      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-        toast.error(`"${file.name}" is not a supported image type (JPG, PNG, WEBP).`);
-        continue;
-      }
-      if (file.size > MAX_IMAGE_SIZE) {
-        toast.error(`"${file.name}" exceeds the 10MB limit.`);
-        continue;
-      }
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) { toast.error(`"${file.name}" not supported.`); continue; }
+      if (file.size > MAX_IMAGE_SIZE) { toast.error(`"${file.name}" too large.`); continue; }
       const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const rand = Math.random().toString(36).slice(2, 8);
       const storagePath = `actors/${actorId}/${ver.id}/reference/${Date.now()}_${rand}.${ext}`;
       try {
-        const { error: uploadErr } = await supabase.storage
-          .from('ai-media')
-          .upload(storagePath, file, { contentType: file.type, upsert: false });
+        const { error: uploadErr } = await supabase.storage.from('ai-media').upload(storagePath, file, { contentType: file.type, upsert: false });
         if (uploadErr) { toast.error(`Upload failed: ${uploadErr.message}`); continue; }
         const { data: urlData } = supabase.storage.from('ai-media').getPublicUrl(storagePath);
         await aiCastApi.addAsset(ver.id, {
@@ -500,9 +677,8 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
         successCount++;
       } catch (err: any) { toast.error(`Failed: ${err.message}`); }
     }
-
     if (successCount > 0) {
-      toast.success(`Uploaded ${successCount} reference image${successCount > 1 ? 's' : ''}`);
+      toast.success(`Uploaded ${successCount} image${successCount > 1 ? 's' : ''}`);
       queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
     }
     setUploading(false);
@@ -532,22 +708,17 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
         <div className="flex items-center gap-2">
           {!ver.is_approved && (
             <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-              onClick={() => approveVersion.mutate({ actorId, versionId: ver.id })}
-              disabled={approveVersion.isPending}>
+              onClick={() => approveVersion.mutate({ actorId, versionId: ver.id })} disabled={approveVersion.isPending}>
               <ShieldCheck className="h-3 w-3" /> Approve
             </Button>
           )}
-          <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-            onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-            Upload
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload
           </Button>
           <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleUpload} />
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-            onClick={() => generateScreenTest.mutate({ actorId, versionId: ver.id, count: 4 })}
-            disabled={generateScreenTest.isPending}>
-            {generateScreenTest.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Screen Test
+            onClick={() => generateScreenTest.mutate({ actorId, versionId: ver.id, count: 4 })} disabled={generateScreenTest.isPending}>
+            {generateScreenTest.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Screen Test
           </Button>
         </div>
       </div>
@@ -559,17 +730,13 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
               {asset.public_url ? (
                 <img src={asset.public_url} alt={asset.asset_type} className="w-full h-full object-cover" />
               ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <ImagePlus className="h-5 w-5" />
-                </div>
+                <div className="flex items-center justify-center h-full text-muted-foreground"><ImagePlus className="h-5 w-5" /></div>
               )}
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1">
                 <span className="text-[9px] text-white/80">{asset.asset_type.replace(/_/g, ' ')}</span>
               </div>
-              <button
-                onClick={() => setDeleteTarget(asset)}
-                className="absolute top-1 right-1 p-1 rounded bg-background/70 text-destructive opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
-              >
+              <button onClick={() => setDeleteTarget(asset)}
+                className="absolute top-1 right-1 p-1 rounded bg-background/70 text-destructive opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background">
                 <Trash2 className="h-3 w-3" />
               </button>
             </div>
