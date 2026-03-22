@@ -40,6 +40,9 @@ const {
   formatActorRosterNumber,
   generateSyntheticActorName,
   composeActorRosterName,
+  inferGenderFromPassages,
+  inferGenderFromRoleText,
+  inferAgeFromPassages,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
