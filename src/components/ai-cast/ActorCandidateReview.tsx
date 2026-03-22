@@ -115,15 +115,12 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
 
   const handleReject = useCallback((id: string) => {
     // Delete the asset
-    deleteAsset.mutate(
-      { assetId: id },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
-          toast.success('Candidate rejected');
-        },
-      }
-    );
+    deleteAsset.mutate(id, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
+        toast.success('Candidate rejected');
+      },
+    });
   }, [actorId, deleteAsset, queryClient]);
 
   const handleRegenerate = useCallback((id: string) => {
