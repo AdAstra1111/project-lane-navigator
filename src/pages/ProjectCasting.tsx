@@ -613,6 +613,22 @@ export default function ProjectCasting() {
         </div>
       )}
 
+      {/* Cast Consistency Panel */}
+      {showConsistency && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Cast Consistency Verification
+          </h3>
+          {consistencyLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : consistencyData ? (
+            <CastConsistencyPanel data={consistencyData} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No consistency data available.</p>
+          )}
+        </div>
+      )}
+
       {identityMap && Object.keys(identityMap).length > 0 && (
         <div className="border-t border-border/30 pt-4 space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
