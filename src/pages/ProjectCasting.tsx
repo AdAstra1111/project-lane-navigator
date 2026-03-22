@@ -767,22 +767,29 @@ export default function ProjectCasting() {
                         <Eye className="h-3 w-3" /> Review
                       </Button>
                     </Link>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-[10px] gap-1 text-muted-foreground"
-                      onClick={async () => {
+                    <ConfirmDialog
+                      title="Remove from queue?"
+                      description="This removes the pending bind from this queue. The actor will remain in your library and can be bound later."
+                      confirmLabel="Remove from Queue"
+                      variant="default"
+                      onConfirm={async () => {
                         try {
                           await abandonPendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
                           refetchPendingBinds();
-                          toast.info('Pending bind dismissed');
+                          toast.info('Removed from binding queue — actor preserved in library');
                         } catch (err: any) {
-                          toast.error(err.message || 'Dismiss failed');
+                          toast.error(err.message || 'Failed to remove');
                         }
                       }}
                     >
-                      <XCircle className="h-3 w-3" /> Dismiss
-                    </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-[10px] gap-1 text-muted-foreground"
+                      >
+                        <XCircle className="h-3 w-3" /> Remove from Queue
+                      </Button>
+                    </ConfirmDialog>
                   </div>
                 </div>
               );
