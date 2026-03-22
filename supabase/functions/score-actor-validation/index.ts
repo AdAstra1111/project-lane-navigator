@@ -334,12 +334,11 @@ Deno.serve(async (req) => {
       failureReasons.push(`${intraErrorCount + crossErrorCount} evaluator error(s) during scoring`);
     }
 
-    // ── 8. Overall score ────────────────────────────────────────────────────
+    // ── 8. Overall QUALITY score (coverage excluded — affects confidence only) ──
     let overallScore = Math.round(
-      (intraSlotStability / 10) * AXIS_WEIGHTS.intra_slot_stability +
-      (crossSlotPersistence / 10) * AXIS_WEIGHTS.cross_slot_persistence +
-      (regenerationStability / 10) * AXIS_WEIGHTS.regeneration_stability +
-      (packCoverageScore / 10) * AXIS_WEIGHTS.pack_coverage_score
+      (intraSlotStability / 10) * QUALITY_AXIS_WEIGHTS.identity_consistency +
+      (crossSlotPersistence / 10) * QUALITY_AXIS_WEIGHTS.structural_consistency +
+      (regenerationStability / 10) * QUALITY_AXIS_WEIGHTS.variation_integrity
     );
 
     if (hardFailCodes.length > 0) {
@@ -347,7 +346,7 @@ Deno.serve(async (req) => {
     }
     overallScore = Math.max(0, Math.min(100, overallScore));
 
-    // ── 9. Confidence ───────────────────────────────────────────────────────
+    // ── 9. Confidence (coverage affects confidence, NOT quality) ─────────────
     let confidence = "high";
     if (coveredSlots.length < HFCOV_MIN_SLOTS || (intraErrorCount + crossErrorCount) > 3) {
       confidence = "low";
@@ -360,16 +359,26 @@ Deno.serve(async (req) => {
     // ── 10. Promotable decision ─────────────────────────────────────────────
     const promotable = hardFailCodes.length === 0 && overallScore >= PROMOTABLE_MIN_SCORE;
 
-    // ── 11. Build canonical axis scores ─────────────────────────────────────
+    // ── 11. Canonical axis scores (using canonical names with explicit mapping) ──
     const axisScores = {
-      intra_slot_stability: intraSlotStability,
-      cross_slot_persistence: crossSlotPersistence,
-      regeneration_stability: regenerationStability,
-      pack_coverage_score: packCoverageScore,
+      // Canonical axes
+      identity_consistency_score: intraSlotStability,
+      structural_consistency_score: crossSlotPersistence,
+      variation_integrity_score: regenerationStability,
+      slot_compliance_score: packCoverageScore,
+      // slot_compliance is informational/eligibility — not in quality score
+      // render_consistency_score: reserved for future (image quality/artifact detection)
     };
 
     // Diagnostic evidence (separate from canonical decision)
     const diagnosticEvidence = {
+      // Mapping transparency: canonical ← prototype
+      axis_mapping: {
+        identity_consistency_score: "intra_slot_stability",
+        structural_consistency_score: "cross_slot_persistence",
+        variation_integrity_score: "regeneration_stability_rollup",
+        slot_compliance_score: "pack_coverage_score",
+      },
       intra_slot_detail: intraSlotDetail,
       cross_slot_detail: crossSlotDetail,
       covered_slots: coveredSlots.length,
@@ -378,11 +387,11 @@ Deno.serve(async (req) => {
       low_cross_slot_count: lowCrossSlotCount,
       intra_error_count: intraErrorCount,
       cross_error_count: crossErrorCount,
-      scoring_model: SCORING_MODEL_VERSION,
       promotable_threshold: PROMOTABLE_MIN_SCORE,
+      quality_weights: QUALITY_AXIS_WEIGHTS,
     };
 
-    // ── 12. Persist result (upsert by validation_run_id) ────────────────────
+    // ── 12. Persist result with all canonical fields ────────────────────────
     const resultPayload = {
       validation_run_id: runId,
       overall_score: overallScore,
@@ -391,9 +400,12 @@ Deno.serve(async (req) => {
       axis_scores: { ...axisScores, diagnostic: diagnosticEvidence },
       hard_fail_codes: hardFailCodes,
       advisory_penalty_codes: advisoryPenaltyCodes,
+      promotable,
+      failure_reasons: failureReasons,
+      scoring_model: SCORING_MODEL_VERSION,
     };
 
-    // Check if placeholder row exists (created by run-actor-validation)
+    // Upsert: update placeholder row if exists, otherwise insert
     const { data: existingResult } = await supabase
       .from("actor_validation_results")
       .select("id")

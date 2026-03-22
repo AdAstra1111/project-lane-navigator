@@ -851,12 +851,12 @@ function ValidationScorePanel({ result }: { result: ValidationResult }) {
         )}
       </div>
 
-      {/* Axis scores */}
+      {/* Canonical axis scores */}
       <div className="grid grid-cols-2 gap-2">
-        <AxisScoreRow label="Intra-Slot Stability" value={axes?.intra_slot_stability} icon={<Zap className="h-2.5 w-2.5" />} />
-        <AxisScoreRow label="Cross-Slot Persistence" value={axes?.cross_slot_persistence} icon={<TrendingUp className="h-2.5 w-2.5" />} />
-        <AxisScoreRow label="Regen Stability" value={axes?.regeneration_stability} icon={<BarChart3 className="h-2.5 w-2.5" />} />
-        <AxisScoreRow label="Pack Coverage" value={axes?.pack_coverage_score} icon={<Image className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Identity Consistency" value={axes?.identity_consistency_score} icon={<Zap className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Structural Consistency" value={axes?.structural_consistency_score} icon={<TrendingUp className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Variation Integrity" value={axes?.variation_integrity_score} icon={<BarChart3 className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Slot Compliance" value={axes?.slot_compliance_score} icon={<Image className="h-2.5 w-2.5" />} subtitle="(eligibility)" />
       </div>
 
       {/* Hard fail explanations */}
