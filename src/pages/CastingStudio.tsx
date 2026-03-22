@@ -702,7 +702,10 @@ function PromoteDialog({
   onPromoted: () => void;
 }) {
   const [promoting, setPromoting] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [precheckResults, setPrecheckResults] = useState<Record<string, AnchorPrecheckResult>>({});
+  const [precheckDone, setPrecheckDone] = useState(false);
 
   const toPromote = useMemo(
     () => candidateIds.map(id => candidates.find(c => c.id === id)).filter(Boolean) as CastingCandidate[],
@@ -712,16 +715,46 @@ function PromoteDialog({
   const getName = (cand: CastingCandidate) =>
     names[cand.id] || cand.display_name || cand.character_key;
 
+  // Run pre-checks on all candidates when dialog opens
+  const handleValidate = async () => {
+    setValidating(true);
+    const results: Record<string, AnchorPrecheckResult> = {};
+    for (const cand of toPromote) {
+      if (cand.status === 'promoted') continue;
+      const pkg: CandidateAnchorPackage = {
+        headshot_url: cand.headshot_url,
+        full_body_url: cand.full_body_url,
+        additional_refs: cand.additional_refs || [],
+      };
+      results[cand.id] = await runCandidateAnchorPrecheck(pkg);
+    }
+    setPrecheckResults(results);
+    setPrecheckDone(true);
+    setValidating(false);
+  };
+
+  // Only promote candidates that passed the gate
+  const promotable = toPromote.filter(c => {
+    if (c.status === 'promoted') return false;
+    const result = precheckResults[c.id];
+    return result && !result.blocked;
+  });
+  const blocked = toPromote.filter(c => {
+    if (c.status === 'promoted') return false;
+    const result = precheckResults[c.id];
+    return result && result.blocked;
+  });
+
   const handlePromote = async () => {
+    if (promotable.length === 0) return;
     setPromoting(true);
     let successCount = 0;
-    const precheckWarnings: string[] = [];
 
     try {
-      for (const cand of toPromote) {
-        if (cand.status === 'promoted') { successCount++; continue; }
-
+      for (const cand of promotable) {
         const actorName = getName(cand);
+        const precheck = precheckResults[cand.id];
+
         const result = await aiCastApi.createActor({
           name: actorName,
           description: `Promoted from casting for ${cand.character_key}`,
@@ -762,15 +795,9 @@ function PromoteDialog({
           }
         }
 
-        // ── PG-00 / PG-01: Anchor Pre-check ──
-        try {
-          const precheck = await runAnchorPrecheck(actorId);
+        // Persist gate results on the created actor
+        if (precheck) {
           await persistAnchorStatus(actorId, precheck.coverageStatus, precheck.coherenceStatus);
-          if (precheck.blocked) {
-            precheckWarnings.push(`${actorName}: ${precheck.reasons.join('; ')}`);
-          }
-        } catch (e) {
-          console.warn(`[PromoteDialog] Precheck error for ${actorName}:`, (e as Error).message);
         }
 
         await (supabase as any)
@@ -786,14 +813,7 @@ function PromoteDialog({
         successCount++;
       }
 
-      if (precheckWarnings.length > 0) {
-        toast.warning(
-          `${successCount} actor(s) created. ${precheckWarnings.length} have incomplete anchors — add missing references to strengthen identity.`,
-          { duration: 8000 }
-        );
-      } else {
-        toast.success(`${successCount} candidate(s) promoted to AI Actors`);
-      }
+      toast.success(`${successCount} candidate(s) promoted to AI Actors`);
       onPromoted();
     } catch (e: any) {
       toast.error(`Promotion error: ${e.message}`);
@@ -802,8 +822,16 @@ function PromoteDialog({
     }
   };
 
+  // Reset state when dialog closes
+  const handleClose = () => {
+    setPrecheckResults({});
+    setPrecheckDone(false);
+    setNames({});
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -811,51 +839,108 @@ function PromoteDialog({
             Validate & Promote
           </DialogTitle>
           <DialogDescription className="text-xs">
-            Create AI Actor identities from {toPromote.length} candidate(s).
-            Each will be checked for anchor coverage and coherence.
+            {!precheckDone
+              ? `Validate ${toPromote.filter(c => c.status !== 'promoted').length} candidate(s) before promotion.`
+              : blocked.length > 0
+                ? `${blocked.length} blocked, ${promotable.length} ready for promotion.`
+                : `${promotable.length} candidate(s) ready for promotion.`
+            }
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
-          {toPromote.map(cand => (
-            <div key={cand.id} className="flex items-center gap-3 p-2 rounded-lg border border-border/40">
-              <div className="h-14 w-10 rounded overflow-hidden bg-muted/10 shrink-0">
-                {cand.headshot_url ? (
-                  <img src={cand.headshot_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex items-center justify-center h-full"><Users className="h-4 w-4 text-muted-foreground/30" /></div>
+          {toPromote.map(cand => {
+            const result = precheckResults[cand.id];
+            const isBlocked = result?.blocked;
+            const isCapped = !isBlocked && result?.cap !== null;
+
+            return (
+              <div key={cand.id} className={cn(
+                'flex items-center gap-3 p-2 rounded-lg border',
+                isBlocked ? 'border-destructive/40 bg-destructive/5' :
+                isCapped ? 'border-amber-500/40 bg-amber-500/5' :
+                result && !isBlocked ? 'border-primary/40 bg-primary/5' :
+                'border-border/40'
+              )}>
+                <div className="h-14 w-10 rounded overflow-hidden bg-muted/10 shrink-0">
+                  {cand.headshot_url ? (
+                    <img src={cand.headshot_url} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex items-center justify-center h-full"><Users className="h-4 w-4 text-muted-foreground/30" /></div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <p className="text-[10px] text-muted-foreground">For: {cand.character_key}</p>
+                  <Input
+                    value={getName(cand)}
+                    onChange={(e) => setNames(prev => ({ ...prev, [cand.id]: e.target.value }))}
+                    placeholder="Actor name"
+                    className="h-7 text-xs"
+                    disabled={isBlocked || cand.status === 'promoted'}
+                  />
+                  {result && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {isBlocked && (
+                        <Badge variant="outline" className="text-[9px] border-destructive/40 text-destructive">
+                          <ShieldAlert className="h-2.5 w-2.5 mr-0.5" /> Blocked
+                        </Badge>
+                      )}
+                      {isCapped && (
+                        <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-400">
+                          <AlertTriangle className="h-2.5 w-2.5 mr-0.5" /> Capped
+                        </Badge>
+                      )}
+                      {!isBlocked && !isCapped && result && (
+                        <Badge variant="outline" className="text-[9px] border-primary/40 text-primary">
+                          <Check className="h-2.5 w-2.5 mr-0.5" /> Ready
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                  {result?.reasons.map((r, i) => (
+                    <p key={i} className="text-[9px] text-muted-foreground">{r}</p>
+                  ))}
+                </div>
+                {cand.status === 'promoted' && (
+                  <Badge className="text-[9px] bg-primary/15 text-primary shrink-0">Already promoted</Badge>
                 )}
               </div>
-              <div className="flex-1 min-w-0 space-y-1">
-                <p className="text-[10px] text-muted-foreground">For: {cand.character_key}</p>
-                <Input
-                  value={getName(cand)}
-                  onChange={(e) => setNames(prev => ({ ...prev, [cand.id]: e.target.value }))}
-                  placeholder="Actor name"
-                  className="h-7 text-xs"
-                />
-              </div>
-              {cand.status === 'promoted' && (
-                <Badge className="text-[9px] bg-primary/15 text-primary shrink-0">Already promoted</Badge>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        <div className="rounded-md bg-muted/30 p-3 text-[10px] text-muted-foreground space-y-1">
-          <p className="font-medium text-foreground text-[11px] flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" /> Anchor Requirements
-          </p>
-          <p>Full validation requires <strong>headshot</strong>, <strong>profile</strong>, and <strong>full body</strong> references.</p>
-          <p>Actors with incomplete anchors will be created but flagged for completion.</p>
-        </div>
+        {!precheckDone && (
+          <div className="rounded-md bg-muted/30 p-3 text-[10px] text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground text-[11px] flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" /> Pre-Promotion Validation
+            </p>
+            <p>Candidates will be checked for anchor coverage (headshot, profile, full body) and coherence before any actors are created.</p>
+            <p>Blocked candidates will <strong>not</strong> be promoted.</p>
+          </div>
+        )}
 
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose} disabled={promoting}>Cancel</Button>
-          <Button size="sm" className="gap-1.5" onClick={handlePromote} disabled={promoting}>
-            {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-            Promote {toPromote.filter(c => c.status !== 'promoted').length} Actor(s)
-          </Button>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={promoting || validating}>Cancel</Button>
+
+          {!precheckDone ? (
+            <Button size="sm" className="gap-1.5" onClick={handleValidate} disabled={validating}>
+              {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+              {validating ? 'Validating…' : 'Validate Candidates'}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={handlePromote}
+              disabled={promoting || promotable.length === 0}
+            >
+              {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Crown className="h-3.5 w-3.5" />}
+              {promotable.length === 0
+                ? 'All Blocked'
+                : `Promote ${promotable.length} Actor(s)`
+              }
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
