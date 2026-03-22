@@ -891,13 +891,13 @@ function ValidationScorePanel({ result }: { result: ValidationResult }) {
   );
 }
 
-function AxisScoreRow({ label, value, icon }: { label: string; value: number | undefined; icon: React.ReactNode }) {
+function AxisScoreRow({ label, value, icon, subtitle }: { label: string; value: number | undefined; icon: React.ReactNode; subtitle?: string }) {
   if (value == null) return null;
   const pct = (value / 10) * 100;
   return (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between">
-        <span className="text-[9px] text-muted-foreground flex items-center gap-1">{icon} {label}</span>
+        <span className="text-[9px] text-muted-foreground flex items-center gap-1">{icon} {label}{subtitle && <span className="opacity-60">{subtitle}</span>}</span>
         <span className={cn(
           'text-[9px] font-semibold tabular-nums',
           value >= 7 ? 'text-emerald-400' : value >= 5 ? 'text-amber-400' : 'text-destructive'
