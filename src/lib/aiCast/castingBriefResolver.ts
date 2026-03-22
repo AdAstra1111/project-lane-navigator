@@ -1454,6 +1454,7 @@ function composeActorCriteriaHighlights(buckets: ActorIdentityBuckets): string[]
     suggested_actor_name: displayName,
     actor_description: actorDescription,
     actor_tags: actorTags,
+    actor_criteria_highlights: actorCriteriaHighlights,
   };
 
   return { context, brief };
