@@ -607,9 +607,8 @@ export default function ProjectCasting() {
             {unmappedCharacters.map(charKey => {
               const resolvedIdentity = identityMap?.[normalizeCharacterKey(charKey)];
               return (
-                <div className="flex items-center gap-2">
+                <div key={charKey} className="flex items-center gap-2">
                   <CastCharacterRow
-                    key={charKey}
                     characterKey={charKey}
                     actors={actors}
                     resolvedIdentity={resolvedIdentity || null}
@@ -623,6 +622,13 @@ export default function ProjectCasting() {
                     onClick={() => setShowCastLibrary(charKey)}
                   >
                     <Users className="h-3 w-3" /> Library
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 text-[10px] gap-1 shrink-0"
+                    onClick={() => setShowCreateActor(charKey)}
+                  >
+                    <Sparkles className="h-3 w-3" /> Create
                   </Button>
                 </div>
               );
