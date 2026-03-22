@@ -39,6 +39,12 @@ import {
   processCastRegenJobs, retryCastRegenJob,
   type CastRegenJob,
 } from '@/lib/aiCast/castRegenJobs';
+import {
+  evaluateProjectCastConsistency,
+  type CastConsistencySummary,
+  type OutputConsistencyResult,
+  type CastConsistencyStatus,
+} from '@/lib/aiCast/castConsistency';
 
 interface CastMapping {
   id: string;
