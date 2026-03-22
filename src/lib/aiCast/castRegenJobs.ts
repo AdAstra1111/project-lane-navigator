@@ -1,13 +1,10 @@
 /**
- * castRegenJobs — Canonical cast regeneration job creation module.
+ * castRegenJobs — Canonical cast regeneration job module.
  *
- * Calls the backend-authoritative edge function which:
- * 1. Computes the canonical regen plan server-side
- * 2. Filters by caller intent
- * 3. Inserts queued jobs
- *
- * Client sends only projectId + optional filters.
- * No client-supplied items. No execution logic.
+ * Queue: calls backend-authoritative edge function (queue-cast-regen)
+ * Process: calls backend-authoritative worker (process-cast-regen)
+ * Retry: creates a new queued job for a failed job (respects dedup)
+ * List / Cancel: direct DB operations on cast_regen_jobs
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -26,6 +23,18 @@ export interface QueueResult {
   }>;
 }
 
+export interface ProcessResult {
+  processed: number;
+  results: Array<{
+    job_id: string;
+    output_id: string;
+    character_key: string;
+    reason: string;
+    result: string;
+    error?: string;
+  }>;
+}
+
 export interface CastRegenJob {
   id: string;
   project_id: string;
@@ -39,6 +48,14 @@ export interface CastRegenJob {
   started_at: string | null;
   completed_at: string | null;
   error_message: string | null;
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+async function getSessionToken(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  return session.access_token;
 }
 
 // ── List ────────────────────────────────────────────────────────────────────
@@ -73,8 +90,7 @@ export async function queueCastRegenJobs(
   projectId: string,
   opts?: { characterKey?: string; reasons?: RegenReason[] },
 ): Promise<QueueResult> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Not authenticated');
+  const token = await getSessionToken();
 
   const resp = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/queue-cast-regen`,
@@ -82,7 +98,7 @@ export async function queueCastRegenJobs(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         projectId,
@@ -100,4 +116,82 @@ export async function queueCastRegenJobs(
   }
 
   return resp.json();
+}
+
+// ── Process via backend-authoritative worker ────────────────────────────────
+
+export async function processCastRegenJobs(
+  limit: number = 1,
+): Promise<ProcessResult> {
+  const token = await getSessionToken();
+
+  const resp = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-cast-regen`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ limit }),
+    },
+  );
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    let msg = 'Processing failed';
+    try { msg = JSON.parse(text).error || msg; } catch {}
+    throw new Error(msg);
+  }
+
+  return resp.json();
+}
+
+// ── Retry a failed job ─────────────────────────────────────────────────────
+
+export async function retryCastRegenJob(jobId: string): Promise<{ created: boolean; skipped: boolean }> {
+  // 1. Fetch the failed job
+  const { data: failedJob, error: fetchErr } = await (supabase as any)
+    .from('cast_regen_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .eq('status', 'failed')
+    .maybeSingle();
+
+  if (fetchErr) throw fetchErr;
+  if (!failedJob) throw new Error('Job not found or not in failed status');
+
+  // 2. Check dedup — skip if queued/running duplicate already exists
+  const { data: existing } = await (supabase as any)
+    .from('cast_regen_jobs')
+    .select('id')
+    .eq('project_id', failedJob.project_id)
+    .eq('character_key', failedJob.character_key)
+    .eq('output_id', failedJob.output_id)
+    .eq('reason', failedJob.reason)
+    .in('status', ['queued', 'running'])
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    return { created: false, skipped: true };
+  }
+
+  // 3. Get current user
+  const { data: { session } } = await supabase.auth.getSession();
+
+  // 4. Insert new queued job
+  const { error: insertErr } = await (supabase as any)
+    .from('cast_regen_jobs')
+    .insert({
+      project_id: failedJob.project_id,
+      character_key: failedJob.character_key,
+      output_id: failedJob.output_id,
+      output_type: failedJob.output_type,
+      reason: failedJob.reason,
+      status: 'queued',
+      requested_by: session?.user?.id || null,
+    });
+
+  if (insertErr) throw insertErr;
+  return { created: true, skipped: false };
 }
