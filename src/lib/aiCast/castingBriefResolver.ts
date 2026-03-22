@@ -1140,7 +1140,7 @@ function composeActorCriteriaHighlights(buckets: ActorIdentityBuckets): string[]
   return highlights.slice(0, 6);
 }
 
-
+export async function buildCharacterCastingBrief(
   projectId: string,
   characterKey: string,
 ): Promise<CharacterCastingBriefResult> {
