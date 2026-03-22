@@ -1,12 +1,12 @@
 /**
  * AI Actors Agency — Global actor registry with search, filter, identity strength, usage tracking.
- * Includes: create from project images, actor detail, version management.
+ * Includes: create from project images, actor detail, version management, anchor validation badges.
  */
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
-  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image
+  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,10 @@ import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useActorUsage, getActorUsageCounts } from '@/lib/aiCast/useActorUsage';
 import { getIdentityStrength, getActorThumbnail, type IdentityStrength } from '@/lib/aiCast/identityStrength';
+import {
+  evaluateAnchorCoverage, persistAnchorStatus,
+  type AnchorCoverageStatus, type AnchorCoherenceStatus,
+} from '@/lib/aiCast/anchorValidation';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
