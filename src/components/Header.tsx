@@ -31,6 +31,7 @@ export function Header() {
   };
 
   const toolItems = [
+    { label: 'AI Actors', icon: Drama, path: '/ai-cast' },
     { label: 'Companies', icon: Building2, path: '/companies' },
     { label: 'Pitch Ideas', icon: Lightbulb, path: '/pitch-ideas' },
     { label: 'Exemplar Ideas', icon: Award, path: '/exemplars' },
