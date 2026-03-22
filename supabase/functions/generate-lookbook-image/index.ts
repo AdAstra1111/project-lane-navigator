@@ -1900,7 +1900,7 @@ FRAMING RULES:
         } else {
           results.push({ image_id: imgRecord.id, status: "ready", shot_type: shotType || undefined, identity_locked: identityLockUsed });
         }
-      } catch (err: unknown) {
+      } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         console.error(`[lookbook-image] generation error for ${section} ${shotType || `variant ${i}`}:`, msg);
         results.push({ image_id: "", status: "failed", shot_type: shotType || undefined, error: msg });
