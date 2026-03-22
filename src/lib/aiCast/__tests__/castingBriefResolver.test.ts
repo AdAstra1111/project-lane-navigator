@@ -35,6 +35,8 @@ const {
   expandPresenceMarker,
   anchorFloatingAdjective,
   FLOATING_ADJECTIVES,
+  expandIdentityBuckets,
+  composeActorCriteriaHighlights,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
