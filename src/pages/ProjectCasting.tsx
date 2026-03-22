@@ -33,6 +33,10 @@ import {
   type GovernanceRecommendation,
   type CharacterGovernanceState,
 } from '@/lib/aiCast/castGovernance';
+import {
+  queueCastRegenJobs, listCastRegenJobs, cancelCastRegenJob,
+  type CastRegenJob,
+} from '@/lib/aiCast/castRegenJobs';
 
 interface CastMapping {
   id: string;
