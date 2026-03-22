@@ -1192,31 +1192,34 @@ export async function buildCharacterCastingBrief(
   };
 
   // ── Phase 17.4: Classify signals into identity buckets ──────────────────
-  const buckets = createEmptyBuckets();
+  const rawBuckets = createEmptyBuckets();
 
   // Seed buckets from structured hints (highest trust: canon_facts)
-  if (genderPresentation) buckets.gender.push(genderPresentation);
-  if (ageHint) buckets.age.push(ageHint);
-  if (ethnicityHint) buckets.ethnicity.push(ethnicityHint);
+  if (genderPresentation) rawBuckets.gender.push(genderPresentation);
+  if (ageHint) rawBuckets.age.push(ageHint);
+  if (ethnicityHint) rawBuckets.ethnicity.push(ethnicityHint);
 
   // Classify all visual markers into buckets
   for (const vm of visualMarkers) {
-    classifyIntoBucket(vm, buckets);
+    classifyIntoBucket(vm, rawBuckets);
   }
 
   // Presence markers (already performer-safe filtered)
   for (const pm of presenceMarkers) {
     if (isPerformerSafePresence(pm)) {
-      buckets.presence.push(pm);
+      rawBuckets.presence.push(pm);
     }
   }
 
   // Styling cues
   for (const sc of stylingCues) {
-    buckets.styling.push(sc);
+    rawBuckets.styling.push(sc);
   }
 
-  // ── Compose actor identity from buckets ────────────────────────────────
+  // ── Phase 17.5: Identity completion ────────────────────────────────────
+  const buckets = completeActorIdentityBuckets(rawBuckets, roleInStory, stylingCues);
+
+  // ── Compose actor identity from completed buckets ──────────────────────
   const composedDescription = composeActorDescriptionFromBuckets(buckets);
 
   // Final defensive sanitization
@@ -1234,13 +1237,16 @@ export async function buildCharacterCastingBrief(
   // Negative exclusions from project world/style
   const negativeExclusions = composeNegativePrompt(canonRow?.canon_json);
 
+  // Quality gate diagnostic (does not block, but informs)
+  const _qualityMet = meetsMinimumIdentityQuality(buckets);
+
   const brief: CastingBrief = {
     age_hint: ageHint,
     gender_presentation: genderPresentation,
     ethnicity_or_cultural_appearance: ethnicityHint,
     appearance_markers: [...new Set(visualMarkers)].slice(0, 8),
     visual_archetype: visualArchetype,
-    styling_cues: [...new Set(stylingCues)].slice(0, 5),
+    styling_cues: [...new Set(buckets.styling)].slice(0, 5),
     performance_vibe: dedupedPresence.slice(0, 5),
     negative_exclusions: negativeExclusions,
     suggested_actor_name: displayName,
@@ -1265,4 +1271,10 @@ export const _testHelpers = {
   composeActorDescriptionFromBuckets,
   composeActorTagsFromBuckets,
   dedupeAndResolveConflicts,
+  completeActorIdentityBuckets,
+  countIdentityDimensions,
+  meetsMinimumIdentityQuality,
+  expandPresenceMarker,
+  anchorFloatingAdjective,
+  FLOATING_ADJECTIVES,
 };
