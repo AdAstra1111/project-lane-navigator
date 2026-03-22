@@ -1178,19 +1178,8 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium">Version {ver.version_number}</span>
-          {ver.is_approved && (
-            <Badge variant="outline" className="text-[10px] h-5 gap-0.5 text-emerald-600 border-emerald-600/30">
-              <ShieldCheck className="h-2.5 w-2.5" /> Approved
-            </Badge>
-          )}
         </div>
         <div className="flex items-center gap-2">
-          {!ver.is_approved && (
-            <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-              onClick={() => approveVersion.mutate({ actorId, versionId: ver.id })} disabled={approveVersion.isPending}>
-              <ShieldCheck className="h-3 w-3" /> Approve
-            </Button>
-          )}
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload
           </Button>
