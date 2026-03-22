@@ -3,15 +3,16 @@
  * binding freshness diagnostics, rebind/unbind actions, impact analysis,
  * and Phase 8 Cast Health governance dashboard.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
   RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle,
-  Play, PlayCircle, RotateCcw, Zap
+  Play, PlayCircle, RotateCcw, Zap, Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select';
@@ -70,9 +71,11 @@ import {
   type ProjectCastPack, type CastPackCharacterChoice, type ApplyCastPackResult,
 } from '@/lib/aiCast/castPackEngine';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
+import { aiCastApi } from '@/lib/aiCast/aiCastApi';
+import { buildCharacterActorPrefill, type CharacterActorPrefill } from '@/lib/aiCast/characterToActorPrefill';
 
 interface CastMapping {
   id: string;
@@ -98,6 +101,7 @@ export default function ProjectCasting() {
   const [showSceneIntegrity, setShowSceneIntegrity] = useState(false);
   const [showRegenPolicy, setShowRegenPolicy] = useState(false);
   const [showCastLibrary, setShowCastLibrary] = useState<string | null>(null); // character key to cast
+  const [showCreateActor, setShowCreateActor] = useState<string | null>(null); // character key for inline create
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [showCastPack, setShowCastPack] = useState(false);
   const [castPack, setCastPack] = useState<ProjectCastPack | null>(null);
@@ -603,9 +607,8 @@ export default function ProjectCasting() {
             {unmappedCharacters.map(charKey => {
               const resolvedIdentity = identityMap?.[normalizeCharacterKey(charKey)];
               return (
-                <div className="flex items-center gap-2">
+                <div key={charKey} className="flex items-center gap-2">
                   <CastCharacterRow
-                    key={charKey}
                     characterKey={charKey}
                     actors={actors}
                     resolvedIdentity={resolvedIdentity || null}
@@ -619,6 +622,13 @@ export default function ProjectCasting() {
                     onClick={() => setShowCastLibrary(charKey)}
                   >
                     <Users className="h-3 w-3" /> Library
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 text-[10px] gap-1 shrink-0"
+                    onClick={() => setShowCreateActor(charKey)}
+                  >
+                    <Sparkles className="h-3 w-3" /> Create
                   </Button>
                 </div>
               );
@@ -1095,6 +1105,23 @@ export default function ProjectCasting() {
             setShowCastLibrary(null);
           }
         }}
+      />
+      {/* Inline Create Actor Dialog — Phase 17 */}
+      <InlineCreateActorDialog
+        projectId={projectId!}
+        characterKey={showCreateActor}
+        onClose={() => setShowCreateActor(null)}
+        onCreatedAndBound={(characterKey) => {
+          setShowCreateActor(null);
+          invalidateAll();
+          toast.success(`Actor created and bound to ${characterKey}`);
+        }}
+        onCreatedPending={(characterKey) => {
+          setShowCreateActor(null);
+          invalidateAll();
+          toast.info(`Actor created for ${characterKey} — bind when roster-ready`);
+        }}
+        actors={actors}
       />
     </div>
   );
@@ -2115,6 +2142,173 @@ function CastFromLibraryDialog({
             ))
           )}
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Inline Create Actor Dialog — Phase 17 ───────────────────────────────────
+
+function InlineCreateActorDialog({
+  projectId, characterKey, onClose, onCreatedAndBound, onCreatedPending, actors,
+}: {
+  projectId: string;
+  characterKey: string | null;
+  onClose: () => void;
+  onCreatedAndBound: (characterKey: string) => void;
+  onCreatedPending: (characterKey: string) => void;
+  actors: any[];
+}) {
+  const [prefill, setPrefill] = useState<CharacterActorPrefill | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [tagsStr, setTagsStr] = useState('');
+  const [negativePrompt, setNegativePrompt] = useState('');
+
+  // Load prefill when character key changes
+  useEffect(() => {
+    if (!characterKey || !projectId) {
+      setPrefill(null);
+      return;
+    }
+    setLoading(true);
+    buildCharacterActorPrefill(projectId, characterKey).then(p => {
+      setPrefill(p);
+      if (p) {
+        setName(p.suggested_actor_name);
+        setDescription(p.description);
+        setTagsStr(p.tags.join(', '));
+        setNegativePrompt('');
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, [characterKey, projectId]);
+
+  const handleCreate = async () => {
+    if (!characterKey || !name.trim()) return;
+    setCreating(true);
+    try {
+      // 1. Create actor via canonical pipeline
+      const actorResult = await aiCastApi.createActor({
+        name: name.trim(),
+        description,
+        negative_prompt: negativePrompt,
+        tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
+      });
+      const actorId = actorResult.actor.id;
+
+      // 2. Create initial version
+      await aiCastApi.createVersion(actorId, {
+        invariants: [`Created from project character: ${characterKey}`],
+      });
+
+      // 3. Attempt to bind if actor is already bindable
+      // Refetch actor to check roster_ready / approved_version_id
+      const actorData = await aiCastApi.getActor(actorId);
+      const actor = actorData?.actor;
+
+      if (actor?.roster_ready && actor?.approved_version_id) {
+        // Actor is immediately bindable (unlikely for brand new, but handle)
+        await bindActorToProjectCharacter(
+          { projectId, characterKey, actorId, actorVersionId: actor.approved_version_id },
+          [...actors, actor],
+        );
+        onCreatedAndBound(characterKey);
+      } else {
+        // Actor created but not yet roster-ready — user must validate/promote first
+        onCreatedPending(characterKey);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create actor');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!characterKey} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-sm flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Create Actor for {characterKey}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Create a new AI actor from this character's canon data. The actor will need validation and promotion before it can be bound.
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Origin context banner */}
+            {prefill && (
+              <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5 text-[10px] text-muted-foreground">
+                Creating actor for <strong className="text-foreground">{prefill.display_name}</strong>
+                {prefill.age_hint && <> · {prefill.age_hint}</>}
+                {prefill.gender_hint && <> · {prefill.gender_hint}</>}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Actor Name</label>
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Hana Kimura"
+                className="text-xs h-9"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Description (identity prompt)</label>
+              <Textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder="A young woman in her early 20s, elegant and poised..."
+                className="text-xs min-h-[80px]"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Negative Prompt</label>
+              <Input
+                value={negativePrompt}
+                onChange={e => setNegativePrompt(e.target.value)}
+                placeholder="celebrity, real person, cartoon..."
+                className="text-xs h-9"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
+              <Input
+                value={tagsStr}
+                onChange={e => setTagsStr(e.target.value)}
+                placeholder="lead, elegant, young_adult"
+                className="text-xs h-9"
+              />
+            </div>
+
+            <Button
+              onClick={handleCreate}
+              disabled={creating || !name.trim()}
+              className="w-full h-9 text-xs"
+            >
+              {creating && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+              Create Actor
+            </Button>
+
+            <p className="text-[10px] text-muted-foreground text-center">
+              After creation, validate and promote the actor to make it bindable.
+            </p>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
