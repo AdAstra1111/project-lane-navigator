@@ -14,6 +14,95 @@ export type Database = {
   }
   public: {
     Tables: {
+      actor_promotion_decisions: {
+        Row: {
+          actor_id: string
+          actor_version_id: string
+          block_reasons: string[] | null
+          created_at: string
+          decided_by: string | null
+          decision_mode: string
+          decision_note: string | null
+          eligible_for_promotion: boolean
+          final_decision_status: string
+          id: string
+          override_reason: string | null
+          policy_decision_status: string
+          policy_version: string
+          review_required: boolean
+          scoring_model: string
+          validation_result_id: string | null
+          validation_run_id: string | null
+        }
+        Insert: {
+          actor_id: string
+          actor_version_id: string
+          block_reasons?: string[] | null
+          created_at?: string
+          decided_by?: string | null
+          decision_mode?: string
+          decision_note?: string | null
+          eligible_for_promotion?: boolean
+          final_decision_status?: string
+          id?: string
+          override_reason?: string | null
+          policy_decision_status?: string
+          policy_version?: string
+          review_required?: boolean
+          scoring_model?: string
+          validation_result_id?: string | null
+          validation_run_id?: string | null
+        }
+        Update: {
+          actor_id?: string
+          actor_version_id?: string
+          block_reasons?: string[] | null
+          created_at?: string
+          decided_by?: string | null
+          decision_mode?: string
+          decision_note?: string | null
+          eligible_for_promotion?: boolean
+          final_decision_status?: string
+          id?: string
+          override_reason?: string | null
+          policy_decision_status?: string
+          policy_version?: string
+          review_required?: boolean
+          scoring_model?: string
+          validation_result_id?: string | null
+          validation_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actor_promotion_decisions_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actor_promotion_decisions_actor_version_id_fkey"
+            columns: ["actor_version_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actor_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actor_promotion_decisions_validation_result_id_fkey"
+            columns: ["validation_result_id"]
+            isOneToOne: false
+            referencedRelation: "actor_validation_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actor_promotion_decisions_validation_run_id_fkey"
+            columns: ["validation_run_id"]
+            isOneToOne: false
+            referencedRelation: "actor_validation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       actor_validation_images: {
         Row: {
           created_at: string
@@ -248,11 +337,17 @@ export type Database = {
         Row: {
           anchor_coherence_status: string
           anchor_coverage_status: string
+          approved_version_id: string | null
           created_at: string
+          current_promotion_decision_id: string | null
           description: string
           id: string
           name: string
           negative_prompt: string
+          promotion_policy_version: string | null
+          promotion_status: string | null
+          promotion_updated_at: string | null
+          roster_ready: boolean
           status: string
           tags: string[]
           updated_at: string
@@ -261,11 +356,17 @@ export type Database = {
         Insert: {
           anchor_coherence_status?: string
           anchor_coverage_status?: string
+          approved_version_id?: string | null
           created_at?: string
+          current_promotion_decision_id?: string | null
           description?: string
           id?: string
           name?: string
           negative_prompt?: string
+          promotion_policy_version?: string | null
+          promotion_status?: string | null
+          promotion_updated_at?: string | null
+          roster_ready?: boolean
           status?: string
           tags?: string[]
           updated_at?: string
@@ -274,17 +375,31 @@ export type Database = {
         Update: {
           anchor_coherence_status?: string
           anchor_coverage_status?: string
+          approved_version_id?: string | null
           created_at?: string
+          current_promotion_decision_id?: string | null
           description?: string
           id?: string
           name?: string
           negative_prompt?: string
+          promotion_policy_version?: string | null
+          promotion_status?: string | null
+          promotion_updated_at?: string | null
+          roster_ready?: boolean
           status?: string
           tags?: string[]
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_actors_approved_version_id_fkey"
+            columns: ["approved_version_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actor_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_generated_media: {
         Row: {
