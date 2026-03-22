@@ -1080,6 +1080,133 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   );
 }
 
+// ── Marketplace Listing Panel ───────────────────────────────────────────────
+
+function MarketplaceListingPanel({ actorId, rosterReady, approvedVersionId }: {
+  actorId: string;
+  rosterReady: boolean;
+  approvedVersionId: string | null;
+}) {
+  const qc = useQueryClient();
+  const [pricingTier, setPricingTier] = useState<PricingTier>('free');
+  const [listing, setListing] = useState(false);
+
+  // Check current listing state
+  const { data: currentListing } = useQuery({
+    queryKey: ['actor-listing', actorId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('actor_marketplace_listings')
+        .select('*')
+        .eq('actor_id', actorId)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  const isListed = currentListing?.is_active === true;
+
+  const handleList = async () => {
+    setListing(true);
+    const result = await listActorOnMarketplace(actorId, { pricing_tier: pricingTier, visibility: 'public' });
+    setListing(false);
+    if (result.success) {
+      toast.success('Actor listed on marketplace');
+      qc.invalidateQueries({ queryKey: ['actor-listing', actorId] });
+      qc.invalidateQueries({ queryKey: ['marketplace-actors'] });
+    } else {
+      toast.error(result.error || 'Failed to list actor');
+    }
+  };
+
+  const handleUnlist = async () => {
+    setListing(true);
+    const result = await unlistActorFromMarketplace(actorId);
+    setListing(false);
+    if (result.success) {
+      toast.success('Actor removed from marketplace');
+      qc.invalidateQueries({ queryKey: ['actor-listing', actorId] });
+      qc.invalidateQueries({ queryKey: ['marketplace-actors'] });
+    } else {
+      toast.error(result.error || 'Failed to unlist actor');
+    }
+  };
+
+  const canList = rosterReady && !!approvedVersionId;
+
+  return (
+    <div className="border border-border/50 rounded-lg p-4 space-y-3 bg-card/30">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+          <Store className="h-3 w-3" /> Marketplace
+        </h3>
+        {isListed && (
+          <Badge variant="outline" className="text-[9px] h-5 gap-0.5 text-emerald-400 border-emerald-400/30">
+            Listed
+          </Badge>
+        )}
+      </div>
+
+      {!canList ? (
+        <p className="text-[10px] text-muted-foreground">
+          Actor must be roster-ready with an approved version to list on the marketplace.
+        </p>
+      ) : isListed ? (
+        <div className="space-y-2">
+          <div className="rounded-md bg-muted/20 p-2 text-[10px] space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Pricing Tier</span>
+              <Badge variant="outline" className="text-[8px] h-4">{currentListing?.pricing_tier || 'free'}</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Visibility</span>
+              <span className="text-foreground">{currentListing?.visibility || 'public'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Listed</span>
+              <span className="text-foreground">{currentListing?.listed_at ? new Date(currentListing.listed_at).toLocaleDateString() : '—'}</span>
+            </div>
+          </div>
+          <Button
+            size="sm" variant="outline"
+            className="h-7 text-xs gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
+            onClick={handleUnlist}
+            disabled={listing}
+          >
+            {listing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Store className="h-3 w-3" />}
+            Remove from Marketplace
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <label className="text-[10px] text-muted-foreground">Pricing Tier</label>
+            <Select value={pricingTier} onValueChange={v => setPricingTier(v as PricingTier)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="free" className="text-xs">Free</SelectItem>
+                <SelectItem value="standard" className="text-xs">Standard</SelectItem>
+                <SelectItem value="premium" className="text-xs">Premium</SelectItem>
+                <SelectItem value="signature" className="text-xs">Signature</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            size="sm" className="h-7 text-xs gap-1"
+            onClick={handleList}
+            disabled={listing}
+          >
+            {listing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Store className="h-3 w-3" />}
+            List on Marketplace
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Validation Score Panel ──────────────────────────────────────────────────
 
 function ValidationScorePanel({ result }: { result: ValidationResult }) {
