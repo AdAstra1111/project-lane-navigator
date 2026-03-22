@@ -84,6 +84,7 @@ export default function ProjectCasting() {
   const [showConsistency, setShowConsistency] = useState(false);
   const [showContinuity, setShowContinuity] = useState(false);
   const [showSceneIntegrity, setShowSceneIntegrity] = useState(false);
+  const [showRegenPolicy, setShowRegenPolicy] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
