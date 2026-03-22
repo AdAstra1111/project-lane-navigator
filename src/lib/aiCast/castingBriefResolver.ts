@@ -779,7 +779,7 @@ function classifyIntoBucket(signal: string, buckets: ActorIdentityBuckets): void
   }
 
   // Default: check if it's a presence term
-  const words = lower.split(/[\s,]+/).filter(Boolean);
+  const presWords = lower.split(/[\s,]+/).filter(Boolean);
   const hasPresence = words.some(w => isPerformerSafePresence(w));
   if (hasPresence && words.length <= 3) {
     buckets.presence.push(signal);
