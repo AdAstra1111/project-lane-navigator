@@ -842,6 +842,44 @@ function dedupeAndResolveConflicts(items: string[]): string[] {
 }
 
 /**
+ * Infer ethnicity/cultural appearance from canon context when explicitly grounded.
+ * Only returns a value when strong, deterministic world/location signals exist.
+ * Does NOT infer from character name alone.
+ */
+const ETHNICITY_INFERENCE_MAP: Array<{ patterns: RegExp; label: string }> = [
+  { patterns: /\b(japan|japanese|samurai|edo|meiji|shogun|kyoto|tokyo|osaka)\b/i, label: 'Japanese' },
+  { patterns: /\b(china|chinese|dynasty|mandarin|qing|ming|tang|han|beijing|shanghai)\b/i, label: 'Chinese' },
+  { patterns: /\b(korea|korean|joseon|seoul|hangul)\b/i, label: 'Korean' },
+  { patterns: /\b(india|indian|hindu|mughal|delhi|mumbai|bengal|tamil|sari)\b/i, label: 'Indian' },
+  { patterns: /\b(nigeria|nigerian|yoruba|igbo|lagos)\b/i, label: 'Nigerian' },
+  { patterns: /\b(mexico|mexican|aztec|maya|guadalajara)\b/i, label: 'Mexican' },
+  { patterns: /\b(brazil|brazilian|rio|são paulo)\b/i, label: 'Brazilian' },
+  { patterns: /\b(arab|arabic|bedouin|ottoman|persian|iran|iraqi|middle east)\b/i, label: 'Middle Eastern' },
+  { patterns: /\b(east asia|east asian)\b/i, label: 'East Asian' },
+  { patterns: /\b(southeast asia|southeast asian|thai|vietnam|philippines|indonesi)\b/i, label: 'Southeast Asian' },
+  { patterns: /\b(africa|african|sub-saharan|west africa|east africa)\b/i, label: 'African' },
+  { patterns: /\b(latin america|latino|latina|latin american)\b/i, label: 'Latin American' },
+];
+
+function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | null): string | null {
+  if (!canonJson) return null;
+
+  // Scan high-signal fields: locations, world_rules, premise, logline, timeline
+  const searchFields = ['locations', 'world_rules', 'premise', 'logline', 'timeline', 'format_constraints'];
+  const combined = searchFields
+    .map(f => typeof canonJson[f] === 'string' ? canonJson[f] as string : '')
+    .join(' ');
+
+  if (!combined.trim()) return null;
+
+  for (const { patterns, label } of ETHNICITY_INFERENCE_MAP) {
+    if (patterns.test(combined)) return label;
+  }
+
+  return null;
+}
+
+/**
  * Compose a structured, generation-ready actor identity description from identity buckets.
  *
  * Output order (deterministic):
