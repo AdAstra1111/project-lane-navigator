@@ -185,15 +185,6 @@ export async function buildCastRegenPlan(projectId: string): Promise<RegenPlan> 
       stored_actor_version_id: entry.storedVersionId,
       current_actor_version_id: currentVersionId,
     });
-
-    items.push({
-      output_id: entry.outputId,
-      output_type: 'ai_generated_media',
-      character_key: entry.charKey,
-      reason,
-      stored_actor_version_id: entry.storedVersionId,
-      current_actor_version_id: currentVersionId,
-    });
   }
 
   // F. Build grouped structure
