@@ -2,24 +2,26 @@
  * lookbookSelectionScoring — Multi-factor deterministic scoring for lookbook image selection.
  *
  * Extends the canonical lookbookScorer with style cohesion, shot intent matching,
- * composition quality, and cross-image cohesion dimensions.
+ * composition quality, editorial flow fit, and cross-image cohesion dimensions.
  *
  * This does NOT replace lookbookScorer.scoreImageForSlide — it augments it.
- * The canonical scorer remains the base; this layer adds style/intent/composition/cohesion modifiers.
+ * The canonical scorer remains the base; this layer adds style/intent/composition/editorial/cohesion modifiers.
  *
- * WEIGHTS (documented — Phase 16.6 rebalance):
- *   identity_score:     28%  — actor/character consistency
- *   style_score:        22%  — cinematic style lock match
- *   intent_score:       20%  — shot composition match for slot purpose
- *   composition_score:  20%  — cinematic framing/balance/density fit
+ * WEIGHTS (documented — Phase 18 rebalance):
+ *   identity_score:     25%  — actor/character consistency
+ *   style_score:        20%  — cinematic style lock match
+ *   intent_score:       18%  — shot composition match for slot purpose
+ *   composition_score:  17%  — cinematic framing/balance/density fit
+ *   editorial_score:    10%  — editorial flow / intensity curve fit
  *   cohesion_score:     10%  — fit with already-selected images
  *   ---
  *   total_score = weighted sum (0–100 scale)
  *
- * Rationale for weight rebalance from Phase 16.5:
+ * Rationale for weight rebalance from Phase 16.6:
  *   - identity remains strongest (character truth is paramount)
- *   - composition gets equal weight with intent (both drive visual quality)
- *   - cohesion reduced because composition now covers some of what cohesion approximated
+ *   - editorial flow added as new dimension (narrative energy curve)
+ *   - cohesion maintained at 10% alongside editorial
+ *   - composition and intent slightly reduced to accommodate editorial
  */
 import type { ProjectImage } from '@/lib/images/types';
 import type { StyleLock } from './styleLock';
@@ -28,6 +30,7 @@ import type { ShotIntent } from './shotIntent';
 import { resolveShotIntentForLookbookSlot } from './shotIntent';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
 import { scoreComposition, type CompositionScore } from './compositionScoring';
+import { scoreEditorialFit } from './editorialFlow';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +39,7 @@ export interface LookbookSelectionScore {
   style_score: number;
   intent_score: number;
   composition_score: number;
+  editorial_score: number;
   cohesion_score: number;
   total_score: number;
 }
@@ -57,10 +61,11 @@ export interface SelectionScoringContext {
 
 // ── Weight constants ─────────────────────────────────────────────────────────
 // Sum = 1.0
-const W_IDENTITY    = 0.28;
-const W_STYLE       = 0.22;
-const W_INTENT      = 0.20;
-const W_COMPOSITION = 0.20;
+const W_IDENTITY    = 0.25;
+const W_STYLE       = 0.20;
+const W_INTENT      = 0.18;
+const W_COMPOSITION = 0.17;
+const W_EDITORIAL   = 0.10;
 const W_COHESION    = 0.10;
 
 // ── Scoring Functions ────────────────────────────────────────────────────────
@@ -132,6 +137,18 @@ function scoreIntent(img: ProjectImage, ctx: SelectionScoringContext): number {
 }
 
 /**
+ * Score editorial flow fit (0–100).
+ * Uses the editorial intensity curve to match image energy to slide position.
+ */
+function scoreEditorial(img: ProjectImage, ctx: SelectionScoringContext): number {
+  return scoreEditorialFit(
+    ctx.slideType,
+    img.shot_type || null,
+    img.asset_group || null,
+  );
+}
+
+/**
  * Score cohesion with already-selected images (0–100).
  */
 function scoreCohesion(img: ProjectImage, ctx: SelectionScoringContext): number {
@@ -176,6 +193,7 @@ export function scoreLookbookCandidate(
   const intent_score = scoreIntent(img, ctx);
   const comp = scoreComposition(img, ctx.slideType);
   const composition_score = comp.composition_total;
+  const editorial_score = scoreEditorial(img, ctx);
   const cohesion_score = scoreCohesion(img, ctx);
 
   const total_score = Math.round(
@@ -183,8 +201,9 @@ export function scoreLookbookCandidate(
     style_score * W_STYLE +
     intent_score * W_INTENT +
     composition_score * W_COMPOSITION +
+    editorial_score * W_EDITORIAL +
     cohesion_score * W_COHESION
   );
 
-  return { identity_score, style_score, intent_score, composition_score, cohesion_score, total_score };
+  return { identity_score, style_score, intent_score, composition_score, editorial_score, cohesion_score, total_score };
 }
