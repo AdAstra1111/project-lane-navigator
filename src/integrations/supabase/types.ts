@@ -27317,6 +27317,7 @@ export type Database = {
           velocity: string
         }[]
       }
+      next_actor_roster_number: { Args: never; Returns: number }
       next_scene_version: {
         Args: {
           p_created_by?: string
