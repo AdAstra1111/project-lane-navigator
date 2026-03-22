@@ -1004,3 +1004,22 @@ function CastHealthRow({ state, actors, projectId, onRebind }: {
     </div>
   );
 }
+
+// ── Regen Job Status Badge ──────────────────────────────────────────────────
+
+const REGEN_STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  queued: { label: 'Queued', className: 'bg-muted text-muted-foreground border-border' },
+  running: { label: 'Running', className: 'bg-primary/15 text-primary border-primary/30' },
+  completed: { label: 'Done', className: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30' },
+  failed: { label: 'Failed', className: 'bg-destructive/15 text-destructive border-destructive/30' },
+  cancelled: { label: 'Cancelled', className: 'bg-muted text-muted-foreground/60 border-border/50' },
+};
+
+function RegenJobStatusBadge({ status }: { status: string }) {
+  const config = REGEN_STATUS_CONFIG[status] || REGEN_STATUS_CONFIG.queued;
+  return (
+    <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', config.className)}>
+      {config.label}
+    </span>
+  );
+}
