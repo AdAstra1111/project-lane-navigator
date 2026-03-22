@@ -369,7 +369,7 @@ function ValidationStatusChip({ status }: { status: string }) {
     </Badge>
   );
 }
-import { ActorCandidateReview } from '@/components/ai-cast/ActorCandidateReview';
+
 
 
 function IdentityBadge({ strength, size = 'sm' }: { strength: IdentityStrength; size?: 'sm' | 'md' }) {
