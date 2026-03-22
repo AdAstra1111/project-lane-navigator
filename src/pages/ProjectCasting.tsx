@@ -56,6 +56,11 @@ import {
   type SceneConsistencyResult,
   type SceneCharacterCheck,
 } from '@/lib/aiCast/sceneConsistency';
+import {
+  buildRegenPolicy,
+  type RegenPolicySummary,
+  type RegenPolicyItem,
+} from '@/lib/aiCast/regenPolicyEngine';
 
 interface CastMapping {
   id: string;
