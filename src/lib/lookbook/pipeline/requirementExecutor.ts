@@ -756,7 +756,7 @@ function identityPayloadForReq(
   const allNames = resolveAllCharacterNamesFromReq(req);
   if (allNames.length === 0) return {};
   for (const n of allNames) {
-    const a = anchors.get(n.toLowerCase().trim());
+    const a = anchors.get(normalizeCharacterKey(n));
     if (a?.hasAnchors) return { identity_mode: true };
   }
   return {};
