@@ -32,6 +32,7 @@ const toolItems = [
   { label: 'Reports', icon: BarChart3, path: '/reports' },
   { label: 'Narrative DNA', icon: Dna, path: '/narrative-dna' },
   { label: 'Engine Atlas', icon: Layers, path: '/narrative-engines' },
+  { label: 'AI Actors', icon: Drama, path: '/ai-cast' },
 ];
 
 export interface BreadcrumbSegment {
