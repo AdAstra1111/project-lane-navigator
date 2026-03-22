@@ -842,6 +842,44 @@ function dedupeAndResolveConflicts(items: string[]): string[] {
 }
 
 /**
+ * Infer ethnicity/cultural appearance from canon context when explicitly grounded.
+ * Only returns a value when strong, deterministic world/location signals exist.
+ * Does NOT infer from character name alone.
+ */
+const ETHNICITY_INFERENCE_MAP: Array<{ patterns: RegExp; label: string }> = [
+  { patterns: /\b(japan|japanese|samurai|edo|meiji|shogun|kyoto|tokyo|osaka)\b/i, label: 'Japanese' },
+  { patterns: /\b(china|chinese|dynasty|mandarin|qing|ming|tang|han|beijing|shanghai)\b/i, label: 'Chinese' },
+  { patterns: /\b(korea|korean|joseon|seoul|hangul)\b/i, label: 'Korean' },
+  { patterns: /\b(india|indian|hindu|mughal|delhi|mumbai|bengal|tamil|sari)\b/i, label: 'Indian' },
+  { patterns: /\b(nigeria|nigerian|yoruba|igbo|lagos)\b/i, label: 'Nigerian' },
+  { patterns: /\b(mexico|mexican|aztec|maya|guadalajara)\b/i, label: 'Mexican' },
+  { patterns: /\b(brazil|brazilian|rio|são paulo)\b/i, label: 'Brazilian' },
+  { patterns: /\b(arab|arabic|bedouin|ottoman|persian|iran|iraqi|middle east)\b/i, label: 'Middle Eastern' },
+  { patterns: /\b(east asia|east asian)\b/i, label: 'East Asian' },
+  { patterns: /\b(southeast asia|southeast asian|thai|vietnam|philippines|indonesi)\b/i, label: 'Southeast Asian' },
+  { patterns: /\b(africa|african|sub-saharan|west africa|east africa)\b/i, label: 'African' },
+  { patterns: /\b(latin america|latino|latina|latin american)\b/i, label: 'Latin American' },
+];
+
+function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | null): string | null {
+  if (!canonJson) return null;
+
+  // Scan high-signal fields: locations, world_rules, premise, logline, timeline
+  const searchFields = ['locations', 'world_rules', 'premise', 'logline', 'timeline', 'format_constraints'];
+  const combined = searchFields
+    .map(f => typeof canonJson[f] === 'string' ? canonJson[f] as string : '')
+    .join(' ');
+
+  if (!combined.trim()) return null;
+
+  for (const { patterns, label } of ETHNICITY_INFERENCE_MAP) {
+    if (patterns.test(combined)) return label;
+  }
+
+  return null;
+}
+
+/**
  * Compose a structured, generation-ready actor identity description from identity buckets.
  *
  * Output order (deterministic):
@@ -871,11 +909,12 @@ function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): stri
   if (baseParts.length > 0) {
     baseAnchor = baseParts.join(' ');
     if (age.length > 0) {
-      baseAnchor += ` in her ${age[0]}`.replace('in her his', 'in his');
-      // Normalize: use "in their" if no gender hint
-      if (gender.length === 0) {
-        baseAnchor = baseParts.join(' ') + ', ' + age[0];
-      }
+      // Determine correct pronoun from gender
+      const genderLower = (gender[0] || '').toLowerCase();
+      const pronoun = /\b(woman|female|girl)\b/i.test(genderLower) ? 'her'
+        : /\b(man|male|boy)\b/i.test(genderLower) ? 'his'
+        : 'their';
+      baseAnchor += ` in ${pronoun} ${age[0]}`;
     }
   } else if (age.length > 0) {
     baseAnchor = age[0];
@@ -1402,6 +1441,15 @@ export async function buildCharacterCastingBrief(
     }
   }
 
+  // Seed ethnicity from canon world context if not already resolved
+  if (!rawBuckets.ethnicity.length) {
+    const inferredEthnicity = inferEthnicityFromCanonContext(canonRow?.canon_json);
+    if (inferredEthnicity) {
+      rawBuckets.ethnicity.push(inferredEthnicity);
+      if (!ethnicityHint) ethnicityHint = inferredEthnicity;
+    }
+  }
+
   // Styling cues
   for (const sc of stylingCues) {
     rawBuckets.styling.push(sc);
@@ -1482,4 +1530,5 @@ export const _testHelpers = {
   FLOATING_ADJECTIVES,
   expandIdentityBuckets,
   composeActorCriteriaHighlights,
+  inferEthnicityFromCanonContext,
 };

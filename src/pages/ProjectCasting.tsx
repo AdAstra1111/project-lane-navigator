@@ -2424,19 +2424,7 @@ function InlineCreateActorDialog({
               {/* Brief metadata badges */}
               {brief && (
                 <div className="flex flex-wrap gap-1">
-                  {brief.age_hint && (
-                    <Badge variant="outline" className="text-[9px] h-4">{brief.age_hint}</Badge>
-                  )}
-                  {brief.gender_presentation && (
-                    <Badge variant="outline" className="text-[9px] h-4">{brief.gender_presentation}</Badge>
-                  )}
-                  {brief.ethnicity_or_cultural_appearance && (
-                    <Badge variant="outline" className="text-[9px] h-4">{brief.ethnicity_or_cultural_appearance}</Badge>
-                  )}
-                  {brief.visual_archetype && (
-                    <Badge variant="outline" className="text-[9px] h-4 border-primary/30 text-primary">{brief.visual_archetype}</Badge>
-                  )}
-                  {(brief.actor_criteria_highlights || brief.appearance_markers).slice(0, 4).map((m, i) => (
+                  {(brief.actor_criteria_highlights || brief.appearance_markers || []).slice(0, 6).map((m, i) => (
                     <Badge key={i} variant="secondary" className="text-[9px] h-4">{m}</Badge>
                   ))}
                 </div>
