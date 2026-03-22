@@ -11667,6 +11667,63 @@ export type Database = {
           },
         ]
       }
+      project_ai_cast_history: {
+        Row: {
+          change_reason: string | null
+          change_type: string
+          changed_by: string | null
+          character_key: string
+          created_at: string
+          id: string
+          next_ai_actor_id: string | null
+          next_ai_actor_version_id: string | null
+          previous_ai_actor_id: string | null
+          previous_ai_actor_version_id: string | null
+          project_id: string
+        }
+        Insert: {
+          change_reason?: string | null
+          change_type?: string
+          changed_by?: string | null
+          character_key: string
+          created_at?: string
+          id?: string
+          next_ai_actor_id?: string | null
+          next_ai_actor_version_id?: string | null
+          previous_ai_actor_id?: string | null
+          previous_ai_actor_version_id?: string | null
+          project_id: string
+        }
+        Update: {
+          change_reason?: string | null
+          change_type?: string
+          changed_by?: string | null
+          character_key?: string
+          created_at?: string
+          id?: string
+          next_ai_actor_id?: string | null
+          next_ai_actor_version_id?: string | null
+          previous_ai_actor_id?: string | null
+          previous_ai_actor_version_id?: string | null
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_ai_cast_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_ai_cast_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_baselines: {
         Row: {
           budget_confidence: number | null

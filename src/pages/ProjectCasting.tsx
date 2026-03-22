@@ -1,11 +1,12 @@
 /**
- * ProjectCasting — Project-level AI cast mapping with identity source visibility.
- * Shows actor_bound / fallback / unresolved status per character using canonical resolver.
+ * ProjectCasting — Project-level AI cast mapping with identity source visibility,
+ * binding freshness diagnostics, rebind/unbind actions, and impact analysis.
  */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink
+  Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
+  RefreshCw, AlertTriangle, Activity
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,8 @@ import { toast } from 'sonner';
 import { getActorThumbnail, getIdentityStrength, type IdentityStrength } from '@/lib/aiCast/identityStrength';
 import { resolveProjectCastIdentity, type ActorIdentityAnchors, type IdentitySource } from '@/lib/aiCast/resolveActorIdentity';
 import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
+import { evaluateCastBindingFreshness, type BindingFreshness } from '@/lib/aiCast/castBindingDiagnostics';
+import { evaluateCastImpact, type CastImpactResult } from '@/lib/aiCast/castImpactDiagnostics';
 
 interface CastMapping {
   id: string;
@@ -38,6 +41,7 @@ export default function ProjectCasting() {
   const actors = actorsData?.actors || [];
   const qc = useQueryClient();
   const [newCharKey, setNewCharKey] = useState('');
+  const [showImpact, setShowImpact] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -52,41 +56,32 @@ export default function ProjectCasting() {
     enabled: !!projectId,
   });
 
-  // Character detection with fallback chain
   const { data: characters } = useQuery({
     queryKey: ['project-characters', projectId],
     queryFn: async () => {
-      // Primary: canon_facts characters
       const { data: canonChars } = await supabase
         .from('canon_facts')
         .select('subject')
         .eq('project_id', projectId!)
         .eq('fact_type', 'character')
         .eq('is_active', true);
-
       const canonUnique = [...new Set((canonChars || []).map((d: any) => d.subject))];
       if (canonUnique.length > 0) return canonUnique as string[];
-
-      // Fallback: distinct subjects from project_images with identity shots
       const { data: imageSubjects } = await supabase
         .from('project_images' as any)
         .select('subject')
         .eq('project_id', projectId!)
         .in('shot_type', ['identity_headshot', 'identity_full_body'])
         .not('subject', 'is', null) as { data: any };
-
-      const imageUnique = [...new Set((imageSubjects || []).map((d: any) => d.subject).filter(Boolean))];
-      return imageUnique as string[];
+      return [...new Set((imageSubjects || []).map((d: any) => d.subject).filter(Boolean))] as string[];
     },
     enabled: !!projectId,
   });
 
-  // Canonical identity resolution for source visibility
   const { data: identityMap } = useQuery({
     queryKey: ['project-identity-map', projectId],
     queryFn: async () => {
       const map = await resolveProjectCastIdentity(projectId!);
-      // Convert Map to plain object for React Query serialization
       const result: Record<string, ActorIdentityAnchors> = {};
       map.forEach((v, k) => { result[k] = v; });
       return result;
@@ -94,9 +89,21 @@ export default function ProjectCasting() {
     enabled: !!projectId,
   });
 
+  // Impact diagnostics (lazy, only when requested)
+  const { data: impactData, isLoading: impactLoading, refetch: refetchImpact } = useQuery({
+    queryKey: ['cast-impact', projectId],
+    queryFn: () => evaluateCastImpact(projectId!),
+    enabled: !!projectId && showImpact,
+  });
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
+    qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
+    qc.invalidateQueries({ queryKey: ['cast-impact', projectId] });
+  };
+
   const addMapping = useMutation({
     mutationFn: async (params: { character_key: string; ai_actor_id: string; ai_actor_version_id?: string }) => {
-      // Validate actor is roster-ready with a canonical approved version
       const actor = actors.find((a: any) => a.id === params.ai_actor_id);
       const approvedVersionId = (actor as any)?.approved_version_id || params.ai_actor_version_id || null;
       if (!(actor as any)?.roster_ready || !approvedVersionId) {
@@ -112,31 +119,76 @@ export default function ProjectCasting() {
         } as any, { onConflict: 'project_id,character_key' });
       if (error) throw error;
     },
-    onSuccess: () => {
-      toast.success('Cast mapping saved');
-      qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
-      qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
+    onSuccess: () => { toast.success('Cast mapping saved'); invalidateAll(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Rebind via edge function
+  const rebindMutation = useMutation({
+    mutationFn: async (params: { characterKey: string; nextActorId: string; nextActorVersionId?: string; reason?: string }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rebind-project-cast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          characterKey: params.characterKey,
+          nextActorId: params.nextActorId,
+          nextActorVersionId: params.nextActorVersionId,
+          reason: params.reason,
+        }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        let msg = 'Rebind failed';
+        try { msg = JSON.parse(text).error || msg; } catch {}
+        throw new Error(msg);
+      }
+      return resp.json();
+    },
+    onSuccess: (data) => {
+      toast.success(`${data.action === 'unbind' ? 'Unbound' : 'Rebound'} successfully`);
+      invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const removeMapping = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('project_ai_cast' as any).delete().eq('id', id);
-      if (error) throw error;
+  // Unbind via edge function
+  const unbindMutation = useMutation({
+    mutationFn: async (params: { characterKey: string; reason?: string }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rebind-project-cast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          characterKey: params.characterKey,
+          reason: params.reason,
+        }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        let msg = 'Unbind failed';
+        try { msg = JSON.parse(text).error || msg; } catch {}
+        throw new Error(msg);
+      }
+      return resp.json();
     },
-    onSuccess: () => {
-      toast.success('Mapping removed');
-      qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
-      qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
-    },
+    onSuccess: () => { toast.success('Cast binding removed'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const mappedKeys = new Set((mappings || []).map(m => m.character_key));
   const unmappedCharacters = (characters || []).filter(c => !mappedKeys.has(c));
 
-  // Compute all characters for identity diagnostics
   const allCharacters = useMemo(() => {
     const set = new Set<string>();
     (characters || []).forEach(c => set.add(c));
@@ -156,6 +208,12 @@ export default function ProjectCasting() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowImpact(!showImpact); if (!showImpact) refetchImpact(); }}
+          >
+            <Activity className="h-3.5 w-3.5" /> {showImpact ? 'Hide' : 'View'} Impact
+          </Button>
           <Link to="/ai-cast">
             <Button variant="default" size="sm" className="h-8 text-xs gap-1.5">
               <ExternalLink className="h-3.5 w-3.5" /> AI Actors Agency
@@ -183,6 +241,15 @@ export default function ProjectCasting() {
             const charKey = normalizeCharacterKey(m.character_key);
             const resolvedIdentity = identityMap?.[charKey];
 
+            // Compute freshness
+            const freshness = evaluateCastBindingFreshness({
+              binding: { ai_actor_version_id: m.ai_actor_version_id },
+              actor: actor ? {
+                approved_version_id: (actor as any).approved_version_id,
+                roster_ready: (actor as any).roster_ready ?? false,
+              } : null,
+            });
+
             return (
               <div key={m.id} className="flex items-center gap-3 p-3 rounded-lg border border-border/50 bg-card/30">
                 <div className="w-10 h-10 rounded-md border border-border/30 overflow-hidden shrink-0 bg-muted/10">
@@ -197,6 +264,7 @@ export default function ProjectCasting() {
                     <span className="text-xs font-medium text-foreground">{m.character_key}</span>
                     <span className="text-muted-foreground text-[10px]">→</span>
                     <span className="text-xs text-primary font-medium">{actor?.name || m.ai_actor_id.slice(0, 8)}</span>
+                    <FreshnessBadge freshness={freshness} />
                   </div>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     {resolvedIdentity && <IdentitySourceTag source={resolvedIdentity.source} hasAnchors={resolvedIdentity.hasAnchors} />}
@@ -208,9 +276,43 @@ export default function ProjectCasting() {
                     )}
                   </div>
                 </div>
-                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => removeMapping.mutate(m.id)}>
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  {freshness === 'stale_newer_version_available' && actor && (
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 text-[10px] gap-1 border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
+                      onClick={() => rebindMutation.mutate({
+                        characterKey: m.character_key,
+                        nextActorId: m.ai_actor_id,
+                        nextActorVersionId: (actor as any).approved_version_id,
+                        reason: 'Update to latest approved version',
+                      })}
+                      disabled={rebindMutation.isPending}
+                    >
+                      <RefreshCw className="h-3 w-3" /> Update
+                    </Button>
+                  )}
+                  <RebindButton
+                    characterKey={m.character_key}
+                    currentActorId={m.ai_actor_id}
+                    actors={actors}
+                    onRebind={(nextActorId, nextVersionId) => rebindMutation.mutate({
+                      characterKey: m.character_key,
+                      nextActorId,
+                      nextActorVersionId: nextVersionId,
+                      reason: 'Manual rebind',
+                    })}
+                    disabled={rebindMutation.isPending}
+                  />
+                  <Button
+                    size="icon" variant="ghost" className="h-7 w-7"
+                    onClick={() => unbindMutation.mutate({ characterKey: m.character_key })}
+                    disabled={unbindMutation.isPending}
+                    title="Unbind"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -223,7 +325,7 @@ export default function ProjectCasting() {
         </div>
       )}
 
-      {/* Unmapped characters with identity source */}
+      {/* Unmapped characters */}
       {unmappedCharacters.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -262,6 +364,22 @@ export default function ProjectCasting() {
         </div>
       </div>
 
+      {/* Impact Analysis Panel */}
+      {showImpact && (
+        <div className="border-t border-border/30 pt-4 space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5" /> Cast Impact Analysis
+          </h3>
+          {impactLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : impactData ? (
+            <ImpactPanel data={impactData} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No impact data available.</p>
+          )}
+        </div>
+      )}
+
       {/* Identity Diagnostics Panel */}
       {identityMap && Object.keys(identityMap).length > 0 && (
         <div className="border-t border-border/30 pt-4 space-y-2">
@@ -294,6 +412,123 @@ export default function ProjectCasting() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Freshness Badge ─────────────────────────────────────────────────────────
+
+function FreshnessBadge({ freshness }: { freshness: BindingFreshness }) {
+  if (freshness === 'current') {
+    return (
+      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 font-medium">
+        Current
+      </span>
+    );
+  }
+  if (freshness === 'stale_newer_version_available') {
+    return (
+      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 border border-amber-500/30 font-medium flex items-center gap-0.5">
+        <AlertTriangle className="h-2.5 w-2.5" /> Stale
+      </span>
+    );
+  }
+  if (freshness === 'stale_roster_revoked') {
+    return (
+      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive border border-destructive/30 font-medium flex items-center gap-0.5">
+        <AlertCircle className="h-2.5 w-2.5" /> Revoked
+      </span>
+    );
+  }
+  if (freshness === 'invalid_missing_version') {
+    return (
+      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive border border-destructive/30 font-medium flex items-center gap-0.5">
+        <AlertCircle className="h-2.5 w-2.5" /> Invalid
+      </span>
+    );
+  }
+  return null;
+}
+
+// ── Impact Panel ────────────────────────────────────────────────────────────
+
+function ImpactPanel({ data }: { data: CastImpactResult }) {
+  if (data.total_outputs === 0) {
+    return <p className="text-xs text-muted-foreground">No generation outputs with cast provenance found.</p>;
+  }
+  return (
+    <div className="rounded-lg border border-border/30 bg-muted/5 p-3 space-y-2">
+      <div className="flex items-center gap-4 text-[11px]">
+        <span className="text-muted-foreground">Total tracked: <strong className="text-foreground">{data.total_outputs}</strong></span>
+        <span className={cn(
+          data.out_of_sync_count > 0 ? 'text-amber-700' : 'text-emerald-700'
+        )}>
+          Out of sync: <strong>{data.out_of_sync_count}</strong>
+        </span>
+      </div>
+      {Object.entries(data.entries_by_character).map(([charKey, entries]) => {
+        const oosCount = entries.filter(e => e.status === 'out_of_sync_with_current_cast').length;
+        return (
+          <div key={charKey} className="flex items-center gap-3 text-[11px]">
+            <span className="font-medium text-foreground w-24 truncate">{charKey}</span>
+            <span className="text-muted-foreground">{entries.length} outputs</span>
+            {oosCount > 0 ? (
+              <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700">
+                {oosCount} out of sync
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/30 text-emerald-700">
+                All current
+              </Badge>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Rebind Button ───────────────────────────────────────────────────────────
+
+function RebindButton({ characterKey, currentActorId, actors, onRebind, disabled }: {
+  characterKey: string;
+  currentActorId: string;
+  actors: any[];
+  onRebind: (actorId: string, versionId?: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rosterActors = actors.filter((a: any) =>
+    (a as any).roster_ready === true && (a as any).approved_version_id && a.id !== currentActorId
+  );
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="ghost" className="h-7 text-[10px] gap-1" onClick={() => setOpen(true)} disabled={disabled}>
+        <RefreshCw className="h-3 w-3" /> Rebind
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <Select onValueChange={(val) => {
+        const actor = actors.find((a: any) => a.id === val);
+        onRebind(val, (actor as any)?.approved_version_id);
+        setOpen(false);
+      }}>
+        <SelectTrigger className="h-7 text-[10px] w-[150px]"><SelectValue placeholder="Select..." /></SelectTrigger>
+        <SelectContent>
+          {rosterActors.length > 0 ? rosterActors.map((a: any) => (
+            <SelectItem key={a.id} value={a.id} className="text-xs">{a.name}</SelectItem>
+          )) : (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">No other roster actors</div>
+          )}
+        </SelectContent>
+      </Select>
+      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setOpen(false)}>
+        <span className="text-xs text-muted-foreground">✕</span>
+      </Button>
     </div>
   );
 }
@@ -337,7 +572,6 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
   onCast: (actorId: string, versionId?: string) => void;
 }) {
   const [selecting, setSelecting] = useState(false);
-  // Prefer roster-ready actors; show all active/draft as fallback if no roster actors exist
   const rosterActors = actors.filter((a: any) => (a as any).roster_ready === true);
   const activeActors = rosterActors.length > 0
     ? rosterActors
@@ -370,7 +604,6 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
         <div className="flex items-center gap-2">
           <Select onValueChange={(val) => {
             const actor = actors.find((a: any) => a.id === val);
-            // Use Phase 4 canonical approved_version_id, not legacy is_approved
             const approvedVersionId = (actor as any)?.approved_version_id || null;
             onCast(val, approvedVersionId);
             setSelecting(false);
@@ -405,7 +638,6 @@ function CastActorSelect({ actors, onSelect }: {
   actors: any[];
   onSelect: (actorId: string, versionId?: string) => void;
 }) {
-  // Only show roster-ready actors with canonical approved versions
   const rosterActors = actors.filter((a: any) => (a as any).roster_ready === true && (a as any).approved_version_id);
   return (
     <Select onValueChange={(val) => {
