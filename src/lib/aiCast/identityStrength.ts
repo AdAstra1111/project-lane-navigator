@@ -74,7 +74,6 @@ export function getIdentityStrength(versions: AIActorVersion[] | undefined, appr
 export function getActorThumbnail(versions: AIActorVersion[] | undefined, approvedVersionId?: string | null): string | null {
   if (!versions || versions.length === 0) return null;
   const approved = (approvedVersionId ? versions.find(v => v.id === approvedVersionId) : null)
-    || versions.find(v => v.is_approved)
     || versions[versions.length - 1];
   const assets = approved?.ai_actor_assets || [];
 

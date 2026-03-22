@@ -404,18 +404,21 @@ function CastActorSelect({ actors, onSelect }: {
   actors: any[];
   onSelect: (actorId: string, versionId?: string) => void;
 }) {
+  // Only show roster-ready actors with canonical approved versions
+  const rosterActors = actors.filter((a: any) => (a as any).roster_ready === true && (a as any).approved_version_id);
   return (
     <Select onValueChange={(val) => {
       const actor = actors.find((a: any) => a.id === val);
-      // Use Phase 4 canonical approved_version_id, not legacy is_approved
       const approvedVersionId = (actor as any)?.approved_version_id || null;
       onSelect(val, approvedVersionId);
     }}>
       <SelectTrigger className="h-9 text-xs w-[200px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
       <SelectContent>
-        {actors.map((a: any) => (
+        {rosterActors.length > 0 ? rosterActors.map((a: any) => (
           <SelectItem key={a.id} value={a.id} className="text-xs">{a.name}</SelectItem>
-        ))}
+        )) : (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">No roster-ready actors</div>
+        )}
       </SelectContent>
     </Select>
   );
