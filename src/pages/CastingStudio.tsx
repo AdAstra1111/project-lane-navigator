@@ -67,6 +67,7 @@ export default function CastingStudio() {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [promoteDialogIds, setPromoteDialogIds] = useState<string[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // ── Fetch candidates ──
   const { data: candidates = [], isLoading } = useQuery({
@@ -106,6 +107,41 @@ export default function CastingStudio() {
     },
     enabled: !!projectId,
   });
+
+  // ── Generate candidates ──
+  const handleGenerate = useCallback(async (characterFilter?: string) => {
+    if (!projectId || !user?.id) return;
+    setIsGenerating(true);
+    const toastId = toast.loading(
+      characterFilter
+        ? `Generating casting options for ${characterFilter}...`
+        : 'Generating casting options for all characters...',
+      { duration: 120000 }
+    );
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-casting-candidates', {
+        body: { projectId, candidatesPerCharacter: 4, characterFilter },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        if (data.error.includes('credits') || data.error.includes('funds')) {
+          toast.error('AI credits exhausted. Please add funds in Settings → Workspace → Usage.', { id: toastId });
+        } else {
+          toast.error(data.error, { id: toastId });
+        }
+        return;
+      }
+      toast.success(
+        `Generated ${data.generated} candidate${data.generated !== 1 ? 's' : ''} across ${data.characters} character${data.characters !== 1 ? 's' : ''}${data.failed > 0 ? ` (${data.failed} failed)` : ''}`,
+        { id: toastId }
+      );
+      invalidate();
+    } catch (e: any) {
+      toast.error(e.message || 'Generation failed', { id: toastId });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [projectId, user?.id]);
 
   // ── Mutations ──
   const invalidate = () => qc.invalidateQueries({ queryKey: ['casting-candidates', projectId] });
@@ -225,6 +261,16 @@ export default function CastingStudio() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => handleGenerate()}
+            disabled={isGenerating || characters.length === 0}
+          >
+            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {isGenerating ? 'Generating…' : 'Generate Casting'}
+          </Button>
           {shortlistedIds.length > 0 && (
             <Button
               size="sm"
@@ -278,6 +324,8 @@ export default function CastingStudio() {
               onToggleCompare={toggleCompare}
               compareIds={compareIds}
               onDelete={(id) => deleteCandidate.mutate(id)}
+              onGenerate={() => handleGenerate(charName)}
+              isGenerating={isGenerating}
             />
           ))}
         </div>
@@ -328,10 +376,12 @@ interface LaneProps {
   onToggleCompare: (id: string) => void;
   compareIds: string[];
   onDelete: (id: string) => void;
+  onGenerate: () => void;
+  isGenerating: boolean;
 }
 
 function CharacterLane({
-  characterName, candidates, allCandidates, onShortlist, onReject, onUndo, onExpand, onToggleCompare, compareIds, onDelete
+  characterName, candidates, allCandidates, onShortlist, onReject, onUndo, onExpand, onToggleCompare, compareIds, onDelete, onGenerate, isGenerating
 }: LaneProps) {
   const shortlisted = allCandidates.filter(c => c.status === 'shortlisted').length;
   const promoted = allCandidates.filter(c => c.status === 'promoted').length;
@@ -348,6 +398,16 @@ function CharacterLane({
             {promoted > 0 && <Badge variant="outline" className="h-5 text-[10px] text-primary border-primary/30">{promoted} promoted</Badge>}
           </div>
         </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-[11px] gap-1"
+          onClick={onGenerate}
+          disabled={isGenerating}
+        >
+          {isGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Generate
+        </Button>
       </div>
 
       {/* Candidate Grid */}
