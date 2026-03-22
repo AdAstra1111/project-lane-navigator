@@ -912,6 +912,16 @@ function CastHealthRow({ state, actors, projectId, onRebind }: {
               <RefreshCw className="h-2.5 w-2.5" /> Update
             </Button>
           )}
+          {state.recommendations.includes('regenerate_outputs') && state.impact_out_of_sync > 0 && (
+            <Button
+              size="sm" variant="outline"
+              className="h-6 text-[10px] gap-1"
+              onClick={() => queueAllRegenMutation.mutate({ characterKey: state.character_key })}
+              disabled={queueAllRegenMutation.isPending}
+            >
+              <ListChecks className="h-2.5 w-2.5" /> Queue Regen
+            </Button>
+          )}
           {state.impact_total > 0 && (
             <Button
               size="sm" variant="ghost"
