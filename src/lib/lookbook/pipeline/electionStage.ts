@@ -153,6 +153,7 @@ export function pickBackgroundImage(
   fallbackPool: ProjectImage[] = [],
   boundPrincipalIds?: Set<string>,
   hasSceneEvidence?: boolean,
+  selectionCtx?: SelectionScoringContext | null,
 ): string | undefined {
   const excludeUrls = ctx.usedBackgroundUrls;
   const isExcluded = (img: ProjectImage) => !img.signedUrl || excludeUrls.includes(img.signedUrl!);
@@ -173,11 +174,12 @@ export function pickBackgroundImage(
     if (!combinedPrimary.includes(img)) combinedPrimary.push(img);
   }
 
-  const scored = combinedPrimary.map(img => ({
-    img,
-    score: scoreImageForSlide(img, slideType, true, scoringCtx),
-  }));
-  scored.sort((a, b) => b.score - a.score);
+  const scored = combinedPrimary.map(img => {
+    const base = scoreImageForSlide(img, slideType, true, scoringCtx);
+    const { total } = computeAugmentedScore(img, slideType, base, selectionCtx || null);
+    return { img, score: total };
+  });
+  scored.sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
 
   if (scored.length > 0) {
     const top3 = scored.slice(0, 3).map(s => ({
