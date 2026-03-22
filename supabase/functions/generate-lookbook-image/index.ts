@@ -1571,6 +1571,16 @@ FRAMING RULES:
         prompt += `\n\n${compositionRulePromptBlock}`;
       }
 
+      // Step 8f: CAMERA LANGUAGE — directorial style consistency
+      if (cameraLanguagePromptBlock && !isIdentityGeneration && !promptOverrideUsed) {
+        prompt += `\n\n${cameraLanguagePromptBlock}`;
+      }
+
+      // Step 8g: PRODUCTION DESIGN — world material/architecture consistency
+      if (productionDesignPromptBlock && !isIdentityGeneration && !promptOverrideUsed) {
+        prompt += `\n\n${productionDesignPromptBlock}`;
+      }
+
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
