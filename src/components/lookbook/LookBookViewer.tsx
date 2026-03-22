@@ -33,6 +33,9 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { resolveCompositionRuleForLookbookSlot } from '@/lib/lookbook/compositionRules';
+import { resolveCameraLanguageForSlot } from '@/lib/lookbook/cameraLanguage';
+import { resolveNarrativeMomentForSlide } from '@/lib/lookbook/narrativeMoments';
+import { getEditorialIntensity, getEditorialPhase } from '@/lib/lookbook/editorialFlow';
 
 interface LookBookViewerProps {
   data: LookBookData;
