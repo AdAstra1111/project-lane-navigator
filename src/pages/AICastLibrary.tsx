@@ -8,7 +8,8 @@ import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
   AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert,
-  FlaskConical, Clock, XCircle, TrendingUp, Zap, BarChart3
+  FlaskConical, Clock, XCircle, TrendingUp, Zap, BarChart3, Crown, Ban,
+  RotateCcw, FileText, ShieldOff
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +42,10 @@ import {
 import {
   getScoreBandColor, getConfidenceColor,
 } from '@/lib/aiCast/validationScoring';
+import {
+  usePromotionEligibility, usePromotionDecisions, useActorPromotionState, useApplyPromotionDecision,
+} from '@/lib/aiCast/usePromotion';
+import type { PromotionDecision, FinalDecisionStatus } from '@/lib/aiCast/promotionPolicy';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -150,6 +155,7 @@ export default function AICastLibrary() {
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
         <span>{actors.length} actor{actors.length !== 1 ? 's' : ''}</span>
         <span>{actors.filter(a => a.status === 'active').length} active</span>
+        <span>{actors.filter(a => (a as any).roster_ready).length} roster</span>
         <span>{actors.filter(a => a.ai_actor_versions?.some(v => v.is_approved)).length} approved</span>
       </div>
 
@@ -193,7 +199,8 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
   const thumbnail = getActorThumbnail(actor.ai_actor_versions);
   const identity = getIdentityStrength(actor.ai_actor_versions);
   const coverageStatus = (actor as any).anchor_coverage_status as AnchorCoverageStatus | undefined;
-  const coherenceStatus = (actor as any).anchor_coherence_status as AnchorCoherenceStatus | undefined;
+  const rosterReady = (actor as any).roster_ready as boolean | undefined;
+  const promotionStatus = (actor as any).promotion_status as string | undefined;
 
   return (
     <button onClick={onClick} className="text-left rounded-lg border border-border/50 bg-card/50 hover:bg-muted/20 transition-colors overflow-hidden group">
@@ -204,6 +211,7 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
           <div className="flex items-center justify-center h-full"><Users className="h-8 w-8 text-muted-foreground/30" /></div>
         )}
         <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+          {rosterReady && <RosterBadge />}
           <IdentityBadge strength={identity.strength} size="sm" />
           {coverageStatus && coverageStatus !== 'insufficient' && (
             <AnchorCoverageBadge status={coverageStatus} />
@@ -218,8 +226,13 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
         <p className="text-[11px] text-muted-foreground line-clamp-2">{actor.description || 'No description'}</p>
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant={actor.status === 'active' ? 'default' : 'secondary'} className="text-[10px] h-5">{actor.status}</Badge>
-          {actor.ai_actor_versions?.some(v => v.is_approved) && (
-            <Badge variant="outline" className="text-[10px] h-5 gap-0.5"><CheckCircle2 className="h-2.5 w-2.5" /> Approved</Badge>
+          {rosterReady && (
+            <Badge variant="outline" className="text-[10px] h-5 gap-0.5 text-amber-300 border-amber-300/30">
+              <Crown className="h-2.5 w-2.5" /> Roster
+            </Badge>
+          )}
+          {!rosterReady && promotionStatus && promotionStatus !== 'none' && (
+            <PromotionStatusChip status={promotionStatus} />
           )}
           <span className="text-[10px] text-muted-foreground">{actor.ai_actor_versions?.length || 0} ver.</span>
           {usageCount > 0 && (
@@ -238,6 +251,31 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
       </div>
     </button>
   );
+}
+
+// ── Roster Badge ────────────────────────────────────────────────────────────
+
+function RosterBadge() {
+  return (
+    <span className="rounded-full text-[8px] px-1.5 py-0.5 font-medium bg-amber-500/90 text-white inline-flex items-center gap-0.5">
+      <Crown className="h-2 w-2" /> Roster
+    </span>
+  );
+}
+
+// ── Promotion Status Chip ───────────────────────────────────────────────────
+
+function PromotionStatusChip({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string }> = {
+    approved: { label: 'Approved', className: 'text-emerald-400 border-emerald-400/30' },
+    override_approved: { label: 'Override ✓', className: 'text-amber-400 border-amber-400/30' },
+    rejected: { label: 'Rejected', className: 'text-destructive border-destructive/30' },
+    override_rejected: { label: 'Override ✗', className: 'text-destructive border-destructive/30' },
+    revoked: { label: 'Revoked', className: 'text-muted-foreground border-border' },
+    pending_review: { label: 'Review', className: 'text-amber-400 border-amber-400/30' },
+  };
+  const cfg = config[status] || { label: status, className: 'text-muted-foreground border-border' };
+  return <Badge variant="outline" className={cn('text-[9px] h-5', cfg.className)}>{cfg.label}</Badge>;
 }
 
 // ── Anchor Coverage Badge ───────────────────────────────────────────────────
@@ -596,6 +634,13 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const { data: latestRun } = useLatestValidationRun(actorId);
   const { data: validationImages } = useValidationImages(latestRun?.id);
   const { data: validationResult } = useValidationResult(latestRun?.id);
+  const { data: eligibility } = usePromotionEligibility(actorId);
+  const { data: promotionState } = useActorPromotionState(actorId);
+  const { data: decisions } = usePromotionDecisions(actorId);
+  const applyDecision = useApplyPromotionDecision();
+  const [overrideReason, setOverrideReason] = useState('');
+  const [decisionNote, setDecisionNote] = useState('');
+  const [showOverride, setShowOverride] = useState(false);
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
@@ -796,6 +841,168 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
             {latestRun.error && (
               <p className="text-[10px] text-destructive">{latestRun.error}</p>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Promotion / Roster Section */}
+      <div className="border border-border/50 rounded-lg p-4 space-y-3 bg-card/30">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Crown className="h-3 w-3" /> Promotion & Roster
+          </h3>
+          {promotionState?.roster_ready && (
+            <Badge variant="outline" className="text-[9px] h-5 gap-0.5 text-amber-300 border-amber-300/30">
+              <Crown className="h-2.5 w-2.5" /> Roster Ready
+            </Badge>
+          )}
+        </div>
+
+        {/* Current State */}
+        <div className="rounded-md bg-muted/20 p-3 text-xs space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Status</span>
+            <PromotionStatusChip status={promotionState?.promotion_status || 'none'} />
+          </div>
+          {promotionState?.approved_version_id && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Approved Version</span>
+              <span className="text-foreground font-mono text-[10px]">{promotionState.approved_version_id.slice(0, 8)}…</span>
+            </div>
+          )}
+        </div>
+
+        {/* Eligibility */}
+        {eligibility && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium text-muted-foreground">Policy Evaluation</p>
+            <div className="flex items-center gap-2">
+              {eligibility.eligible_for_promotion ? (
+                <Badge variant="outline" className="text-[9px] h-5 gap-0.5 text-emerald-400 border-emerald-400/30">
+                  <CheckCircle2 className="h-2.5 w-2.5" /> Eligible
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-[9px] h-5 gap-0.5 text-destructive border-destructive/30">
+                  <Ban className="h-2.5 w-2.5" /> Not Eligible
+                </Badge>
+              )}
+              {eligibility.review_required && (
+                <Badge variant="outline" className="text-[9px] h-5 text-amber-400 border-amber-400/30">Review Required</Badge>
+              )}
+            </div>
+            {eligibility.block_reasons.length > 0 && (
+              <div className="space-y-0.5">
+                {eligibility.block_reasons.map((r, i) => (
+                  <p key={i} className="text-[9px] text-destructive/80 flex items-start gap-1">
+                    <ShieldAlert className="h-2.5 w-2.5 mt-0.5 shrink-0" /> {r}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap gap-2">
+          {/* Approve — only if eligible */}
+          {eligibility?.eligible_for_promotion && !promotionState?.roster_ready && (
+            <Button
+              size="sm" className="h-7 text-xs gap-1"
+              onClick={() => applyDecision.mutate({ actorId, action: 'approve', decisionNote })}
+              disabled={applyDecision.isPending}
+            >
+              {applyDecision.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Crown className="h-3 w-3" />}
+              Approve for Roster
+            </Button>
+          )}
+
+          {/* Reject */}
+          {!promotionState?.roster_ready && promotionState?.promotion_status !== 'rejected' && (
+            <Button
+              size="sm" variant="outline" className="h-7 text-xs gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
+              onClick={() => applyDecision.mutate({ actorId, action: 'reject', decisionNote })}
+              disabled={applyDecision.isPending}
+            >
+              <Ban className="h-3 w-3" /> Reject
+            </Button>
+          )}
+
+          {/* Revoke — only if roster ready */}
+          {promotionState?.roster_ready && (
+            <Button
+              size="sm" variant="outline" className="h-7 text-xs gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
+              onClick={() => applyDecision.mutate({ actorId, action: 'revoke', decisionNote })}
+              disabled={applyDecision.isPending}
+            >
+              <ShieldOff className="h-3 w-3" /> Revoke Roster
+            </Button>
+          )}
+
+          {/* Override toggle */}
+          {!eligibility?.eligible_for_promotion && (
+            <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setShowOverride(!showOverride)}>
+              <RotateCcw className="h-3 w-3" /> Override…
+            </Button>
+          )}
+        </div>
+
+        {/* Override panel */}
+        {showOverride && (
+          <div className="border border-amber-500/30 rounded-md p-3 space-y-2 bg-amber-500/5">
+            <p className="text-[10px] font-medium text-amber-400">Override Promotion Decision</p>
+            <Input
+              value={overrideReason}
+              onChange={e => setOverrideReason(e.target.value)}
+              placeholder="Reason for override (required)…"
+              className="text-xs h-8"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm" className="h-7 text-xs gap-1"
+                onClick={() => {
+                  applyDecision.mutate({ actorId, action: 'override_approve', overrideReason, decisionNote });
+                  setShowOverride(false);
+                }}
+                disabled={!overrideReason.trim() || applyDecision.isPending}
+              >
+                Override Approve
+              </Button>
+              <Button
+                size="sm" variant="outline" className="h-7 text-xs gap-1"
+                onClick={() => setShowOverride(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Decision Note */}
+        <div className="space-y-1">
+          <Input
+            value={decisionNote}
+            onChange={e => setDecisionNote(e.target.value)}
+            placeholder="Optional decision note…"
+            className="text-xs h-8"
+          />
+        </div>
+
+        {/* Decision History */}
+        {decisions && decisions.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+              <FileText className="h-2.5 w-2.5" /> Decision History
+            </p>
+            <div className="space-y-1 max-h-[150px] overflow-y-auto">
+              {decisions.map((d: PromotionDecision) => (
+                <div key={d.id} className="flex items-center gap-2 text-[9px] px-2 py-1 rounded bg-muted/10 border border-border/20">
+                  <PromotionStatusChip status={d.final_decision_status} />
+                  <span className="text-muted-foreground">{d.decision_mode.replace(/_/g, ' ')}</span>
+                  {d.override_reason && <span className="text-amber-400 truncate">"{d.override_reason}"</span>}
+                  <span className="text-muted-foreground/60 ml-auto shrink-0">{new Date(d.created_at).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
