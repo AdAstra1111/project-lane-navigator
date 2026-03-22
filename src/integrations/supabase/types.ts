@@ -10752,6 +10752,57 @@ export type Database = {
           },
         ]
       }
+      pending_actor_binds: {
+        Row: {
+          actor_id: string
+          character_key: string
+          created_at: string
+          id: string
+          project_id: string
+          resolved_at: string | null
+          source: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          actor_id: string
+          character_key: string
+          created_at?: string
+          id?: string
+          project_id: string
+          resolved_at?: string | null
+          source?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string
+          character_key?: string
+          created_at?: string
+          id?: string
+          project_id?: string
+          resolved_at?: string | null
+          source?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_actor_binds_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "pending_actor_binds_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pipeline_transitions: {
         Row: {
           analysis_run_id: string | null
