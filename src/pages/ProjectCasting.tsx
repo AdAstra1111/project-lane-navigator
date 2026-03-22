@@ -467,7 +467,55 @@ export default function ProjectCasting() {
         </div>
       )}
 
-      {identityMap && Object.keys(identityMap).length > 0 && (
+      {/* Regen Jobs Panel */}
+      {showRegenJobs && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <ListChecks className="h-3.5 w-3.5" /> Cast Regen Jobs
+            </h3>
+            <Button
+              size="sm" variant="outline"
+              className="h-7 text-[10px] gap-1"
+              onClick={() => queueAllRegenMutation.mutate({})}
+              disabled={queueAllRegenMutation.isPending}
+            >
+              {queueAllRegenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+              Queue All Regen Jobs
+            </Button>
+          </div>
+          {regenJobsLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : (regenJobs || []).length > 0 ? (
+            <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
+              {(regenJobs || []).map(job => (
+                <div key={job.id} className="flex items-center gap-3 px-3 py-2">
+                  <RegenJobStatusBadge status={job.status} />
+                  <span className="text-[10px] font-medium text-foreground w-24 truncate">{job.character_key}</span>
+                  <span className="text-[9px] font-mono text-muted-foreground">{job.output_id.slice(0, 12)}…</span>
+                  <Badge variant="outline" className="text-[9px] h-4">{job.reason.replace(/_/g, ' ')}</Badge>
+                  <span className="text-[9px] text-muted-foreground/60 ml-auto">
+                    {new Date(job.created_at).toLocaleDateString()}
+                  </span>
+                  {job.status === 'queued' && (
+                    <Button
+                      size="icon" variant="ghost" className="h-5 w-5"
+                      onClick={() => cancelRegenMutation.mutate(job.id)}
+                      disabled={cancelRegenMutation.isPending}
+                      title="Cancel"
+                    >
+                      <XCircle className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-4">No regen jobs yet.</p>
+          )}
+        </div>
+      )}
+
         <div className="border-t border-border/30 pt-4 space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
           <div className="rounded-lg border border-border/30 bg-muted/5 p-3 space-y-1.5">
