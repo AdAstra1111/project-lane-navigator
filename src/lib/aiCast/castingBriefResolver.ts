@@ -1667,5 +1667,8 @@ export const _testHelpers = {
   composeActorCriteriaHighlights,
   inferEthnicityFromCanonContext,
   derivePlayingAge,
-  generateActorPlaceholderName,
+  formatActorRosterNumber,
+  generateSyntheticActorName,
+  composeActorRosterName,
+  allocateNextRosterNumber,
 };
