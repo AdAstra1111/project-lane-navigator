@@ -460,7 +460,7 @@ export default function ProjectCasting() {
           ) : healthData ? (
             <CastHealthPanel data={healthData} actors={actors} projectId={projectId!} onRebind={(charKey, actorId) =>
               rebindMutation.mutate({ characterKey: charKey, nextActorId: actorId, reason: 'Governance rebind' })
-            } />
+            } onQueueRegen={(charKey) => queueAllRegenMutation.mutate({ characterKey: charKey })} />
           ) : (
             <p className="text-xs text-muted-foreground">No health data available.</p>
           )}
