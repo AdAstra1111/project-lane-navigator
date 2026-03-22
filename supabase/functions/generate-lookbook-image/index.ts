@@ -1188,6 +1188,34 @@ serve(async (req) => {
       ].join('\n');
     }
 
+    // ── COMPOSITION RULE: Resolve for current section/slide ──
+    const COMPOSITION_RULE_MAP: Record<string, { balance: string; subject_scale: string; density: string; horizon: string; headroom: string; negative_space: string }> = {
+      characters:  { balance: 'Rule-of-thirds — subject at power points', subject_scale: 'Dominant — fills 40-70% of frame', density: 'Balanced', horizon: 'Mid', headroom: 'Tight — minimal space above subject', negative_space: 'Low' },
+      world:       { balance: 'Environment-weighted — space dominates', subject_scale: 'Small in frame — under 20%', density: 'Balanced', horizon: 'Low — sky/ceiling dominant', headroom: 'Airy — generous overhead', negative_space: 'High — significant empty space' },
+      key_moments: { balance: 'Rule-of-thirds — dynamic staging', subject_scale: 'Balanced — 20-40% of frame', density: 'Balanced', horizon: 'Mid', headroom: 'Balanced', negative_space: 'Medium' },
+      story_engine:{ balance: 'Rule-of-thirds — relational tension', subject_scale: 'Balanced', density: 'Balanced', horizon: 'Mid', headroom: 'Balanced', negative_space: 'Medium' },
+      visual_language: { balance: 'Centered — formal, anchored', subject_scale: 'Dominant — fills frame', density: 'Dense — rich detail, layered textures', horizon: 'Mid', headroom: 'Tight', negative_space: 'Low' },
+      themes:      { balance: 'Environment-weighted — atmosphere dominates', subject_scale: 'Small in frame', density: 'Minimal — clean negative space', horizon: 'Low', headroom: 'Airy', negative_space: 'High' },
+      cover:       { balance: 'Centered — iconic, intentional', subject_scale: 'Dominant', density: 'Balanced', horizon: 'Mid', headroom: 'Balanced', negative_space: 'Medium' },
+      closing:     { balance: 'Symmetrical — formal bookend', subject_scale: 'Small in frame', density: 'Minimal', horizon: 'Low', headroom: 'Airy', negative_space: 'High' },
+      poster_directions: { balance: 'Centered — key art iconic', subject_scale: 'Dominant', density: 'Balanced', horizon: 'Mid', headroom: 'Tight', negative_space: 'Medium' },
+    };
+    const resolvedCompositionRule = COMPOSITION_RULE_MAP[slideType] || COMPOSITION_RULE_MAP[section] || null;
+    let compositionRulePromptBlock = '';
+    let compositionRuleHash = '';
+    if (resolvedCompositionRule) {
+      compositionRulePromptBlock = [
+        '[COMPOSITION RULE — CINEMATIC FRAMING DIRECTIVE]',
+        `Balance: ${resolvedCompositionRule.balance}`,
+        `Subject Scale: ${resolvedCompositionRule.subject_scale}`,
+        `Visual Density: ${resolvedCompositionRule.density}`,
+        `Horizon: ${resolvedCompositionRule.horizon}`,
+        `Headroom: ${resolvedCompositionRule.headroom}`,
+        `Negative Space: ${resolvedCompositionRule.negative_space}`,
+      ].join('\n');
+      compositionRuleHash = [resolvedCompositionRule.balance, resolvedCompositionRule.subject_scale, resolvedCompositionRule.density].join('|');
+    }
+
     // Load project context — includes default_prestige_style for style precedence
     const { data: project } = await supabase
       .from("projects")
