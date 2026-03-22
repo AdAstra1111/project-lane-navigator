@@ -106,6 +106,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showImpact,
   });
 
+  // Cast Health governance (lazy)
+  const { data: healthData, isLoading: healthLoading, refetch: refetchHealth } = useQuery({
+    queryKey: ['cast-health', projectId],
+    queryFn: () => evaluateProjectCastHealth(projectId!),
+    enabled: !!projectId && showHealth,
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
