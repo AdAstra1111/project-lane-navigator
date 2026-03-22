@@ -64,6 +64,11 @@ import {
 import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
 import { buildProjectCastRecommendations, type ProjectCastRecommendationResult, type CharacterRecommendationResult, type ActorRecommendation } from '@/lib/aiCast/castRecommendationEngine';
 import { getRosterActorsForCasting, type ActorIntelligenceProfile } from '@/lib/aiCast/actorIntelligence';
+import { bindActorToProjectCharacter } from '@/lib/aiCast/projectCastBindings';
+import {
+  buildProjectCastPack, applyProjectCastPack,
+  type ProjectCastPack, type CastPackCharacterChoice, type ApplyCastPackResult,
+} from '@/lib/aiCast/castPackEngine';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -94,6 +99,9 @@ export default function ProjectCasting() {
   const [showRegenPolicy, setShowRegenPolicy] = useState(false);
   const [showCastLibrary, setShowCastLibrary] = useState<string | null>(null); // character key to cast
   const [showRecommendations, setShowRecommendations] = useState(false);
+  const [showCastPack, setShowCastPack] = useState(false);
+  const [castPack, setCastPack] = useState<ProjectCastPack | null>(null);
+  const [packSelections, setPackSelections] = useState<Record<string, string | null>>({});
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -280,22 +288,49 @@ export default function ProjectCasting() {
 
   const addMapping = useMutation({
     mutationFn: async (params: { character_key: string; ai_actor_id: string; ai_actor_version_id?: string }) => {
-      const actor = actors.find((a: any) => a.id === params.ai_actor_id);
-      const approvedVersionId = (actor as any)?.approved_version_id || params.ai_actor_version_id || null;
-      if (!(actor as any)?.roster_ready || !approvedVersionId) {
-        throw new Error('Only roster-ready actors with an approved version can be cast');
-      }
-      const { error } = await supabase
-        .from('project_ai_cast' as any)
-        .upsert({
-          project_id: projectId,
-          character_key: params.character_key,
-          ai_actor_id: params.ai_actor_id,
-          ai_actor_version_id: approvedVersionId,
-        } as any, { onConflict: 'project_id,character_key' });
-      if (error) throw error;
+      return bindActorToProjectCharacter(
+        { projectId: projectId!, characterKey: params.character_key, actorId: params.ai_actor_id, actorVersionId: params.ai_actor_version_id },
+        actors,
+      );
     },
     onSuccess: () => { toast.success('Cast mapping saved'); invalidateAll(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Cast Pack mutations (Phase 16.8)
+  const generatePackMutation = useMutation({
+    mutationFn: () => buildProjectCastPack(projectId!),
+    onSuccess: (pack) => {
+      setCastPack(pack);
+      const selections: Record<string, string | null> = {};
+      for (const c of pack.characters) {
+        selections[c.character_key] = c.selected_actor_id;
+      }
+      setPackSelections(selections);
+      setShowCastPack(true);
+      toast.success(`Cast pack generated: ${pack.characters.length} character(s)`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const applyPackMutation = useMutation({
+    mutationFn: (overwrite: boolean) => {
+      const selections = Object.entries(packSelections).map(([character_key, actor_id]) => ({
+        character_key,
+        actor_id,
+      }));
+      return applyProjectCastPack(projectId!, selections, { overwriteExisting: overwrite });
+    },
+    onSuccess: (result: ApplyCastPackResult) => {
+      if (result.applied === 0 && result.skipped_existing > 0) {
+        toast.info(`All ${result.skipped_existing} character(s) already bound — use "Apply & Replace" to overwrite`);
+      } else if (result.applied === 0) {
+        toast.info('No eligible selections to apply');
+      } else {
+        toast.success(`Applied ${result.applied} binding(s)${result.skipped_existing > 0 ? `, skipped ${result.skipped_existing} existing` : ''}${result.skipped_invalid > 0 ? `, ${result.skipped_invalid} invalid` : ''}`);
+      }
+      invalidateAll();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -434,6 +469,20 @@ export default function ProjectCasting() {
             onClick={() => { setShowRecommendations(!showRecommendations); if (!showRecommendations) refetchRecommendations(); }}
           >
             <Zap className="h-3.5 w-3.5" /> {showRecommendations ? 'Hide' : ''} Recommend Cast
+           </Button>
+          <Button
+            variant={showCastPack ? 'default' : 'outline'} size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => {
+              if (!showCastPack && !castPack) {
+                generatePackMutation.mutate();
+              } else {
+                setShowCastPack(!showCastPack);
+              }
+            }}
+            disabled={generatePackMutation.isPending}
+          >
+            {generatePackMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
+            {showCastPack ? 'Hide' : ''} Cast Pack
           </Button>
           <Link to="/ai-cast">
             <Button variant="default" size="sm" className="h-8 text-xs gap-1.5">
@@ -900,6 +949,140 @@ export default function ProjectCasting() {
               })}
             </div>
           )}
+        </div>
+      )}
+      {/* Cast Pack Panel (Phase 16.8) */}
+      {showCastPack && castPack && (
+        <div className="space-y-3 rounded-lg border border-primary/30 bg-card/20 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" /> Cast Pack
+            </h3>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => generatePackMutation.mutate()} disabled={generatePackMutation.isPending}>
+                <RefreshCw className="h-3 w-3 mr-1" /> Regenerate
+              </Button>
+            </div>
+          </div>
+          {/* Summary bar */}
+          {(() => {
+            const total = castPack.characters.length;
+            const withRecs = castPack.characters.filter(c => c.recommendations.length > 0).length;
+            const selected = Object.values(packSelections).filter(Boolean).length;
+            const alreadyBound = castPack.characters.filter(c => mappedKeys.has(c.character_key)).length;
+            const wouldApply = castPack.characters.filter(c => packSelections[c.character_key] && !mappedKeys.has(c.character_key)).length;
+            const wouldSkip = castPack.characters.filter(c => packSelections[c.character_key] && mappedKeys.has(c.character_key)).length;
+            return (
+              <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground bg-muted/10 rounded-md px-3 py-2">
+                <span>{total} characters</span>
+                <span className="text-foreground">{withRecs} with recs</span>
+                <span className="text-primary">{selected} selected</span>
+                <span className="text-emerald-500">{alreadyBound} bound</span>
+                <span className="text-sky-400">{wouldApply} would apply</span>
+                {wouldSkip > 0 && <span className="text-amber-400">{wouldSkip} would skip (existing)</span>}
+              </div>
+            );
+          })()}
+          {/* Per-character rows */}
+          <div className="space-y-2">
+            {castPack.characters.map(charChoice => {
+              const isBound = mappedKeys.has(charChoice.character_key);
+              const currentBinding = (mappings || []).find(m => m.character_key === charChoice.character_key);
+              const currentActor = currentBinding ? actors.find((a: any) => a.id === currentBinding.ai_actor_id) : null;
+              const selectedActorId = packSelections[charChoice.character_key];
+
+              return (
+                <div key={charChoice.character_key} className="rounded-md border border-border/30 bg-card/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{charChoice.character_key}</span>
+                      {isBound && currentActor && (
+                        <Badge variant="outline" className="text-[8px] h-4 text-emerald-500 border-emerald-500/30">
+                          Bound: {currentActor.name}
+                        </Badge>
+                      )}
+                      {!isBound && (
+                        <Badge variant="outline" className="text-[8px] h-4 text-muted-foreground border-border">
+                          Unbound
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  {charChoice.recommendations.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground">No matching actors available.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {charChoice.recommendations.map((rec) => {
+                        const isSelected = selectedActorId === rec.actor_id;
+                        return (
+                          <button
+                            key={rec.actor_id}
+                            onClick={() => {
+                              setPackSelections(prev => ({
+                                ...prev,
+                                [charChoice.character_key]: isSelected ? null : rec.actor_id,
+                              }));
+                            }}
+                            className={cn(
+                              'w-full flex items-center gap-3 p-2 rounded-md border text-left transition-colors',
+                              isSelected
+                                ? 'border-primary/50 bg-primary/5'
+                                : 'border-border/20 bg-muted/5 hover:bg-muted/10'
+                            )}
+                          >
+                            <div className={cn(
+                              'w-3.5 h-3.5 rounded-full border-2 shrink-0 flex items-center justify-center',
+                              isSelected ? 'border-primary' : 'border-muted-foreground/30'
+                            )}>
+                              {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-foreground truncate">{rec.actor_name}</span>
+                                <Badge variant="outline" className={cn('text-[8px] h-4', {
+                                  'text-amber-400 border-amber-400/30': rec.reusability_tier === 'signature',
+                                  'text-emerald-400 border-emerald-400/30': rec.reusability_tier === 'reliable',
+                                  'text-sky-400 border-sky-400/30': rec.reusability_tier === 'emerging',
+                                  'text-muted-foreground border-border': rec.reusability_tier === 'unvalidated',
+                                })}>
+                                  {rec.reusability_tier}
+                                </Badge>
+                                <span className="text-[10px] font-mono text-primary">{rec.match_score}pts</span>
+                              </div>
+                              <div className="text-[9px] text-muted-foreground/70 mt-0.5 truncate">
+                                {rec.match_reasons.join(' · ')}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Apply CTAs */}
+          <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+            <Button
+              size="sm" className="h-8 text-xs gap-1.5"
+              onClick={() => applyPackMutation.mutate(false)}
+              disabled={applyPackMutation.isPending || Object.values(packSelections).filter(Boolean).length === 0}
+            >
+              {applyPackMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              Apply Unbound Only
+            </Button>
+            <Button
+              size="sm" variant="outline" className="h-8 text-xs gap-1.5"
+              onClick={() => applyPackMutation.mutate(true)}
+              disabled={applyPackMutation.isPending || Object.values(packSelections).filter(Boolean).length === 0}
+            >
+              Apply & Replace Existing
+            </Button>
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              {Object.values(packSelections).filter(Boolean).length} selected
+            </span>
+          </div>
         </div>
       )}
       {/* Cast from Library Dialog */}
