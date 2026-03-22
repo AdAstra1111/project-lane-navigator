@@ -12,6 +12,13 @@
  * - Provides query helpers for reading persisted truth
  * 
  * NO promotion logic or state mutation happens here.
+ * 
+ * IMPORTANT: The client-side evaluateActorPromotionEligibility function
+ * is a UI-PREVIEW ONLY. It reads DB state to show eligibility status in
+ * the UI without requiring an edge function call. The AUTHORITATIVE
+ * evaluation happens inside the apply-actor-promotion edge function.
+ * Both implementations follow the same rules but only the edge function
+ * can authorize mutations.
  */
 import { supabase } from '@/integrations/supabase/client';
 

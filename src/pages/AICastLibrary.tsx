@@ -230,7 +230,7 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
               <Crown className="h-2.5 w-2.5" /> Roster
             </Badge>
           )}
-          {!rosterReady && promotionStatus && promotionStatus !== 'none' && (
+          {!rosterReady && promotionStatus && !['none', 'rejected', 'override_rejected'].includes(promotionStatus) && (
             <PromotionStatusChip status={promotionStatus} />
           )}
           <span className="text-[10px] text-muted-foreground">{actor.ai_actor_versions?.length || 0} ver.</span>
