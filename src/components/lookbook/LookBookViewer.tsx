@@ -99,6 +99,30 @@ function FitStatusIcon({ status }: { status: OverrideFitStatus }) {
   return <XCircle className="h-3 w-3 text-destructive" />;
 }
 
+// ── Composition Rule Diagnostic (Phase 16.6) ────────────────────────────────
+
+function CompositionRuleDiagnostic({ slideType }: { slideType: string }) {
+  const rule = resolveCompositionRuleForLookbookSlot(slideType);
+  const entries = [
+    ['Balance', rule.balance],
+    ['Subject', rule.subject_scale],
+    ['Density', rule.visual_density],
+    ['Horizon', rule.horizon_bias || '—'],
+    ['Headroom', rule.headroom_bias || '—'],
+    ['Neg. Space', rule.negative_space_bias || '—'],
+  ];
+  return (
+    <div className="space-y-0.5">
+      {entries.map(([label, value]) => (
+        <div key={label} className="flex items-center justify-between text-[9px]">
+          <span className="text-muted-foreground">{label}</span>
+          <span className="font-mono text-foreground">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Layout Inspector Panel ──────────────────────────────────────────────────
 
 function SlideLayoutPanel({
