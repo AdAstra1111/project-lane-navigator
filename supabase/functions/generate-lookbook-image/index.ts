@@ -1503,6 +1503,11 @@ FRAMING RULES:
         prompt += `\n\n${shotIntentPromptBlock}`;
       }
 
+      // Step 8e: COMPOSITION RULE — cinematic framing directive
+      if (compositionRulePromptBlock && !isIdentityGeneration && !promptOverrideUsed) {
+        prompt += `\n\n${compositionRulePromptBlock}`;
+      }
+
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
