@@ -7,7 +7,8 @@ import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
-  RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle
+  RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle,
+  Play, PlayCircle, RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +36,7 @@ import {
 } from '@/lib/aiCast/castGovernance';
 import {
   queueCastRegenJobs, listCastRegenJobs, cancelCastRegenJob,
+  processCastRegenJobs, retryCastRegenJob,
   type CastRegenJob,
 } from '@/lib/aiCast/castRegenJobs';
 
@@ -147,6 +149,36 @@ export default function ProjectCasting() {
   const cancelRegenMutation = useMutation({
     mutationFn: cancelCastRegenJob,
     onSuccess: () => { toast.success('Job cancelled'); refetchRegenJobs(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Process regen jobs mutation
+  const processRegenMutation = useMutation({
+    mutationFn: (limit: number) => processCastRegenJobs(limit),
+    onSuccess: (result) => {
+      if (result.processed === 0) {
+        toast.info('No queued jobs to process');
+      } else {
+        const failed = result.results.filter(r => r.result === 'failed').length;
+        const completed = result.results.filter(r => r.result === 'completed' || r.result === 'skipped').length;
+        toast.success(`Processed ${result.processed} job(s): ${completed} completed${failed > 0 ? `, ${failed} failed` : ''}`);
+      }
+      refetchRegenJobs();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Retry failed job mutation
+  const retryRegenMutation = useMutation({
+    mutationFn: retryCastRegenJob,
+    onSuccess: (result) => {
+      if (result.skipped) {
+        toast.info('Retry skipped — job already queued');
+      } else {
+        toast.success('Retry job queued');
+      }
+      refetchRegenJobs();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -470,27 +502,57 @@ export default function ProjectCasting() {
       {/* Regen Jobs Panel */}
       {showRegenJobs && (
         <div className="border-t border-border/30 pt-4 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               <ListChecks className="h-3.5 w-3.5" /> Cast Regen Jobs
             </h3>
-            <Button
-              size="sm" variant="outline"
-              className="h-7 text-[10px] gap-1"
-              onClick={() => queueAllRegenMutation.mutate({})}
-              disabled={queueAllRegenMutation.isPending}
-            >
-              {queueAllRegenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-              Queue All Regen Jobs
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="sm" variant="outline"
+                className="h-7 text-[10px] gap-1"
+                onClick={() => processRegenMutation.mutate(1)}
+                disabled={processRegenMutation.isPending}
+                title="Process one queued job"
+              >
+                {processRegenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Process 1
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                className="h-7 text-[10px] gap-1"
+                onClick={() => processRegenMutation.mutate(5)}
+                disabled={processRegenMutation.isPending}
+                title="Process up to 5 queued jobs"
+              >
+                {processRegenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <PlayCircle className="h-3 w-3" />}
+                Process 5
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                className="h-7 text-[10px] gap-1"
+                onClick={() => queueAllRegenMutation.mutate({})}
+                disabled={queueAllRegenMutation.isPending}
+              >
+                {queueAllRegenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                Queue All
+              </Button>
+              <Button
+                size="sm" variant="ghost"
+                className="h-7 text-[10px] gap-1"
+                onClick={() => refetchRegenJobs()}
+                title="Refresh"
+              >
+                <RefreshCw className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
           {regenJobsLoading ? (
             <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
           ) : (regenJobs || []).length > 0 ? (
             <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
               {(regenJobs || []).map(job => (
-                <div key={job.id} className="flex items-center gap-3 px-3 py-2">
-                  <RegenJobStatusBadge status={job.status} />
+                <div key={job.id} className="flex items-center gap-2 px-3 py-2 flex-wrap">
+                  <RegenJobStatusBadge status={job.status} errorMessage={job.error_message} />
                   <span className="text-[10px] font-medium text-foreground w-24 truncate">{job.character_key}</span>
                   <span className="text-[9px] font-mono text-muted-foreground">{job.output_id.slice(0, 12)}…</span>
                   <Badge variant="outline" className="text-[9px] h-4">{job.reason.replace(/_/g, ' ')}</Badge>
@@ -506,6 +568,21 @@ export default function ProjectCasting() {
                     >
                       <XCircle className="h-3 w-3 text-muted-foreground" />
                     </Button>
+                  )}
+                  {job.status === 'failed' && (
+                    <Button
+                      size="icon" variant="ghost" className="h-5 w-5"
+                      onClick={() => retryRegenMutation.mutate(job.id)}
+                      disabled={retryRegenMutation.isPending}
+                      title="Retry"
+                    >
+                      <RotateCcw className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                  {job.error_message && job.status === 'failed' && (
+                    <p className="w-full text-[9px] text-destructive pl-6 truncate" title={job.error_message}>
+                      {job.error_message}
+                    </p>
                   )}
                 </div>
               ))}
@@ -1027,11 +1104,15 @@ const REGEN_STATUS_CONFIG: Record<string, { label: string; className: string }> 
   cancelled: { label: 'Cancelled', className: 'bg-muted text-muted-foreground/60 border-border/50' },
 };
 
-function RegenJobStatusBadge({ status }: { status: string }) {
-  const config = REGEN_STATUS_CONFIG[status] || REGEN_STATUS_CONFIG.queued;
+function RegenJobStatusBadge({ status, errorMessage }: { status: string; errorMessage?: string | null }) {
+  // Show "No Changes Needed" for completed jobs that were idempotent skips
+  const isNoOp = status === 'completed' && errorMessage === 'no_cast_binding';
+  const displayStatus = isNoOp ? 'completed' : status;
+  const config = REGEN_STATUS_CONFIG[displayStatus] || REGEN_STATUS_CONFIG.queued;
+  const label = isNoOp ? 'No Change' : config.label;
   return (
     <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', config.className)}>
-      {config.label}
+      {label}
     </span>
   );
 }
