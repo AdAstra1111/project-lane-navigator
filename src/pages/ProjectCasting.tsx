@@ -429,6 +429,12 @@ export default function ProjectCasting() {
           >
             <Activity className="h-3.5 w-3.5" /> {showImpact ? 'Hide' : 'View'} Impact
           </Button>
+          <Button
+            variant={showRecommendations ? 'default' : 'outline'} size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowRecommendations(!showRecommendations); if (!showRecommendations) refetchRecommendations(); }}
+          >
+            <Zap className="h-3.5 w-3.5" /> {showRecommendations ? 'Hide' : ''} Recommend Cast
+          </Button>
           <Link to="/ai-cast">
             <Button variant="default" size="sm" className="h-8 text-xs gap-1.5">
               <ExternalLink className="h-3.5 w-3.5" /> AI Actors Agency
