@@ -52,6 +52,8 @@ export interface CastingBrief {
   suggested_actor_name: string;
   actor_description: string;
   actor_tags: string[];
+  /** Phase 17.6: Curated phrase-level highlights for modal chip display */
+  actor_criteria_highlights: string[];
 }
 
 export interface CharacterCastingBriefResult {
