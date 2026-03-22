@@ -2461,7 +2461,7 @@ function InlineCreateActorDialog({
                   className="text-xs min-h-[80px]"
                 />
                 <p className="text-[9px] text-muted-foreground/60">
-                  Describe the performer's visual appearance only. Story details are excluded automatically.
+                  Describe physical appearance, build, and presence only. Do not include story, personality, or plot details — these belong in Character Context above.
                 </p>
               </div>
 
