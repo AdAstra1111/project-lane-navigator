@@ -269,7 +269,210 @@ const DNA_PRESENCE_CATEGORIES = new Set([
   'posture', 'energy', 'presence', 'vibe', 'bearing', 'gait',
 ]);
 
-// ── Core Function ────────────────────────────────────────────────────────────
+// ── Document-Aware Enrichment Helpers ────────────────────────────────────────
+// Reads project_documents + project_document_versions for appearance-safe signals.
+// Character Bible > character_profile > treatment > scripts > world_bible.
+
+/** Doc types ranked by priority for character appearance enrichment */
+const DOC_TYPE_PRIORITY_FOR_APPEARANCE: string[] = [
+  'character_bible',
+  'character_profile',
+  'treatment',
+  'story_outline',
+  'feature_script',
+  'episode_script',
+  'screenplay_draft',
+  'season_script',
+];
+
+const DOC_TYPE_STYLING_ONLY: string[] = [
+  'world_bible',
+  'series_bible',
+  'story_bible',
+];
+
+/**
+ * Appearance-safe extraction patterns.
+ * Each regex targets a visual descriptor class; matched content is a candidate signal.
+ */
+const APPEARANCE_EXTRACTION_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'age', pattern: /\b(?:early|mid|late)\s*(?:teens|twenties|thirties|forties|fifties|sixties|seventies|eighties)\b/gi },
+  { label: 'age', pattern: /\b(?:\d{1,2}[\s-]*(?:year[\s-]*old|years[\s-]*old|yo))\b/gi },
+  { label: 'hair', pattern: /\b(?:(?:dark|light|blonde?|auburn|red|black|white|grey|gray|silver|brown|chestnut|raven|platinum|copper|golden|jet[\s-]*black)\s+hair\w*)\b/gi },
+  { label: 'hair', pattern: /\b(?:hair\s+(?:is|was)\s+\w+(?:\s+\w+)?)\b/gi },
+  { label: 'hair', pattern: /\b(?:cropped|shaved|braided|curly|wavy|straight|long|short)\s+hair\b/gi },
+  { label: 'eyes', pattern: /\b(?:(?:dark|light|blue|green|brown|hazel|grey|gray|amber|black|bright|piercing|deep[\s-]*set|almond[\s-]*shaped|wide[\s-]*set|narrow|hooded)\s+eyes?)\b/gi },
+  { label: 'build', pattern: /\b(?:(?:slender|lean|stocky|muscular|athletic|petite|tall|short|heavyset|wiry|compact|broad[\s-]*shouldered|lithe|thin|slight|imposing|statuesque)\s+(?:build|frame|figure|physique|stature)?)\b/gi },
+  { label: 'skin', pattern: /\b(?:(?:dark|light|olive|pale|fair|tanned|sun[\s-]*kissed|brown|ebony|ivory|porcelain|weathered|freckled)\s+(?:skin|complexion|tone)?)\b/gi },
+  { label: 'face', pattern: /\b(?:(?:angular|round|oval|square|heart[\s-]*shaped|chiseled|gaunt|broad|high|sharp|prominent|delicate|soft)\s+(?:face|jaw|cheekbones?|features?|chin|brow|forehead)?)\b/gi },
+  { label: 'height', pattern: /\b(?:(?:tall|short|petite|statuesque|towering|diminutive)\s*(?:woman|man|person|figure|frame)?)\b/gi },
+  { label: 'scar', pattern: /\b(?:scar\w*(?:\s+(?:across|on|over|down)\s+\w+(?:\s+\w+)?)?)\b/gi },
+  { label: 'tattoo', pattern: /\btattoo\w*\b/gi },
+  { label: 'clothing', pattern: /\b(?:wears?|dressed\s+in|wearing|clad\s+in)\s+[\w\s,]+(?:dress|suit|uniform|coat|kimono|gown|robe|tunic|armor|cloak|vest|jacket|shirt)\b/gi },
+];
+
+/** Styling-only patterns for world-bible enrichment */
+const STYLING_EXTRACTION_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
+  { label: 'period', pattern: /\b(?:Victorian|Edwardian|Regency|Georgian|Medieval|Renaissance|Art[\s-]*Deco|Art[\s-]*Nouveau|Meiji|Edo|Taisho|1920s|1930s|1940s|1950s|1960s|1970s|1980s)\b/gi },
+  { label: 'material', pattern: /\b(?:silk|linen|cotton|wool|leather|velvet|satin|lace|brocade|tweed|denim|fur|muslin)\b/gi },
+  { label: 'class', pattern: /\b(?:aristocrat\w*|working[\s-]*class|upper[\s-]*class|nobility|peasant|bourgeois|royal|courtly|servant|elite)\b/gi },
+];
+
+interface DocumentCandidate {
+  doc_type: string;
+  plaintext: string;
+}
+
+/**
+ * Load project document plaintext candidates for a project, ordered by appearance-enrichment priority.
+ * Returns the latest/current version plaintext for each relevant doc type.
+ */
+async function loadCharacterDocumentCandidates(
+  projectId: string,
+  docTypes: string[],
+): Promise<DocumentCandidate[]> {
+  // Fetch docs of relevant types
+  const { data: docs } = await supabase
+    .from('project_documents')
+    .select('id, doc_type, plaintext, extracted_text')
+    .eq('project_id', projectId)
+    .in('doc_type', docTypes);
+
+  if (!docs || docs.length === 0) return [];
+
+  const candidates: DocumentCandidate[] = [];
+  const docIds = docs.map(d => d.id);
+
+  // Fetch current/latest version plaintext for these docs
+  const { data: versions } = await (supabase as any)
+    .from('project_document_versions')
+    .select('document_id, plaintext, is_current, version_number')
+    .in('document_id', docIds)
+    .order('version_number', { ascending: false });
+
+  // Build map: doc_id → best plaintext
+  const versionMap: Record<string, string> = {};
+  for (const v of versions || []) {
+    // Prefer current version, otherwise latest
+    if (!versionMap[v.document_id] || v.is_current) {
+      if (v.plaintext && v.plaintext.trim().length > 20) {
+        versionMap[v.document_id] = v.plaintext;
+      }
+    }
+  }
+
+  for (const doc of docs) {
+    const text = versionMap[doc.id] || doc.plaintext || doc.extracted_text || '';
+    if (text.trim().length < 20) continue;
+    candidates.push({ doc_type: doc.doc_type, plaintext: text });
+  }
+
+  // Sort by priority
+  candidates.sort((a, b) => {
+    const allTypes = [...docTypes];
+    return allTypes.indexOf(a.doc_type) - allTypes.indexOf(b.doc_type);
+  });
+
+  return candidates;
+}
+
+/**
+ * Extract character-specific paragraphs/lines from document plaintext.
+ * Returns only passages that mention the character name.
+ */
+function extractCharacterPassages(text: string, displayName: string, characterKey: string): string[] {
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 15);
+  const namePatterns = [
+    new RegExp(`\\b${escapeRegex(displayName)}\\b`, 'i'),
+    new RegExp(`\\b${escapeRegex(characterKey)}\\b`, 'i'),
+  ];
+
+  // Find lines mentioning the character
+  const matches = lines.filter(line =>
+    namePatterns.some(pat => pat.test(line))
+  );
+
+  // Prioritize early introduction-style passages (first 30% of doc)
+  const earlyThreshold = Math.floor(lines.length * 0.3);
+  const earlyMatches = matches.filter(m => {
+    const idx = lines.indexOf(m);
+    return idx >= 0 && idx < earlyThreshold;
+  });
+
+  // Return early matches first, then rest, limited
+  const ordered = [...earlyMatches, ...matches.filter(m => !earlyMatches.includes(m))];
+  return ordered.slice(0, 15);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Extract appearance-safe visual signals from character-relevant passages.
+ * Returns only signals that pass through visual allowlists and plot sanitization.
+ */
+function extractAppearanceSignalsFromPassages(passages: string[]): {
+  visualMarkers: string[];
+  ageSignals: string[];
+  stylingSignals: string[];
+  presenceSignals: string[];
+} {
+  const visualMarkers: string[] = [];
+  const ageSignals: string[] = [];
+  const stylingSignals: string[] = [];
+  const presenceSignals: string[] = [];
+
+  const combined = passages.join(' ');
+
+  for (const { label, pattern } of APPEARANCE_EXTRACTION_PATTERNS) {
+    const matches = combined.match(pattern) || [];
+    for (const m of matches) {
+      const cleaned = m.trim();
+      if (!cleaned || cleaned.length < 3) continue;
+      // Apply plot-language sanitizer
+      const sanitized = sanitizePlotLanguage(cleaned);
+      if (!sanitized) continue;
+
+      if (label === 'age') {
+        ageSignals.push(sanitized);
+      } else if (label === 'clothing') {
+        stylingSignals.push(sanitized);
+      } else {
+        visualMarkers.push(sanitized);
+      }
+    }
+  }
+
+  // Extract performer presence terms from passages
+  const words = combined.toLowerCase().split(/[\s,;.!?()]+/).filter(Boolean);
+  for (const w of words) {
+    if (isPerformerSafePresence(w) && !presenceSignals.includes(w)) {
+      presenceSignals.push(w);
+    }
+  }
+
+  return { visualMarkers, ageSignals, stylingSignals, presenceSignals };
+}
+
+/**
+ * Extract styling-only signals from world bible type documents.
+ */
+function extractStylingSignalsFromText(text: string): string[] {
+  const signals: string[] = [];
+  for (const { pattern } of STYLING_EXTRACTION_PATTERNS) {
+    const matches = text.match(pattern) || [];
+    for (const m of matches) {
+      const cleaned = m.trim();
+      if (cleaned && cleaned.length >= 3 && !signals.includes(cleaned.toLowerCase())) {
+        signals.push(cleaned);
+      }
+    }
+  }
+  return signals;
+}
+
+
 
 export async function buildCharacterCastingBrief(
   projectId: string,
