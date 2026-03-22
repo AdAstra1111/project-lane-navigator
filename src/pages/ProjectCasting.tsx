@@ -676,21 +676,21 @@ export default function ProjectCasting() {
                   className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium text-foreground">{pb.character_key}</span>
                       <span className="text-muted-foreground text-[10px]">→</span>
                       <span className="text-xs text-primary font-medium">
-                        {actor?.name || pb.actor_id.slice(0, 8)}
+                        {resolveActorDisplayName(actor, { characterKey: pb.character_key })}
                       </span>
-                      {isBindable ? (
-                        <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
-                          Ready to Bind
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[9px] h-4 border-amber-500/40 text-amber-700 bg-amber-500/10">
-                          Pending Validation
-                        </Badge>
-                      )}
+                      {(() => {
+                        const pipelineState = resolveActorPipelineState(actor as any, pb.status);
+                        const stateStyle = getPipelineStateStyle(pipelineState);
+                        return (
+                          <Badge variant="outline" className={`text-[9px] h-4 ${stateStyle.border} ${stateStyle.text} ${stateStyle.bg}`}>
+                            {getPipelineStateLabel(pipelineState)}
+                          </Badge>
+                        );
+                      })()}
                       {alreadyBound && (
                         <Badge variant="outline" className="text-[9px] h-4 border-muted-foreground/30 text-muted-foreground">
                           Character Already Bound
