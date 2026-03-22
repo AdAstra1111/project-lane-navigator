@@ -161,6 +161,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showContinuity,
   });
 
+  // Scene integrity (lazy)
+  const { data: sceneIntegrityData, isLoading: sceneIntegrityLoading, refetch: refetchSceneIntegrity } = useQuery({
+    queryKey: ['scene-integrity', projectId],
+    queryFn: () => evaluateProjectSceneConsistency(projectId!),
+    enabled: !!projectId && showSceneIntegrity,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
