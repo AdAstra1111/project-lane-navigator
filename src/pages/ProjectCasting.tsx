@@ -62,6 +62,11 @@ import {
   type RegenPolicyItem,
 } from '@/lib/aiCast/regenPolicyEngine';
 import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
+import { getRosterActorsForCasting, type ActorIntelligenceProfile } from '@/lib/aiCast/actorIntelligence';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
 
 interface CastMapping {
   id: string;
@@ -86,6 +91,7 @@ export default function ProjectCasting() {
   const [showContinuity, setShowContinuity] = useState(false);
   const [showSceneIntegrity, setShowSceneIntegrity] = useState(false);
   const [showRegenPolicy, setShowRegenPolicy] = useState(false);
+  const [showCastLibrary, setShowCastLibrary] = useState<string | null>(null); // character key to cast
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -533,15 +539,24 @@ export default function ProjectCasting() {
             {unmappedCharacters.map(charKey => {
               const resolvedIdentity = identityMap?.[normalizeCharacterKey(charKey)];
               return (
-                <CastCharacterRow
-                  key={charKey}
-                  characterKey={charKey}
-                  actors={actors}
-                  resolvedIdentity={resolvedIdentity || null}
-                  onCast={(actorId, versionId) =>
-                    addMapping.mutate({ character_key: charKey, ai_actor_id: actorId, ai_actor_version_id: versionId })
-                  }
-                />
+                <div className="flex items-center gap-2">
+                  <CastCharacterRow
+                    key={charKey}
+                    characterKey={charKey}
+                    actors={actors}
+                    resolvedIdentity={resolvedIdentity || null}
+                    onCast={(actorId, versionId) =>
+                      addMapping.mutate({ character_key: charKey, ai_actor_id: actorId, ai_actor_version_id: versionId })
+                    }
+                  />
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 text-[10px] gap-1 shrink-0"
+                    onClick={() => setShowCastLibrary(charKey)}
+                  >
+                    <Users className="h-3 w-3" /> Library
+                  </Button>
+                </div>
               );
             })}
           </div>
@@ -789,6 +804,17 @@ export default function ProjectCasting() {
           </div>
         </div>
       )}
+      {/* Cast from Library Dialog */}
+      <CastFromLibraryDialog
+        characterKey={showCastLibrary}
+        onClose={() => setShowCastLibrary(null)}
+        onSelect={(actorId) => {
+          if (showCastLibrary) {
+            addMapping.mutate({ character_key: showCastLibrary, ai_actor_id: actorId });
+            setShowCastLibrary(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -1726,5 +1752,89 @@ function RegenPolicyPanel({
         ))}
       </div>
     </div>
+  );
+}
+
+// ── Cast from Library Dialog ────────────────────────────────────────────────
+
+function CastFromLibraryDialog({
+  characterKey,
+  onClose,
+  onSelect,
+}: {
+  characterKey: string | null;
+  onClose: () => void;
+  onSelect: (actorId: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const { data: rosterActors, isLoading } = useQuery({
+    queryKey: ['roster-actors-for-casting'],
+    queryFn: getRosterActorsForCasting,
+    enabled: !!characterKey,
+  });
+
+  const filtered = useMemo(() => {
+    if (!rosterActors) return [];
+    if (!search) return rosterActors;
+    const q = search.toLowerCase();
+    return rosterActors.filter(a =>
+      a.actor_name.toLowerCase().includes(q) ||
+      a.tags.some(t => t.toLowerCase().includes(q))
+    );
+  }, [rosterActors, search]);
+
+  const tierConfig: Record<string, { label: string; className: string }> = {
+    signature: { label: 'Signature', className: 'text-amber-400 border-amber-400/30' },
+    reliable: { label: 'Reliable', className: 'text-emerald-400 border-emerald-400/30' },
+    emerging: { label: 'Emerging', className: 'text-sky-400 border-sky-400/30' },
+    unvalidated: { label: 'Unvalidated', className: 'text-muted-foreground border-border' },
+  };
+
+  return (
+    <Dialog open={!!characterKey} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg max-h-[70vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="text-sm">
+            Cast from Library — <span className="text-primary">{characterKey}</span>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="relative">
+          <RefreshCw className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+          <Input placeholder="Search roster actors..." value={search} onChange={e => setSearch(e.target.value)} className="pl-8 h-8 text-xs" />
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
+          {isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : filtered.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6">No roster-ready actors found.</p>
+          ) : (
+            filtered.map(actor => (
+              <button
+                key={actor.actor_id}
+                onClick={() => onSelect(actor.actor_id)}
+                className="w-full flex items-center gap-3 p-2.5 rounded-lg border border-border/30 bg-card/30 hover:bg-muted/20 transition-colors text-left"
+              >
+                <div className="w-8 h-8 rounded bg-muted/10 shrink-0 overflow-hidden border border-border/20">
+                  <Users className="h-4 w-4 text-muted-foreground/30 m-auto mt-2" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-foreground truncate">{actor.actor_name}</span>
+                    <Badge variant="outline" className={cn('text-[8px] h-4', tierConfig[actor.reusability_tier]?.className)}>
+                      {tierConfig[actor.reusability_tier]?.label}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                    {actor.quality_score != null && <span>Q: {actor.quality_score}</span>}
+                    <span>{actor.project_count} project{actor.project_count !== 1 ? 's' : ''}</span>
+                    {actor.tags.length > 0 && <span className="truncate">{actor.tags.slice(0, 2).join(', ')}</span>}
+                  </div>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
