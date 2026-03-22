@@ -1948,6 +1948,25 @@ export async function buildCharacterCastingBrief(
   // Negative exclusions from project world/style
   const negativeExclusions = composeNegativePrompt(canonRow?.canon_json);
 
+  // ── Extraction sufficiency diagnostics ──────────────────────────────────
+  const hasPhysical = buckets.face.length > 0 || buckets.hair.length > 0 ||
+    buckets.eyes.length > 0 || buckets.build.length > 0 || buckets.height.length > 0 ||
+    buckets.skin.length > 0;
+
+  const extractionSufficiency: ExtractionSufficiency = {
+    has_gender: !!genderPresentation,
+    has_ethnicity: !!ethnicityHint,
+    has_age: !!ageHint,
+    has_physical_description_signals: hasPhysical,
+    has_styling_signals: buckets.styling.length > 0,
+    has_presence_signals: buckets.presence.length > 0,
+  };
+
+  const trueCount = Object.values(extractionSufficiency).filter(Boolean).length;
+  const prefillQuality: PrefillQuality = trueCount >= 4 ? 'source_rich'
+    : trueCount >= 2 ? 'source_partial'
+    : 'source_thin';
+
   const brief: CastingBrief = {
     age_hint: ageHint,
     gender_presentation: genderPresentation,
@@ -1967,6 +1986,8 @@ export async function buildCharacterCastingBrief(
     actor_description: actorDescription,
     actor_tags: actorTags,
     actor_criteria_highlights: actorCriteriaHighlights,
+    extraction_sufficiency: extractionSufficiency,
+    prefill_quality: prefillQuality,
   };
 
   // Allocate roster number and compose synthetic actor name
