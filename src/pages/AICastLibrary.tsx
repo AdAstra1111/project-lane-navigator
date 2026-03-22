@@ -666,8 +666,8 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   }
 
   const versions: AIActorVersion[] = actor.ai_actor_versions || [];
-  const identity = getIdentityStrength(versions);
-  const thumbnail = getActorThumbnail(versions);
+  const identity = getIdentityStrength(versions, (actor as any).approved_version_id);
+  const thumbnail = getActorThumbnail(versions, (actor as any).approved_version_id);
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">

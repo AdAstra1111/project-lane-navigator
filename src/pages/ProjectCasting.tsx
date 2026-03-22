@@ -371,7 +371,7 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
             <SelectTrigger className="h-7 text-xs w-[180px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
             <SelectContent>
               {activeActors.map((a: any) => {
-                const thumb = getActorThumbnail(a.ai_actor_versions);
+                const thumb = getActorThumbnail(a.ai_actor_versions, (a as any).approved_version_id);
                 return (
                   <SelectItem key={a.id} value={a.id} className="text-xs">
                     <span className="flex items-center gap-2">
