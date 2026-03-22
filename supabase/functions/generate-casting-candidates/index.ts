@@ -60,6 +60,25 @@ async function resolveCharacters(
     if (fact.object) ch.traits.push(`${fact.predicate}: ${fact.object}`);
   }
 
+  // Fallback: if no canon characters, resolve from project_images subjects
+  if (charMap.size === 0) {
+    const { data: imgSubjects } = await supabase
+      .from("project_images")
+      .select("subject")
+      .eq("project_id", projectId)
+      .eq("subject_type", "character")
+      .not("subject", "is", null);
+
+    const seen = new Set<string>();
+    for (const row of imgSubjects || []) {
+      const name = (row.subject || "").trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        charMap.set(name, { name, traits: [], dna: null });
+      }
+    }
+  }
+
   // Get visual DNA for each character
   for (const [name, info] of charMap) {
     const { data: dna } = await supabase
