@@ -1634,11 +1634,20 @@ export async function buildCharacterCastingBrief(
     styling_cues: [...new Set(buckets.styling)].slice(0, 5),
     performance_vibe: dedupedPresence.slice(0, 5),
     negative_exclusions: negativeExclusions,
-    suggested_actor_name: '', // Populated async after roster number allocation
+    suggested_actor_name: '', // set below after async allocation
     actor_description: actorDescription,
     actor_tags: actorTags,
     actor_criteria_highlights: actorCriteriaHighlights,
   };
+
+  // Allocate roster number and compose synthetic actor name
+  try {
+    const rosterNumber = await allocateNextRosterNumber();
+    brief.suggested_actor_name = composeActorRosterName(rosterNumber, ethnicityHint, genderPresentation);
+  } catch {
+    // Safe fallback if allocation fails
+    brief.suggested_actor_name = `0000 — ${generateSyntheticActorName(ethnicityHint, genderPresentation, Date.now() % 1000)}`;
+  }
 
   return { context, brief };
 }
