@@ -383,14 +383,34 @@ Deno.serve(async (req) => {
       advisory_penalty_codes: [],
     });
 
-    // 11. Mark run as pack_generated — distinct from future 'scored' status (Phase 3)
+    // 11. Mark run as pack_generated
     const finalStatus = completedCount === 0 ? "failed" : "pack_generated";
     await supabase.from("actor_validation_runs").update({
       status: finalStatus,
       pack_coverage: packCoverage,
-      completed_at: new Date().toISOString(),
+      completed_at: finalStatus === "failed" ? new Date().toISOString() : null,
       error: completedCount === 0 ? "No images generated successfully" : null,
     }).eq("id", runId);
+
+    // 12. Server-side scoring orchestration: auto-invoke scoring if pack generated
+    if (finalStatus === "pack_generated") {
+      try {
+        const scoringUrl = `${supabaseUrl}/functions/v1/score-actor-validation`;
+        const scoringResp = await fetch(scoringUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ runId }),
+        });
+        const scoringResult = await scoringResp.json();
+        console.log(`[Validation] Auto-scoring result for run ${runId}:`, scoringResult?.success ? "success" : scoringResult?.error);
+      } catch (scoringErr: any) {
+        console.error(`[Validation] Auto-scoring invocation failed for run ${runId}:`, scoringErr.message);
+        // Scoring failure does not fail the pack generation — run stays pack_generated for retry
+      }
+    }
 
     return jsonRes({
       success: true,

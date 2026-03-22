@@ -1,15 +1,13 @@
 /**
  * Edge Function: score-actor-validation
- * Phase 3 scoring engine for validation packs.
- * 
- * Computes:
- * - intra_slot_stability (variant-to-variant within each slot)
- * - cross_slot_persistence (each slot vs neutral_headshot)
- * - regeneration_stability (weighted rollup)
- * - pack_coverage_score
- * - hard fails: HF-08 (regeneration drift), HF-COV (insufficient coverage)
- * 
+ * Phase 3 scoring engine — hardened, idempotent, no silent fallbacks.
+ *
+ * Computes: intra_slot_stability, cross_slot_persistence, regeneration_stability,
+ * pack_coverage_score, hard fails (HF-08, HF-COV), promotable decision.
+ *
  * Status flow: pack_generated → scoring → scored | failed
+ * Idempotent: uses atomic status claim (WHERE status = 'pack_generated').
+ * No silent fallbacks: evaluator failures are recorded, not masked.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -26,7 +24,7 @@ function jsonRes(data: any, status = 200) {
   });
 }
 
-// ── Constants ───────────────────────────────────────────────────────────────
+// ── Constants (centralized, canonical) ──────────────────────────────────────
 
 const INTRA_SLOT_WEIGHT = 0.6;
 const CROSS_SLOT_WEIGHT = 0.4;
@@ -37,6 +35,8 @@ const HF08_SLOT_DIVERGENCE_THRESHOLD = 5;
 const HFCOV_MIN_SLOTS = 8;
 const SCORE_CAP_ON_HARD_FAIL = 59;
 const REFERENCE_SLOT = "neutral_headshot";
+const PROMOTABLE_MIN_SCORE = 75;
+const SCORING_MODEL_VERSION = "phase3-hardened-v1";
 
 const AXIS_WEIGHTS = {
   intra_slot_stability: 25,
@@ -45,16 +45,21 @@ const AXIS_WEIGHTS = {
   pack_coverage_score: 30,
 };
 
-// ── Similarity via vision model ─────────────────────────────────────────────
+// ── Similarity via vision model — NO SILENT FALLBACKS ───────────────────────
+
+interface CompareResult {
+  score: number;
+  reason: string;
+  error: string | null;
+}
 
 async function compareImages(
   imageUrlA: string,
   imageUrlB: string,
   apiKey: string,
   purpose: string,
-): Promise<number> {
-  try {
-    const prompt = `You are an identity consistency evaluator. Compare these two images of the same person and rate identity consistency on a scale of 0-10.
+): Promise<CompareResult> {
+  const prompt = `You are an identity consistency evaluator. Compare these two images of the same person and rate identity consistency on a scale of 0-10.
 
 Focus on: facial structure, nose shape, eye spacing, jawline, cheekbones, overall facial proportions, hair color/style, skin tone, body build.
 
@@ -63,47 +68,51 @@ Context: ${purpose}
 Return ONLY a JSON object: {"score": <number 0-10>, "reason": "<brief reason>"}
 Score guide: 10=identical person, 7-9=same person with natural variation, 4-6=ambiguous/uncertain, 0-3=different person.`;
 
-    const content = [
-      { type: "image_url", image_url: { url: imageUrlA } },
-      { type: "image_url", image_url: { url: imageUrlB } },
-      { type: "text", text: prompt },
-    ];
+  const content = [
+    { type: "image_url", image_url: { url: imageUrlA } },
+    { type: "image_url", image_url: { url: imageUrlB } },
+    { type: "text", text: prompt },
+  ];
 
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [{ role: "user", content }],
-        response_format: { type: "json_object" },
-      }),
-    });
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-lite",
+      messages: [{ role: "user", content }],
+      response_format: { type: "json_object" },
+    }),
+  });
 
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error(`Similarity eval failed (${resp.status}):`, errText);
-      if (resp.status === 429) throw new Error("RATE_LIMITED");
-      if (resp.status === 402) throw new Error("CREDITS_EXHAUSTED");
-      return 5; // neutral fallback
+  if (!resp.ok) {
+    const errText = await resp.text();
+    if (resp.status === 429) throw new Error("RATE_LIMITED");
+    if (resp.status === 402) throw new Error("CREDITS_EXHAUSTED");
+    return { score: -1, reason: "", error: `Evaluator HTTP ${resp.status}: ${errText.slice(0, 200)}` };
+  }
+
+  const data = await resp.json();
+  const text = data.choices?.[0]?.message?.content || "";
+
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed.score !== "number") {
+      return { score: -1, reason: "", error: `Evaluator returned non-numeric score: ${text.slice(0, 200)}` };
     }
-
-    const data = await resp.json();
-    const text = data.choices?.[0]?.message?.content || "";
-    try {
-      const parsed = JSON.parse(text);
-      return Math.min(10, Math.max(0, parsed.score ?? 5));
-    } catch {
-      // Try to extract number from text
-      const match = text.match(/(\d+(?:\.\d+)?)/);
-      return match ? Math.min(10, Math.max(0, parseFloat(match[1]))) : 5;
+    return {
+      score: Math.min(10, Math.max(0, parsed.score)),
+      reason: parsed.reason || "",
+      error: null,
+    };
+  } catch {
+    const match = text.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      return { score: Math.min(10, Math.max(0, parseFloat(match[1]))), reason: text.slice(0, 100), error: null };
     }
-  } catch (e: any) {
-    if (e.message === "RATE_LIMITED" || e.message === "CREDITS_EXHAUSTED") throw e;
-    console.error("compareImages error:", e);
-    return 5;
+    return { score: -1, reason: "", error: `Evaluator response unparseable: ${text.slice(0, 200)}` };
   }
 }
 
@@ -121,8 +130,12 @@ function getScoreBand(score: number): string {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  let runId: string | null = null;
+  let supabase: any = null;
+
   try {
-    const { runId } = await req.json();
+    const body = await req.json();
+    runId = body.runId;
     if (!runId) return jsonRes({ error: "runId required" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -130,27 +143,42 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    supabase = createClient(supabaseUrl, serviceKey);
 
-    // 1. Fetch run
-    const { data: run, error: runErr } = await supabase
-      .from("actor_validation_runs")
-      .select("*")
-      .eq("id", runId)
-      .single();
-
-    if (runErr || !run) return jsonRes({ error: "Validation run not found" }, 404);
-    if (run.status !== "pack_generated") {
-      return jsonRes({ error: `Run status is '${run.status}', expected 'pack_generated'` }, 400);
-    }
-
-    // 2. Transition to scoring
-    await supabase
+    // ── 1. IDEMPOTENT CLAIM: atomic status transition ───────────────────────
+    // Only claim if status is exactly 'pack_generated'. If already scoring/scored, no-op.
+    const { data: claimed, error: claimErr } = await supabase
       .from("actor_validation_runs")
       .update({ status: "scoring" })
-      .eq("id", runId);
+      .eq("id", runId)
+      .eq("status", "pack_generated")
+      .select("id, actor_id, actor_version_id")
+      .single();
 
-    // 3. Fetch all completed validation images
+    if (claimErr || !claimed) {
+      // Check current status for idempotent response
+      const { data: current } = await supabase
+        .from("actor_validation_runs")
+        .select("status")
+        .eq("id", runId)
+        .single();
+
+      if (current?.status === "scored") {
+        // Already scored — return existing result
+        const { data: existing } = await supabase
+          .from("actor_validation_results")
+          .select("*")
+          .eq("validation_run_id", runId)
+          .single();
+        return jsonRes({ success: true, alreadyScored: true, result: existing });
+      }
+      if (current?.status === "scoring") {
+        return jsonRes({ success: true, alreadyScoring: true, message: "Scoring already in progress" });
+      }
+      return jsonRes({ error: `Cannot score: run status is '${current?.status || "unknown"}'` }, 400);
+    }
+
+    // ── 2. Fetch completed validation images ────────────────────────────────
     const { data: images } = await supabase
       .from("actor_validation_images")
       .select("*")
@@ -167,7 +195,7 @@ Deno.serve(async (req) => {
       return jsonRes({ error: "No images to score" }, 400);
     }
 
-    // 4. Group images by slot
+    // ── 3. Group images by slot ─────────────────────────────────────────────
     const slotMap: Record<string, Array<{ url: string; variant_index: number }>> = {};
     for (const img of images) {
       if (!img.public_url) continue;
@@ -177,50 +205,51 @@ Deno.serve(async (req) => {
 
     const coveredSlots = Object.keys(slotMap);
     const totalSlots = 11;
-
-    // 5. Pack coverage score
     const packCoverageScore = Math.round((coveredSlots.length / totalSlots) * 10);
 
-    // 6. Intra-slot stability: compare variant A vs B within each slot
-    const intraSlotScores: Record<string, number> = {};
+    // ── 4. Intra-slot stability ─────────────────────────────────────────────
+    const intraSlotDetail: Record<string, { score: number; error: string | null; reason: string }> = {};
     let intraTotal = 0;
-    let intraCount = 0;
+    let intraValidCount = 0;
+    let intraErrorCount = 0;
     let lowIntraSlotCount = 0;
 
     for (const [slotKey, variants] of Object.entries(slotMap)) {
       if (variants.length < 2) {
-        // Only one variant — assume neutral stability
-        intraSlotScores[slotKey] = 7;
-        intraTotal += 7;
-        intraCount++;
+        // Single variant — cannot measure intra stability, mark as unavailable
+        intraSlotDetail[slotKey] = { score: -1, error: "single_variant", reason: "Only one variant available" };
         continue;
       }
 
-      const score = await compareImages(
+      const result = await compareImages(
         variants[0].url,
         variants[1].url,
         LOVABLE_API_KEY,
-        `Intra-slot consistency check for ${slotKey}: comparing variant A vs B under identical conditions`,
+        `Intra-slot consistency for ${slotKey}: variant A vs B under identical conditions`,
       );
 
-      intraSlotScores[slotKey] = score;
-      intraTotal += score;
-      intraCount++;
-
-      if (score < HF08_SLOT_DIVERGENCE_THRESHOLD) {
-        lowIntraSlotCount++;
+      if (result.error) {
+        intraSlotDetail[slotKey] = { score: -1, error: result.error, reason: "" };
+        intraErrorCount++;
+      } else {
+        intraSlotDetail[slotKey] = { score: result.score, error: null, reason: result.reason };
+        intraTotal += result.score;
+        intraValidCount++;
+        if (result.score < HF08_SLOT_DIVERGENCE_THRESHOLD) lowIntraSlotCount++;
       }
 
-      // Rate limit protection
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    const intraSlotStability = intraCount > 0 ? Math.round((intraTotal / intraCount) * 10) / 10 : 0;
+    const intraSlotStability = intraValidCount > 0
+      ? Math.round((intraTotal / intraValidCount) * 10) / 10
+      : 0;
 
-    // 7. Cross-slot persistence: compare each slot's best image against neutral_headshot
-    const crossSlotScores: Record<string, number> = {};
+    // ── 5. Cross-slot persistence ───────────────────────────────────────────
+    const crossSlotDetail: Record<string, { score: number; error: string | null; reason: string }> = {};
     let crossTotal = 0;
-    let crossCount = 0;
+    let crossValidCount = 0;
+    let crossErrorCount = 0;
     let lowCrossSlotCount = 0;
 
     const referenceVariants = slotMap[REFERENCE_SLOT];
@@ -229,74 +258,82 @@ Deno.serve(async (req) => {
     if (referenceUrl) {
       for (const [slotKey, variants] of Object.entries(slotMap)) {
         if (slotKey === REFERENCE_SLOT) {
-          crossSlotScores[slotKey] = 10; // self-comparison
+          crossSlotDetail[slotKey] = { score: 10, error: null, reason: "self-reference" };
           crossTotal += 10;
-          crossCount++;
+          crossValidCount++;
           continue;
         }
 
-        const bestVariant = variants[0];
-        const score = await compareImages(
+        const result = await compareImages(
           referenceUrl,
-          bestVariant.url,
+          variants[0].url,
           LOVABLE_API_KEY,
-          `Cross-slot identity persistence: comparing ${REFERENCE_SLOT} reference against ${slotKey}`,
+          `Cross-slot persistence: ${REFERENCE_SLOT} vs ${slotKey}`,
         );
 
-        crossSlotScores[slotKey] = score;
-        crossTotal += score;
-        crossCount++;
-
-        if (score < HF08_SLOT_DIVERGENCE_THRESHOLD) {
-          lowCrossSlotCount++;
+        if (result.error) {
+          crossSlotDetail[slotKey] = { score: -1, error: result.error, reason: "" };
+          crossErrorCount++;
+        } else {
+          crossSlotDetail[slotKey] = { score: result.score, error: null, reason: result.reason };
+          crossTotal += result.score;
+          crossValidCount++;
+          if (result.score < HF08_SLOT_DIVERGENCE_THRESHOLD) lowCrossSlotCount++;
         }
 
         await new Promise(r => setTimeout(r, 1000));
       }
+    } else {
+      crossSlotDetail["_missing_reference"] = { score: -1, error: "no_reference_slot", reason: "neutral_headshot slot missing" };
     }
 
-    const crossSlotPersistence = crossCount > 0 ? Math.round((crossTotal / crossCount) * 10) / 10 : 0;
+    const crossSlotPersistence = crossValidCount > 0
+      ? Math.round((crossTotal / crossValidCount) * 10) / 10
+      : 0;
 
-    // 8. Regeneration stability rollup
+    // ── 6. Regeneration stability rollup ────────────────────────────────────
     const regenerationStability = Math.round(
       (intraSlotStability * INTRA_SLOT_WEIGHT + crossSlotPersistence * CROSS_SLOT_WEIGHT) * 10
     ) / 10;
 
-    // 9. Hard fail detection
+    // ── 7. Hard fail detection ──────────────────────────────────────────────
     const hardFailCodes: string[] = [];
     const advisoryPenaltyCodes: string[] = [];
+    const failureReasons: string[] = [];
 
     // HF-08: Regeneration Drift
-    if (
-      intraSlotStability < HF08_INTRA_THRESHOLD ||
-      crossSlotPersistence < HF08_CROSS_THRESHOLD ||
-      (lowIntraSlotCount + lowCrossSlotCount) >= HF08_SLOT_DIVERGENCE_COUNT
-    ) {
+    if (intraSlotStability < HF08_INTRA_THRESHOLD) {
       hardFailCodes.push("HF-08");
+      failureReasons.push(`Intra-slot stability ${intraSlotStability} < threshold ${HF08_INTRA_THRESHOLD}`);
+    }
+    if (crossSlotPersistence < HF08_CROSS_THRESHOLD) {
+      if (!hardFailCodes.includes("HF-08")) hardFailCodes.push("HF-08");
+      failureReasons.push(`Cross-slot persistence ${crossSlotPersistence} < threshold ${HF08_CROSS_THRESHOLD}`);
+    }
+    if ((lowIntraSlotCount + lowCrossSlotCount) >= HF08_SLOT_DIVERGENCE_COUNT) {
+      if (!hardFailCodes.includes("HF-08")) hardFailCodes.push("HF-08");
+      failureReasons.push(`${lowIntraSlotCount + lowCrossSlotCount} slots below divergence threshold`);
     }
 
     // HF-COV: Insufficient Validation Coverage
     if (coveredSlots.length < HFCOV_MIN_SLOTS) {
       hardFailCodes.push("HF-COV");
+      failureReasons.push(`Only ${coveredSlots.length}/${totalSlots} slots covered, minimum ${HFCOV_MIN_SLOTS}`);
     }
 
-    // Advisory: marginal intra stability
+    // Advisories
     if (intraSlotStability >= HF08_INTRA_THRESHOLD && intraSlotStability < 7) {
       advisoryPenaltyCodes.push("ADV-INTRA-MARGINAL");
     }
-    // Advisory: marginal cross persistence
     if (crossSlotPersistence >= HF08_CROSS_THRESHOLD && crossSlotPersistence < 6) {
       advisoryPenaltyCodes.push("ADV-CROSS-MARGINAL");
     }
+    if (intraErrorCount > 0 || crossErrorCount > 0) {
+      advisoryPenaltyCodes.push("ADV-EVALUATOR-ERRORS");
+      failureReasons.push(`${intraErrorCount + crossErrorCount} evaluator error(s) during scoring`);
+    }
 
-    // 10. Compute overall score (weighted)
-    const axisScoresNormalized = {
-      intra_slot_stability: intraSlotStability,
-      cross_slot_persistence: crossSlotPersistence,
-      regeneration_stability: regenerationStability,
-      pack_coverage_score: packCoverageScore,
-    };
-
+    // ── 8. Overall score ────────────────────────────────────────────────────
     let overallScore = Math.round(
       (intraSlotStability / 10) * AXIS_WEIGHTS.intra_slot_stability +
       (crossSlotPersistence / 10) * AXIS_WEIGHTS.cross_slot_persistence +
@@ -304,36 +341,58 @@ Deno.serve(async (req) => {
       (packCoverageScore / 10) * AXIS_WEIGHTS.pack_coverage_score
     );
 
-    // Apply hard fail cap
     if (hardFailCodes.length > 0) {
       overallScore = Math.min(overallScore, SCORE_CAP_ON_HARD_FAIL);
     }
-
     overallScore = Math.max(0, Math.min(100, overallScore));
 
-    // 11. Confidence
+    // ── 9. Confidence ───────────────────────────────────────────────────────
     let confidence = "high";
-    if (coveredSlots.length < HFCOV_MIN_SLOTS) {
+    if (coveredSlots.length < HFCOV_MIN_SLOTS || (intraErrorCount + crossErrorCount) > 3) {
       confidence = "low";
-    } else if (coveredSlots.length < totalSlots || intraCount < 8) {
+    } else if (coveredSlots.length < totalSlots || (intraErrorCount + crossErrorCount) > 0) {
       confidence = "medium";
     }
 
-    // 12. Score band
     const scoreBand = getScoreBand(overallScore);
 
-    // 13. Build detailed axis scores for persistence
-    const axisScoresDetailed = {
-      ...axisScoresNormalized,
-      intra_slot_detail: intraSlotScores,
-      cross_slot_detail: crossSlotScores,
+    // ── 10. Promotable decision ─────────────────────────────────────────────
+    const promotable = hardFailCodes.length === 0 && overallScore >= PROMOTABLE_MIN_SCORE;
+
+    // ── 11. Build canonical axis scores ─────────────────────────────────────
+    const axisScores = {
+      intra_slot_stability: intraSlotStability,
+      cross_slot_persistence: crossSlotPersistence,
+      regeneration_stability: regenerationStability,
+      pack_coverage_score: packCoverageScore,
+    };
+
+    // Diagnostic evidence (separate from canonical decision)
+    const diagnosticEvidence = {
+      intra_slot_detail: intraSlotDetail,
+      cross_slot_detail: crossSlotDetail,
       covered_slots: coveredSlots.length,
       total_slots: totalSlots,
       low_intra_slot_count: lowIntraSlotCount,
       low_cross_slot_count: lowCrossSlotCount,
+      intra_error_count: intraErrorCount,
+      cross_error_count: crossErrorCount,
+      scoring_model: SCORING_MODEL_VERSION,
+      promotable_threshold: PROMOTABLE_MIN_SCORE,
     };
 
-    // 14. Persist result — update existing placeholder row
+    // ── 12. Persist result (upsert by validation_run_id) ────────────────────
+    const resultPayload = {
+      validation_run_id: runId,
+      overall_score: overallScore,
+      score_band: scoreBand,
+      confidence,
+      axis_scores: { ...axisScores, diagnostic: diagnosticEvidence },
+      hard_fail_codes: hardFailCodes,
+      advisory_penalty_codes: advisoryPenaltyCodes,
+    };
+
+    // Check if placeholder row exists (created by run-actor-validation)
     const { data: existingResult } = await supabase
       .from("actor_validation_results")
       .select("id")
@@ -341,33 +400,18 @@ Deno.serve(async (req) => {
       .single();
 
     if (existingResult) {
-      await supabase.from("actor_validation_results").update({
-        overall_score: overallScore,
-        score_band: scoreBand,
-        confidence,
-        axis_scores: axisScoresDetailed,
-        hard_fail_codes: hardFailCodes,
-        advisory_penalty_codes: advisoryPenaltyCodes,
-      }).eq("id", existingResult.id);
+      await supabase.from("actor_validation_results").update(resultPayload).eq("id", existingResult.id);
     } else {
-      await supabase.from("actor_validation_results").insert({
-        validation_run_id: runId,
-        overall_score: overallScore,
-        score_band: scoreBand,
-        confidence,
-        axis_scores: axisScoresDetailed,
-        hard_fail_codes: hardFailCodes,
-        advisory_penalty_codes: advisoryPenaltyCodes,
-      });
+      await supabase.from("actor_validation_results").insert(resultPayload);
     }
 
-    // 15. Mark run as scored
+    // ── 13. Mark run as scored ──────────────────────────────────────────────
     await supabase.from("actor_validation_runs").update({
       status: "scored",
       completed_at: new Date().toISOString(),
     }).eq("id", runId);
 
-    console.log(`[Scoring] Run ${runId}: score=${overallScore} band=${scoreBand} confidence=${confidence} hardFails=${hardFailCodes.join(",") || "none"}`);
+    console.log(`[Scoring] Run ${runId}: score=${overallScore} band=${scoreBand} confidence=${confidence} promotable=${promotable} hardFails=${hardFailCodes.join(",") || "none"}`);
 
     return jsonRes({
       success: true,
@@ -375,26 +419,23 @@ Deno.serve(async (req) => {
       overallScore,
       scoreBand,
       confidence,
+      promotable,
       hardFailCodes,
       advisoryPenaltyCodes,
-      axisScores: axisScoresNormalized,
+      axisScores,
+      failureReasons,
     });
   } catch (e: any) {
     console.error("Scoring error:", e);
 
-    // Try to mark run as failed
-    try {
-      const { runId } = await new Response(req.clone().body).json().catch(() => ({}));
-      if (runId) {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        const sb = createClient(supabaseUrl, serviceKey);
-        await sb.from("actor_validation_runs").update({
+    if (runId && supabase) {
+      try {
+        await supabase.from("actor_validation_runs").update({
           status: "failed",
           error: e.message || "Scoring failed",
-        }).eq("id", runId);
-      }
-    } catch {}
+        }).eq("id", runId).eq("status", "scoring");
+      } catch {}
+    }
 
     return jsonRes({ error: e.message || "Scoring failed" }, 500);
   }

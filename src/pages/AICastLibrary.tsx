@@ -39,7 +39,7 @@ import {
   VALIDATION_SLOTS, type ValidationRun, type ValidationImage, type ValidationResult,
 } from '@/lib/aiCast/actorValidation';
 import {
-  useTriggerScoring, getScoreBandColor, getConfidenceColor,
+  getScoreBandColor, getConfidenceColor,
 } from '@/lib/aiCast/validationScoring';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -596,8 +596,6 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const { data: latestRun } = useLatestValidationRun(actorId);
   const { data: validationImages } = useValidationImages(latestRun?.id);
   const { data: validationResult } = useValidationResult(latestRun?.id);
-  const triggerScoring = useTriggerScoring();
-  const queryClient = useQueryClient();
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
@@ -612,17 +610,8 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
     }
   }, [actor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-trigger scoring when pack_generated is detected
-  useEffect(() => {
-    if (latestRun?.status === 'pack_generated' && !triggerScoring.isPending) {
-      triggerScoring.mutate(latestRun.id, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ['actor-validation-run', actorId] });
-          queryClient.invalidateQueries({ queryKey: ['actor-validation-result', latestRun.id] });
-        },
-      });
-    }
-  }, [latestRun?.status, latestRun?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Scoring is now server-orchestrated (run-actor-validation auto-invokes score-actor-validation).
+  // UI only reflects state — no client-side scoring trigger.
 
   const handleSave = () => {
     updateActor.mutate({ actorId, name: editName, description: editDesc, negative_prompt: editNeg });
