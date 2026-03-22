@@ -552,6 +552,35 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
                 ))}
               </CollapsibleContent>
             </Collapsible>
+
+            {/* ── Phase 18.1: Shot List Context ── */}
+            {(() => {
+              const heroImg = currentSlideData.roledImages?.[0];
+              const gc = heroImg && (heroImg as any).generation_config;
+              if (!gc?.shot_list_context_used) return null;
+              return (
+                <Collapsible className="mt-2">
+                  <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
+                    <Info className="h-3 w-3" />
+                    Shot List Context
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-1.5 space-y-0.5">
+                    {[
+                      gc.shot_list_framing && ['Framing', gc.shot_list_framing],
+                      gc.shot_list_camera_movement && ['Movement', gc.shot_list_camera_movement],
+                      gc.shot_list_location && ['Location', gc.shot_list_location],
+                      gc.shot_list_time_of_day && ['Time', gc.shot_list_time_of_day],
+                      gc.narrative_source && ['Source', gc.narrative_source],
+                    ].filter(Boolean).map(([l, v]) => (
+                      <div key={l as string} className="flex items-center justify-between text-[9px]">
+                        <span className="text-muted-foreground">{l as string}</span>
+                        <span className="font-mono text-foreground truncate max-w-[120px]">{v as string}</span>
+                      </div>
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              );
+            })()}
           </div>
         )}
       </div>

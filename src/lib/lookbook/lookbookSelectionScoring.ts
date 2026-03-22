@@ -2,26 +2,27 @@
  * lookbookSelectionScoring — Multi-factor deterministic scoring for lookbook image selection.
  *
  * Extends the canonical lookbookScorer with style cohesion, shot intent matching,
- * composition quality, editorial flow fit, and cross-image cohesion dimensions.
+ * composition quality, editorial flow fit, shot-list alignment, and cross-image cohesion dimensions.
  *
  * This does NOT replace lookbookScorer.scoreImageForSlide — it augments it.
- * The canonical scorer remains the base; this layer adds style/intent/composition/editorial/cohesion modifiers.
+ * The canonical scorer remains the base; this layer adds style/intent/composition/editorial/shotlist/cohesion modifiers.
  *
- * WEIGHTS (documented — Phase 18 rebalance):
- *   identity_score:     25%  — actor/character consistency
- *   style_score:        20%  — cinematic style lock match
- *   intent_score:       18%  — shot composition match for slot purpose
- *   composition_score:  17%  — cinematic framing/balance/density fit
- *   editorial_score:    10%  — editorial flow / intensity curve fit
- *   cohesion_score:     10%  — fit with already-selected images
+ * WEIGHTS (documented — Phase 18.1 rebalance):
+ *   identity_score:     24%  — actor/character consistency
+ *   style_score:        18%  — cinematic style lock match
+ *   intent_score:       16%  — shot composition match for slot purpose
+ *   composition_score:  15%  — cinematic framing/balance/density fit
+ *   shotlist_score:      9%  — alignment with canonical shot list (Phase 18.1)
+ *   editorial_score:     9%  — editorial flow / intensity curve fit
+ *   cohesion_score:      9%  — fit with already-selected images
  *   ---
  *   total_score = weighted sum (0–100 scale)
  *
- * Rationale for weight rebalance from Phase 16.6:
+ * Rationale for weight rebalance from Phase 18:
  *   - identity remains strongest (character truth is paramount)
- *   - editorial flow added as new dimension (narrative energy curve)
- *   - cohesion maintained at 10% alongside editorial
- *   - composition and intent slightly reduced to accommodate editorial
+ *   - shotlist_score added as new dimension (canonical cinematics)
+ *   - all other weights slightly reduced to accommodate shotlist
+ *   - total still sums to 1.0
  */
 import type { ProjectImage } from '@/lib/images/types';
 import type { StyleLock } from './styleLock';
@@ -39,6 +40,7 @@ export interface LookbookSelectionScore {
   style_score: number;
   intent_score: number;
   composition_score: number;
+  shotlist_score: number;
   editorial_score: number;
   cohesion_score: number;
   total_score: number;
@@ -60,13 +62,14 @@ export interface SelectionScoringContext {
 }
 
 // ── Weight constants ─────────────────────────────────────────────────────────
-// Sum = 1.0
-const W_IDENTITY    = 0.25;
-const W_STYLE       = 0.20;
-const W_INTENT      = 0.18;
-const W_COMPOSITION = 0.17;
-const W_EDITORIAL   = 0.10;
-const W_COHESION    = 0.10;
+// Sum = 1.0 (Phase 18.1 rebalance)
+const W_IDENTITY    = 0.24;
+const W_STYLE       = 0.18;
+const W_INTENT      = 0.16;
+const W_COMPOSITION = 0.15;
+const W_SHOTLIST    = 0.09;
+const W_EDITORIAL   = 0.09;
+const W_COHESION    = 0.09;
 
 // ── Scoring Functions ────────────────────────────────────────────────────────
 
@@ -137,6 +140,54 @@ function scoreIntent(img: ProjectImage, ctx: SelectionScoringContext): number {
 }
 
 /**
+ * Score shot list alignment (0–100). Phase 18.1.
+ *
+ * Checks generation_config provenance for shot-list context usage.
+ * Images generated with shot list grounding score higher for their intended slide type.
+ *
+ * Scoring dimensions:
+ *   - shot_list_context_used: was the image generated with shot list data? (+30)
+ *   - framing alignment: does generation provenance framing match slide expectation? (+20)
+ *   - camera movement alignment: dynamic movement for dynamic slides? (+15)
+ *   - location/time alignment: contextual richness (+15)
+ *   - character presence alignment: characters match slide expectations? (+20)
+ */
+function scoreShotlistAlignment(img: ProjectImage, ctx: SelectionScoringContext): number {
+  const genConfig = (img as any).generation_config;
+  if (!genConfig) return 40; // neutral for images without config
+
+  // If no shot list was used at all during generation, neutral score
+  if (!genConfig.shot_list_context_used) return 45;
+
+  let score = 55; // base boost for shot-list-grounded images
+
+  // Framing alignment
+  const slFraming = (genConfig.shot_list_framing || '').toUpperCase();
+  if (slFraming) {
+    const slideNeedsClose = ['characters'].includes(ctx.slideType);
+    const slideNeedsWide = ['world', 'themes', 'closing'].includes(ctx.slideType);
+    if (slideNeedsClose && ['CU', 'ECU', 'MS'].includes(slFraming)) score += 15;
+    else if (slideNeedsWide && ['WS', 'AERIAL'].includes(slFraming)) score += 15;
+    else if (!slideNeedsClose && !slideNeedsWide) score += 8; // neutral match is fine
+  }
+
+  // Camera movement alignment
+  const slMovement = (genConfig.shot_list_camera_movement || '').toUpperCase();
+  if (slMovement) {
+    const slideNeedsDynamic = ['key_moments', 'story_engine'].includes(ctx.slideType);
+    const isDynamic = !['STATIC'].includes(slMovement);
+    if (slideNeedsDynamic && isDynamic) score += 10;
+    else if (!slideNeedsDynamic && !isDynamic) score += 5;
+  }
+
+  // Location/time richness
+  if (genConfig.shot_list_location) score += 5;
+  if (genConfig.shot_list_time_of_day) score += 5;
+
+  return Math.min(100, Math.max(0, score));
+}
+
+/**
  * Score editorial flow fit (0–100).
  * Uses the editorial intensity curve to match image energy to slide position.
  */
@@ -193,6 +244,7 @@ export function scoreLookbookCandidate(
   const intent_score = scoreIntent(img, ctx);
   const comp = scoreComposition(img, ctx.slideType);
   const composition_score = comp.composition_total;
+  const shotlist_score = scoreShotlistAlignment(img, ctx);
   const editorial_score = scoreEditorial(img, ctx);
   const cohesion_score = scoreCohesion(img, ctx);
 
@@ -201,9 +253,10 @@ export function scoreLookbookCandidate(
     style_score * W_STYLE +
     intent_score * W_INTENT +
     composition_score * W_COMPOSITION +
+    shotlist_score * W_SHOTLIST +
     editorial_score * W_EDITORIAL +
     cohesion_score * W_COHESION
   );
 
-  return { identity_score, style_score, intent_score, composition_score, editorial_score, cohesion_score, total_score };
+  return { identity_score, style_score, intent_score, composition_score, shotlist_score, editorial_score, cohesion_score, total_score };
 }
