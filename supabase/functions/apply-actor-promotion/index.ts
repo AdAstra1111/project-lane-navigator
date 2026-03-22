@@ -330,7 +330,7 @@ Deno.serve(async (req) => {
       p_actor_version_id: resolvedVersionId,
       p_validation_run_id: eligibility.validation_run_id,
       p_validation_result_id: eligibility.validation_result_id,
-      p_scoring_model: eligibility.scoring_model,
+      p_scoring_model: eligibility.scoring_model || "none",
       p_policy_version: PROMOTION_POLICY_VERSION,
       p_eligible_for_promotion: eligibility.eligible_for_promotion,
       p_review_required: false,
