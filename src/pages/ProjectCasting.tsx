@@ -76,6 +76,13 @@ import {
 import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import { buildCharacterActorPrefill, type CharacterActorPrefill } from '@/lib/aiCast/characterToActorPrefill';
+import {
+  createPendingActorBindContext,
+  getPendingActorBindContextsForProject,
+  resolvePendingActorBindContext,
+  abandonPendingActorBindContext,
+  type PendingActorBindContext,
+} from '@/lib/aiCast/pendingBindRecovery';
 
 interface CastMapping {
   id: string;
