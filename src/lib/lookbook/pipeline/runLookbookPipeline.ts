@@ -10,6 +10,7 @@
  * No legacy generateLookBookData dependency.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { ensureCanonicalShotListForLookbook, type ShotListPreflightResult } from '../shotListPreflight';
 import { getCanonicalProjectState } from '@/lib/canon/getCanonicalProjectState';
 import { normalizeCanonText } from '../normalizeCanonText';
 import type { LocationEvidence, SceneEvidence } from './narrativeEvidence';
