@@ -79,10 +79,28 @@ export const VALIDATION_SLOTS = [
 
 // ── Service Functions ───────────────────────────────────────────────────────
 
-/** Create a validation run and trigger quick pack generation. */
+/** Create a validation run and trigger quick pack generation. Enforces PG gates. */
 export async function startValidationRun(actorId: string, actorVersionId?: string): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
+
+  // ── PG Gate Enforcement ─────────────────────────────────────────────────
+  // Check persisted anchor gate statuses before allowing run creation
+  const { data: actorRow } = await (supabase as any)
+    .from('ai_actors')
+    .select('anchor_coverage_status, anchor_coherence_status')
+    .eq('id', actorId)
+    .single();
+
+  const coverageStatus = actorRow?.anchor_coverage_status || 'insufficient';
+  const coherenceStatus = actorRow?.anchor_coherence_status || 'unknown';
+
+  if (coverageStatus === 'insufficient') {
+    throw new Error('PG-00: Insufficient anchor coverage. Upload headshot, profile, and full-body references before running validation.');
+  }
+  if (coherenceStatus === 'incoherent') {
+    throw new Error('PG-01: Anchor set is incoherent — identity references contradict each other. Fix anchors before validation.');
+  }
 
   // Check for existing active run
   const { data: existing } = await (supabase as any)
@@ -122,7 +140,7 @@ export async function startValidationRun(actorId: string, actorVersionId?: strin
 
   if (runErr || !run) throw new Error(runErr?.message || 'Failed to create validation run');
 
-  // Trigger edge function (fire-and-forget pattern — function updates status)
+  // Trigger edge function (fire-and-forget — function updates status)
   supabase.functions.invoke('run-actor-validation', {
     body: { runId: run.id },
   }).catch((e: any) => {
