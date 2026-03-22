@@ -453,13 +453,14 @@ function inferGenderFromRoleText(role: string | null, description: string | null
  * Only used when no explicit age is found from other sources.
  */
 const AGE_ADJACENT_MAP: Array<{ pattern: RegExp; ageHint: string }> = [
-  { pattern: /\b(?:child|childhood|young child)\b/i, ageHint: 'child' },
+  { pattern: /\b(?:child|childhood|young child|little (?:boy|girl))\b/i, ageHint: 'child' },
   { pattern: /\b(?:adolescen\w*|teenage\w*|teen\b)/i, ageHint: 'late teens' },
-  { pattern: /\b(?:barely out of adolescence|just come of age)\b/i, ageHint: 'late teens' },
-  { pattern: /\b(?:young (?:man|woman|person|adult)|youthful)\b/i, ageHint: 'early twenties' },
+  { pattern: /\b(?:barely out of adolescence|just come of age|coming[\s-]*of[\s-]*age)\b/i, ageHint: 'late teens' },
+  { pattern: /\b(?:young (?:man|woman|person|adult)|youthful|in (?:her|his|their) youth)\b/i, ageHint: 'early twenties' },
+  { pattern: /\b(?:early (?:middle[\s-]*age|maturity))\b/i, ageHint: 'early thirties' },
   { pattern: /\b(?:middle[\s-]*aged|midlife)\b/i, ageHint: 'mid forties' },
-  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran)\b/i, ageHint: 'late fifties' },
-  { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened)\b/i, ageHint: 'late sixties' },
+  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran|battle[\s-]*worn)\b/i, ageHint: 'late fifties' },
+  { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened|grey[\s-]*haired elder)\b/i, ageHint: 'late sixties' },
   { pattern: /\b(?:retired|former)\b/i, ageHint: 'late fifties' },
 ];
 
