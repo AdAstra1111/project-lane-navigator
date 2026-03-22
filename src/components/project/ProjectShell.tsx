@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import {
-  LayoutGrid, FileText, BookOpen, Image, Film, Briefcase, Sparkles, Users,
+  LayoutGrid, FileText, BookOpen, Image, Film, Briefcase, Sparkles, Users, UserPlus,
   PanelRightOpen, PanelRightClose, ArrowLeft, Loader2,
   CheckCircle2, AlertTriangle, ArrowRight, X, ImagePlus, BookOpenCheck,
 } from 'lucide-react';
