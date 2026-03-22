@@ -251,7 +251,26 @@ function AnchorCoverageBadge({ status }: { status: AnchorCoverageStatus }) {
   );
 }
 
-// ── Identity Strength Badge ─────────────────────────────────────────────────
+// ── Validation Status Chip ──────────────────────────────────────────────────
+
+function ValidationStatusChip({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string; icon: React.ElementType }> = {
+    pending: { label: 'Queued', className: 'bg-muted text-muted-foreground', icon: Clock },
+    generating: { label: 'Generating…', className: 'bg-primary/15 text-primary border-primary/30', icon: Loader2 },
+    scoring: { label: 'Scoring…', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: FlaskConical },
+    complete: { label: 'Validated', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icon: CheckCircle2 },
+    failed: { label: 'Failed', className: 'bg-destructive/15 text-destructive border-destructive/30', icon: XCircle },
+  };
+  const cfg = config[status] || config.pending;
+  const Icon = cfg.icon;
+  return (
+    <Badge variant="outline" className={cn('text-[9px] h-5 gap-0.5', cfg.className)}>
+      <Icon className={cn('h-2.5 w-2.5', status === 'generating' && 'animate-spin')} /> {cfg.label}
+    </Badge>
+  );
+}
+
+
 
 function IdentityBadge({ strength, size = 'sm' }: { strength: IdentityStrength; size?: 'sm' | 'md' }) {
   const config = {
