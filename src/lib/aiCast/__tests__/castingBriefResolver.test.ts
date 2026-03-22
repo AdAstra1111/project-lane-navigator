@@ -43,6 +43,7 @@ const {
   inferGenderFromPassages,
   inferGenderFromRoleText,
   inferAgeFromPassages,
+  derivePlayingAge,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
@@ -896,6 +897,16 @@ describe('inferGenderFromPassages', () => {
     expect(inferGenderFromPassages(passages)).toBe('woman');
   });
 
+  it('infers male from short passage with clear pronouns (2+ with 2x dominance)', () => {
+    const passages = ['He stood alone. His sword gleamed.'];
+    expect(inferGenderFromPassages(passages)).toBe('man');
+  });
+
+  it('infers female from short passage with clear pronouns (2+ with 2x dominance)', () => {
+    const passages = ['She walked gracefully. Her kimono flowed.'];
+    expect(inferGenderFromPassages(passages)).toBe('woman');
+  });
+
   it('returns null when pronouns are mixed/ambiguous', () => {
     const passages = [
       'He met her at the temple. She told him about his father.',
@@ -906,6 +917,11 @@ describe('inferGenderFromPassages', () => {
 
   it('returns null with insufficient pronoun count', () => {
     const passages = ['The warrior stood alone.'];
+    expect(inferGenderFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null with only one pronoun occurrence', () => {
+    const passages = ['He was there.'];
     expect(inferGenderFromPassages(passages)).toBeNull();
   });
 });
@@ -948,9 +964,48 @@ describe('inferAgeFromPassages', () => {
     expect(inferAgeFromPassages(passages)).toBe('early twenties');
   });
 
+  it('infers child from "child" descriptor', () => {
+    const passages = ['The child ran through the garden.'];
+    expect(inferAgeFromPassages(passages)).toBe('child');
+  });
+
+  it('infers late sixties from "elderly" descriptor', () => {
+    const passages = ['The elderly woman sat by the fire.'];
+    expect(inferAgeFromPassages(passages)).toBe('late sixties');
+  });
+
+  it('infers late fifties from "battle-worn" descriptor', () => {
+    const passages = ['A battle-worn soldier with scars across his face.'];
+    expect(inferAgeFromPassages(passages)).toBe('late fifties');
+  });
+
   it('returns null when no age-adjacent descriptors', () => {
     const passages = ['The warrior stood at the gate.'];
     expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+});
+
+// ── Playing age map coverage ─────────────────────────────────────────────────
+
+describe('derivePlayingAge — inferred age hints', () => {
+  it('maps "child" to 6–12', () => {
+    expect(derivePlayingAge(['child'])).toBe('6–12');
+  });
+
+  it('maps "late teens" to 16–19', () => {
+    expect(derivePlayingAge(['late teens'])).toBe('16–19');
+  });
+
+  it('maps "early twenties" to 20–25', () => {
+    expect(derivePlayingAge(['early twenties'])).toBe('20–25');
+  });
+
+  it('maps "late fifties" to 55–60', () => {
+    expect(derivePlayingAge(['late fifties'])).toBe('55–60');
+  });
+
+  it('maps "late sixties" to 65–70', () => {
+    expect(derivePlayingAge(['late sixties'])).toBe('65–70');
   });
 });
 
@@ -963,7 +1018,7 @@ describe('description base anchor enforcement', () => {
     b.age.push('late fifties');
     b.face.push('weathered features');
     const desc = composeActorDescriptionFromBuckets(b);
-    expect(desc).toMatch(/^man, playing age 50–59/i);
+    expect(desc).toMatch(/^man, playing age 55–60/i);
   });
 
   it('includes ethnicity + gender + playing age', () => {
@@ -973,7 +1028,7 @@ describe('description base anchor enforcement', () => {
     b.age.push('late fifties');
     b.face.push('weathered features');
     const desc = composeActorDescriptionFromBuckets(b);
-    expect(desc).toMatch(/^Japanese man, playing age 50–59/i);
+    expect(desc).toMatch(/^Japanese man, playing age 55–60/i);
   });
 
   it('description never starts with raw traits when gender exists', () => {

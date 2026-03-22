@@ -425,11 +425,14 @@ function escapeRegex(s: string): string {
  */
 function inferGenderFromPassages(passages: string[]): string | null {
   const text = passages.join(' ').toLowerCase();
+  // Exclude possessive "her" when followed by a noun (ambiguous with "her dress" etc.)
+  // but keep standalone "her" as object pronoun
   const maleCount = (text.match(/\b(he|him|his|himself)\b/g) || []).length;
   const femaleCount = (text.match(/\b(she|her|hers|herself)\b/g) || []).length;
 
-  if (maleCount >= 3 && maleCount >= femaleCount * 3) return 'man';
-  if (femaleCount >= 3 && femaleCount >= maleCount * 3) return 'woman';
+  // Threshold: require at least 2 pronouns with 2x dominance (relaxed from 3/3x for short passages)
+  if (maleCount >= 2 && maleCount >= femaleCount * 2) return 'man';
+  if (femaleCount >= 2 && femaleCount >= maleCount * 2) return 'woman';
   return null;
 }
 
@@ -439,8 +442,8 @@ function inferGenderFromPassages(passages: string[]): string | null {
  */
 function inferGenderFromRoleText(role: string | null, description: string | null): string | null {
   const combined = `${role || ''} ${description || ''}`.toLowerCase();
-  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|waitress|actress|nun|geisha|courtesan)\b/.test(combined)) return 'woman';
-  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord)\b/.test(combined)) return 'man';
+  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|waitress|actress|nun|geisha|courtesan|bride|mistress|duchess|countess|baroness|governess|handmaiden|maiden|sorceress|witch)\b/.test(combined)) return 'woman';
+  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord|groom|duke|count|baron|knight|squire|sorcerer|wizard)\b/.test(combined)) return 'man';
   return null;
 }
 
@@ -450,13 +453,14 @@ function inferGenderFromRoleText(role: string | null, description: string | null
  * Only used when no explicit age is found from other sources.
  */
 const AGE_ADJACENT_MAP: Array<{ pattern: RegExp; ageHint: string }> = [
-  { pattern: /\b(?:child|childhood|young child)\b/i, ageHint: 'child' },
+  { pattern: /\b(?:child|childhood|young child|little (?:boy|girl))\b/i, ageHint: 'child' },
   { pattern: /\b(?:adolescen\w*|teenage\w*|teen\b)/i, ageHint: 'late teens' },
-  { pattern: /\b(?:barely out of adolescence|just come of age)\b/i, ageHint: 'late teens' },
-  { pattern: /\b(?:young (?:man|woman|person|adult)|youthful)\b/i, ageHint: 'early twenties' },
+  { pattern: /\b(?:barely out of adolescence|just come of age|coming[\s-]*of[\s-]*age)\b/i, ageHint: 'late teens' },
+  { pattern: /\b(?:young (?:man|woman|person|adult)|youthful|in (?:her|his|their) youth)\b/i, ageHint: 'early twenties' },
+  { pattern: /\b(?:early (?:middle[\s-]*age|maturity))\b/i, ageHint: 'early thirties' },
   { pattern: /\b(?:middle[\s-]*aged|midlife)\b/i, ageHint: 'mid forties' },
-  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran)\b/i, ageHint: 'late fifties' },
-  { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened)\b/i, ageHint: 'late sixties' },
+  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran|battle[\s-]*worn)\b/i, ageHint: 'late fifties' },
+  { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened|grey[\s-]*haired elder)\b/i, ageHint: 'late sixties' },
   { pattern: /\b(?:retired|former)\b/i, ageHint: 'late fifties' },
 ];
 
@@ -943,6 +947,7 @@ function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | nul
 // ── Playing age derivation ───────────────────────────────────────────────────
 
 const PLAYING_AGE_MAP: Record<string, string> = {
+  'child': '6–12',
   'teens': '13–19',
   'late teens': '16–19',
   'early twenties': '20–25',
@@ -969,10 +974,16 @@ const PLAYING_AGE_MAP: Record<string, string> = {
   'late 40s': '45–50',
   'forties': '40–49',
   '40s': '40–49',
+  'early fifties': '50–55',
   'fifties': '50–59',
   '50s': '50–59',
+  'late fifties': '55–60',
+  'early sixties': '60–65',
   'sixties': '60–69',
   '60s': '60–69',
+  'late sixties': '65–70',
+  'seventies': '70–79',
+  '70s': '70–79',
 };
 
 function derivePlayingAge(ageHints: string[]): string | null {
