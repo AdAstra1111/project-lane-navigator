@@ -269,6 +269,12 @@ export default function ProjectCasting() {
         <div className="flex gap-2">
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowRegenJobs(!showRegenJobs); if (!showRegenJobs) refetchRegenJobs(); }}
+          >
+            <ListChecks className="h-3.5 w-3.5" /> {showRegenJobs ? 'Hide' : ''} Regen Jobs
+          </Button>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowHealth(!showHealth); if (!showHealth) refetchHealth(); }}
           >
             <ShieldCheck className="h-3.5 w-3.5" /> {showHealth ? 'Hide' : ''} Cast Health
