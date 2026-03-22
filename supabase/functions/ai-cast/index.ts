@@ -309,6 +309,67 @@ Deno.serve(async (req) => {
         return jsonRes({ cast_context: castContext }, 200, req);
       }
 
+      case "delete_actor": {
+        const { actorId } = body;
+        if (!actorId) return jsonRes({ error: "actorId required" }, 400, req);
+
+        // Verify ownership
+        const { data: actorRow } = await db.from("ai_actors")
+          .select("id, roster_ready, user_id")
+          .eq("id", actorId)
+          .eq("user_id", userId)
+          .single();
+        if (!actorRow) return jsonRes({ error: "Actor not found or access denied" }, 404, req);
+
+        // Safety: block deletion of roster-ready actors unless force flag
+        if ((actorRow as any).roster_ready && !body.force) {
+          return jsonRes({
+            error: "Cannot delete a roster-ready actor. Revoke roster status first, or pass force: true.",
+            code: "ROSTER_READY_BLOCK",
+          }, 400, req);
+        }
+
+        // Cascade delete: assets → versions → validation data → promotion decisions → bindings → actor
+        // 1. Delete assets for all versions
+        const { data: versionIds } = await db.from("ai_actor_versions")
+          .select("id").eq("actor_id", actorId);
+        const vIds = (versionIds || []).map((v: any) => v.id);
+        if (vIds.length > 0) {
+          await db.from("ai_actor_assets").delete().in("actor_version_id", vIds);
+        }
+
+        // 2. Delete validation images → results → runs
+        const { data: runIds } = await db.from("actor_validation_runs")
+          .select("id").eq("actor_id", actorId);
+        const rIds = (runIds || []).map((r: any) => r.id);
+        if (rIds.length > 0) {
+          await db.from("actor_validation_images").delete().in("validation_run_id", rIds);
+          await db.from("actor_validation_results").delete().in("validation_run_id", rIds);
+        }
+        await db.from("actor_validation_runs").delete().eq("actor_id", actorId);
+
+        // 3. Delete promotion decisions
+        await db.from("actor_promotion_decisions").delete().eq("actor_id", actorId);
+
+        // 4. Delete marketplace listings
+        await db.from("actor_marketplace_listings").delete().eq("actor_id", actorId);
+
+        // 5. Delete cast bindings referencing this actor
+        await db.from("project_ai_cast").delete().eq("ai_actor_id", actorId);
+
+        // 6. Delete casting candidates referencing this actor
+        await db.from("casting_candidates").delete().eq("promoted_actor_id", actorId);
+
+        // 7. Delete versions
+        await db.from("ai_actor_versions").delete().eq("actor_id", actorId);
+
+        // 8. Delete actor
+        const { error: delErr } = await db.from("ai_actors").delete().eq("id", actorId);
+        if (delErr) throw delErr;
+
+        return jsonRes({ deleted: true, actor_id: actorId, versions_deleted: vIds.length }, 200, req);
+      }
+
       default:
         return jsonRes({ error: `Unknown action: ${action}` }, 400, req);
     }

@@ -103,5 +103,15 @@ export function useAICastMutations() {
     },
   });
 
-  return { createActor, updateActor, createVersion, approveVersion, addAsset, deleteAsset, generateScreenTest };
+  const deleteActor = useMutation({
+    mutationFn: (params: { actorId: string; force?: boolean }) =>
+      aiCastApi.deleteActor(params.actorId, params.force),
+    onSuccess: () => {
+      toast.success('Actor permanently deleted');
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { createActor, updateActor, createVersion, approveVersion, addAsset, deleteAsset, generateScreenTest, deleteActor };
 }
