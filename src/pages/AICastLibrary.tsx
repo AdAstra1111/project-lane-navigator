@@ -155,6 +155,7 @@ export default function AICastLibrary() {
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
         <span>{actors.length} actor{actors.length !== 1 ? 's' : ''}</span>
         <span>{actors.filter(a => a.status === 'active').length} active</span>
+        <span>{actors.filter(a => (a as any).roster_ready).length} roster</span>
         <span>{actors.filter(a => a.ai_actor_versions?.some(v => v.is_approved)).length} approved</span>
       </div>
 
