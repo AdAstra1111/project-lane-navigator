@@ -653,7 +653,7 @@ export async function executeRequirements(
       status = 'blocked';
       // Provide specific blocking reason for character requirements
       if (req.subjectType === 'character' && req.promptContext.characterName) {
-        const key = req.promptContext.characterName.toLowerCase().trim();
+        const key = normalizeCharacterKey(req.promptContext.characterName);
         const anchors = characterAnchors.get(key);
         if (anchors?.hasAnchors) {
           blockingReason = `Identity anchors present for "${req.promptContext.characterName}" but no compliant generations matched`;
