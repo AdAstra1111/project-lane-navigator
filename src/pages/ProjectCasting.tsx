@@ -686,6 +686,22 @@ export default function ProjectCasting() {
         </div>
       )}
 
+      {/* Scene Integrity Panel */}
+      {showSceneIntegrity && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <Shield className="h-3.5 w-3.5" /> Scene Integrity
+          </h3>
+          {sceneIntegrityLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : sceneIntegrityData ? (
+            <SceneIntegrityPanel data={sceneIntegrityData} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No scene integrity data available.</p>
+          )}
+        </div>
+      )
+
       {identityMap && Object.keys(identityMap).length > 0 && (
         <div className="border-t border-border/30 pt-4 space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
