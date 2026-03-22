@@ -465,9 +465,8 @@ const AGE_ADJACENT_MAP: Array<{ pattern: RegExp; ageHint: string }> = [
   { pattern: /\b(?:young (?:man|woman|person|adult)|youthful|in (?:her|his|their) youth)\b/i, ageHint: 'early twenties' },
   { pattern: /\b(?:early (?:middle[\s-]*age|maturity))\b/i, ageHint: 'early thirties' },
   { pattern: /\b(?:middle[\s-]*aged|midlife)\b/i, ageHint: 'mid forties' },
-  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran|battle[\s-]*worn)\b/i, ageHint: 'late fifties' },
+  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned)\b/i, ageHint: 'late fifties' },
   { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened|grey[\s-]*haired elder)\b/i, ageHint: 'late sixties' },
-  { pattern: /\b(?:retired|former)\b/i, ageHint: 'late fifties' },
 ];
 
 /**
