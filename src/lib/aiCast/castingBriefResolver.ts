@@ -1902,4 +1902,10 @@ export const _testHelpers = {
   inferGenderFromPassages,
   inferGenderFromRoleText,
   inferAgeFromPassages,
+  extractCharacterPassages,
+  buildCharacterNamePatterns,
+  parseDocumentSections,
+  findCharacterSectionRange,
+  PERFORMER_SECTION_HEADINGS,
+  STORY_SECTION_HEADINGS,
 };
