@@ -1,5 +1,5 @@
 /**
- * castingBriefResolver — Phase 17.2 (Hardened): Character → Casting Brief Separation.
+ * castingBriefResolver — Phase 17.3: Document-Aware Casting Brief Enrichment.
  *
  * Strictly separates character canon (story truth) from casting brief (visual performer requirements).
  * Actor creation, recommendations, and matching must consume the casting brief only.
@@ -14,10 +14,13 @@
  *
  * Sources (priority order):
  * 1. canon_facts
- * 2. canon_json.characters (via project_canon)
+ * 2. Document-enriched appearance signals (character_bible, character_profile)
  * 3. character_visual_dna
- * 4. project_images character descriptors
- * 5. minimal fallback
+ * 4. canon_json.characters (story context only)
+ * 5. Document support signals (treatment, story_outline, scripts)
+ * 6. World bible styling cues
+ * 7. project_images character descriptors
+ * 8. minimal fallback
  */
 
 import { supabase } from '@/integrations/supabase/client';
