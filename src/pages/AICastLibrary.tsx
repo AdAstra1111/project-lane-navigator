@@ -114,7 +114,7 @@ export default function AICastLibrary() {
       <ActorDetail
         actorId={selectedActorId}
         usageEntries={(usageData || []).filter(u => u.actorId === selectedActorId)}
-        onBack={() => setSelectedActorId(null)}
+        onBack={() => { setSelectedActorId(null); setSearchParams({}); }}
       />
     );
   }
