@@ -867,11 +867,12 @@ function CastHealthPanel({ data, actors, projectId, onRebind }: {
   );
 }
 
-function CastHealthRow({ state, actors, projectId, onRebind }: {
+function CastHealthRow({ state, actors, projectId, onRebind, onQueueRegen }: {
   state: CharacterGovernanceState;
   actors: any[];
   projectId: string;
   onRebind: (charKey: string, actorId: string) => void;
+  onQueueRegen?: (characterKey: string) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showOutputs, setShowOutputs] = useState(false);
