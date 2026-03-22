@@ -54,7 +54,7 @@ export async function evaluateCastImpact(projectId: string): Promise<CastImpactR
     if (!Array.isArray(provenance)) continue;
 
     for (const p of provenance) {
-      const charKey = (p.character_key || '').toLowerCase();
+      const charKey = normalizeCharacterKey(p.character_key || '');
       if (!charKey) continue;
 
       const currentVersion = bindingMap[charKey];
