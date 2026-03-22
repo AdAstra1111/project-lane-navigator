@@ -154,6 +154,7 @@ export default function LookBookPage() {
       });
 
       // Log provenance for debugging
+      const pf = result.shotListPreflight;
       console.log('[LookBookPage] ✓ Pipeline complete', {
         buildId: result.data.buildId,
         slideCount: result.data.slides.length,
@@ -161,7 +162,17 @@ export default function LookBookPage() {
         durationMs: result.durationMs,
         qaPublishable: result.qa.publishable,
         stages: result.stages.map(s => `${s.stage}:${s.status}`).join(' '),
+        shotListPreflight: pf ? `${pf.status} (auto=${pf.auto_generated})` : 'none',
       });
+
+      // Shot list preflight feedback
+      if (pf) {
+        if (pf.status === 'generated') {
+          toast.info('Shot list auto-generated from script', { duration: 4000 });
+        } else if (pf.status === 'failed') {
+          toast.warning('Shot list generation failed — using fallback mode', { duration: 5000 });
+        }
+      }
 
       setLookBookData(result.data);
       setLookbookBuildEpoch(Date.now());
