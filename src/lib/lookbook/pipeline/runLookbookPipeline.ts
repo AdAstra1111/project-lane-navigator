@@ -777,6 +777,12 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
       logs,
       durationMs: Date.now() - startTime,
       requirements,
+      shotListPreflight: shotListPreflightResult ? {
+        status: shotListPreflightResult.status,
+        shot_list_id: shotListPreflightResult.shot_list_id,
+        reason: shotListPreflightResult.reason,
+        auto_generated: shotListPreflightResult.auto_generated,
+      } : undefined,
     };
   } catch (error: any) {
     log(`PIPELINE ERROR: ${error.message}`);
