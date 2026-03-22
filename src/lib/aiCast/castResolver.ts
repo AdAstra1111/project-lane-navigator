@@ -51,7 +51,7 @@ export async function resolveProjectCastContext(params: {
   characterKey: string;
 }): Promise<CastContextResult> {
   const { projectId, characterKey } = params;
-  const normalizedKey = characterKey.toLowerCase().trim();
+  const normalizedKey = normalizeCharacterKey(characterKey);
 
   // Query project_ai_cast binding
   const { data: binding, error } = await (supabase as any)
