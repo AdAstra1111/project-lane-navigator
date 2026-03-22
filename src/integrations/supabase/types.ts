@@ -67,10 +67,13 @@ export type Database = {
           axis_scores: Json | null
           confidence: string | null
           created_at: string
+          failure_reasons: string[] | null
           hard_fail_codes: string[] | null
           id: string
           overall_score: number | null
+          promotable: boolean
           score_band: string | null
+          scoring_model: string | null
           validation_run_id: string
         }
         Insert: {
@@ -78,10 +81,13 @@ export type Database = {
           axis_scores?: Json | null
           confidence?: string | null
           created_at?: string
+          failure_reasons?: string[] | null
           hard_fail_codes?: string[] | null
           id?: string
           overall_score?: number | null
+          promotable?: boolean
           score_band?: string | null
+          scoring_model?: string | null
           validation_run_id: string
         }
         Update: {
@@ -89,10 +95,13 @@ export type Database = {
           axis_scores?: Json | null
           confidence?: string | null
           created_at?: string
+          failure_reasons?: string[] | null
           hard_fail_codes?: string[] | null
           id?: string
           overall_score?: number | null
+          promotable?: boolean
           score_band?: string | null
+          scoring_model?: string | null
           validation_run_id?: string
         }
         Relationships: [

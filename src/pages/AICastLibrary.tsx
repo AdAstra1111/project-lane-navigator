@@ -851,12 +851,12 @@ function ValidationScorePanel({ result }: { result: ValidationResult }) {
         )}
       </div>
 
-      {/* Axis scores */}
+      {/* Canonical axis scores */}
       <div className="grid grid-cols-2 gap-2">
-        <AxisScoreRow label="Intra-Slot Stability" value={axes?.intra_slot_stability} icon={<Zap className="h-2.5 w-2.5" />} />
-        <AxisScoreRow label="Cross-Slot Persistence" value={axes?.cross_slot_persistence} icon={<TrendingUp className="h-2.5 w-2.5" />} />
-        <AxisScoreRow label="Regen Stability" value={axes?.regeneration_stability} icon={<BarChart3 className="h-2.5 w-2.5" />} />
-        <AxisScoreRow label="Pack Coverage" value={axes?.pack_coverage_score} icon={<Image className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Identity Consistency" value={axes?.identity_consistency_score} icon={<Zap className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Structural Consistency" value={axes?.structural_consistency_score} icon={<TrendingUp className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Variation Integrity" value={axes?.variation_integrity_score} icon={<BarChart3 className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Slot Compliance" value={axes?.slot_compliance_score} icon={<Image className="h-2.5 w-2.5" />} subtitle="(eligibility)" />
       </div>
 
       {/* Hard fail explanations */}
@@ -891,13 +891,13 @@ function ValidationScorePanel({ result }: { result: ValidationResult }) {
   );
 }
 
-function AxisScoreRow({ label, value, icon }: { label: string; value: number | undefined; icon: React.ReactNode }) {
+function AxisScoreRow({ label, value, icon, subtitle }: { label: string; value: number | undefined; icon: React.ReactNode; subtitle?: string }) {
   if (value == null) return null;
   const pct = (value / 10) * 100;
   return (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between">
-        <span className="text-[9px] text-muted-foreground flex items-center gap-1">{icon} {label}</span>
+        <span className="text-[9px] text-muted-foreground flex items-center gap-1">{icon} {label}{subtitle && <span className="opacity-60">{subtitle}</span>}</span>
         <span className={cn(
           'text-[9px] font-semibold tabular-nums',
           value >= 7 ? 'text-emerald-400' : value >= 5 ? 'text-amber-400' : 'text-destructive'
