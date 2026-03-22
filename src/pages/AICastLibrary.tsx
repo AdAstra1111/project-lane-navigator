@@ -195,8 +195,8 @@ export default function AICastLibrary() {
 // ── Actor Card ──────────────────────────────────────────────────────────────
 
 function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount: number; onClick: () => void }) {
-  const thumbnail = getActorThumbnail(actor.ai_actor_versions);
-  const identity = getIdentityStrength(actor.ai_actor_versions);
+  const thumbnail = getActorThumbnail(actor.ai_actor_versions, (actor as any).approved_version_id);
+  const identity = getIdentityStrength(actor.ai_actor_versions, (actor as any).approved_version_id);
   const coverageStatus = (actor as any).anchor_coverage_status as AnchorCoverageStatus | undefined;
   const rosterReady = (actor as any).roster_ready as boolean | undefined;
   const promotionStatus = (actor as any).promotion_status as string | undefined;
@@ -666,8 +666,8 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   }
 
   const versions: AIActorVersion[] = actor.ai_actor_versions || [];
-  const identity = getIdentityStrength(versions);
-  const thumbnail = getActorThumbnail(versions);
+  const identity = getIdentityStrength(versions, (actor as any).approved_version_id);
+  const thumbnail = getActorThumbnail(versions, (actor as any).approved_version_id);
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">

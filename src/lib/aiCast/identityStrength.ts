@@ -16,13 +16,15 @@ export interface IdentityStrengthResult {
 /**
  * Determine identity strength from an actor's approved version assets.
  */
-export function getIdentityStrength(versions: AIActorVersion[] | undefined): IdentityStrengthResult {
+export function getIdentityStrength(versions: AIActorVersion[] | undefined, approvedVersionId?: string | null): IdentityStrengthResult {
   if (!versions || versions.length === 0) {
     return { strength: 'weak', hasHeadshot: false, hasFullBody: false, totalAssets: 0, label: 'No versions' };
   }
 
-  // Find approved version first, otherwise latest
-  const approved = versions.find(v => v.is_approved) || versions[versions.length - 1];
+  // Use Phase 4 canonical approved_version_id if available, then legacy is_approved fallback, then latest
+  const approved = (approvedVersionId ? versions.find(v => v.id === approvedVersionId) : null)
+    || versions.find(v => v.is_approved)
+    || versions[versions.length - 1];
   const assets = approved?.ai_actor_assets || [];
 
   let hasHeadshot = false;
@@ -70,9 +72,11 @@ export function getIdentityStrength(versions: AIActorVersion[] | undefined): Ide
 /**
  * Get best thumbnail URL from an actor's versions/assets.
  */
-export function getActorThumbnail(versions: AIActorVersion[] | undefined): string | null {
+export function getActorThumbnail(versions: AIActorVersion[] | undefined, approvedVersionId?: string | null): string | null {
   if (!versions || versions.length === 0) return null;
-  const approved = versions.find(v => v.is_approved) || versions[versions.length - 1];
+  const approved = (approvedVersionId ? versions.find(v => v.id === approvedVersionId) : null)
+    || versions.find(v => v.is_approved)
+    || versions[versions.length - 1];
   const assets = approved?.ai_actor_assets || [];
 
   // Prefer headshot, then reference_image, then any asset with a URL

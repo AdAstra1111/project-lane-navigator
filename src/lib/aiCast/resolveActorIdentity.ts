@@ -63,16 +63,14 @@ export async function resolveProjectCastIdentity(
         const actorId = row.ai_actor_id as string;
         let versionId = row.ai_actor_version_id as string | null;
 
-        // If no specific version pinned, find the latest approved version
+        // If no specific version pinned, resolve from Phase 4 canonical approved_version_id
         if (!versionId) {
-          const { data: versions } = await (supabase as any)
-            .from('ai_actor_versions')
-            .select('id')
-            .eq('actor_id', actorId)
-            .eq('is_approved', true)
-            .order('version_number', { ascending: false })
-            .limit(1);
-          versionId = versions?.[0]?.id || null;
+          const { data: actorRow } = await (supabase as any)
+            .from('ai_actors')
+            .select('approved_version_id')
+            .eq('id', actorId)
+            .maybeSingle();
+          versionId = actorRow?.approved_version_id || null;
         }
 
         if (!versionId) {

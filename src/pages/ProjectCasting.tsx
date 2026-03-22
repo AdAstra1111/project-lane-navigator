@@ -171,8 +171,8 @@ export default function ProjectCasting() {
         <div className="space-y-2">
           {(mappings || []).map(m => {
             const actor = actors.find((a: any) => a.id === m.ai_actor_id);
-            const thumbnail = actor ? getActorThumbnail(actor.ai_actor_versions) : null;
-            const identity = actor ? getIdentityStrength(actor.ai_actor_versions) : null;
+            const thumbnail = actor ? getActorThumbnail(actor.ai_actor_versions, (actor as any).approved_version_id) : null;
+            const identity = actor ? getIdentityStrength(actor.ai_actor_versions, (actor as any).approved_version_id) : null;
             const charKey = m.character_key.toLowerCase().trim();
             const resolvedIdentity = identityMap?.[charKey];
 
@@ -330,7 +330,11 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
   onCast: (actorId: string, versionId?: string) => void;
 }) {
   const [selecting, setSelecting] = useState(false);
-  const activeActors = actors.filter((a: any) => a.status === 'active' || a.status === 'draft');
+  // Prefer roster-ready actors; show all active/draft as fallback if no roster actors exist
+  const rosterActors = actors.filter((a: any) => (a as any).roster_ready === true);
+  const activeActors = rosterActors.length > 0
+    ? rosterActors
+    : actors.filter((a: any) => a.status === 'active' || a.status === 'draft');
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-border/50 bg-muted/5">
@@ -359,14 +363,15 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
         <div className="flex items-center gap-2">
           <Select onValueChange={(val) => {
             const actor = actors.find((a: any) => a.id === val);
-            const approvedVer = actor?.ai_actor_versions?.find((v: any) => v.is_approved);
-            onCast(val, approvedVer?.id);
+            // Use Phase 4 canonical approved_version_id, not legacy is_approved
+            const approvedVersionId = (actor as any)?.approved_version_id || null;
+            onCast(val, approvedVersionId);
             setSelecting(false);
           }}>
             <SelectTrigger className="h-7 text-xs w-[180px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
             <SelectContent>
               {activeActors.map((a: any) => {
-                const thumb = getActorThumbnail(a.ai_actor_versions);
+                const thumb = getActorThumbnail(a.ai_actor_versions, (a as any).approved_version_id);
                 return (
                   <SelectItem key={a.id} value={a.id} className="text-xs">
                     <span className="flex items-center gap-2">
@@ -396,8 +401,9 @@ function CastActorSelect({ actors, onSelect }: {
   return (
     <Select onValueChange={(val) => {
       const actor = actors.find((a: any) => a.id === val);
-      const approvedVer = actor?.ai_actor_versions?.find((v: any) => v.is_approved);
-      onSelect(val, approvedVer?.id);
+      // Use Phase 4 canonical approved_version_id, not legacy is_approved
+      const approvedVersionId = (actor as any)?.approved_version_id || null;
+      onSelect(val, approvedVersionId);
     }}>
       <SelectTrigger className="h-9 text-xs w-[200px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
       <SelectContent>
