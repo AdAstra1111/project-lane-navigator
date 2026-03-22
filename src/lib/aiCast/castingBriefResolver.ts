@@ -52,6 +52,8 @@ export interface CastingBrief {
   suggested_actor_name: string;
   actor_description: string;
   actor_tags: string[];
+  /** Phase 17.6: Curated phrase-level highlights for modal chip display */
+  actor_criteria_highlights: string[];
 }
 
 export interface CharacterCastingBriefResult {
@@ -974,7 +976,8 @@ function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): stri
 
 /**
  * Compose clean, concise actor tags from identity buckets.
- * Tags are lowercase, underscore-separated, deduped, reusable.
+ * Tags are PHRASE-LEVEL tokens (underscore-separated), not split-word debris.
+ * "dark hair" → "dark_hair", NOT "dark" + "hair".
  */
 function composeActorTagsFromBuckets(
   buckets: ActorIdentityBuckets,
@@ -982,9 +985,9 @@ function composeActorTagsFromBuckets(
 ): string[] {
   const raw: string[] = [];
 
-  if (genderHint) raw.push(genderHint);
+  if (genderHint) raw.push(genderHint.toLowerCase().trim());
 
-  // Flatten all buckets into tag candidates
+  // Flatten all buckets into tag candidates — PHRASE-LEVEL, not word-level
   const allBuckets = [
     buckets.age, buckets.ethnicity, buckets.build, buckets.height,
     buckets.face, buckets.hair, buckets.eyes, buckets.skin,
@@ -993,12 +996,14 @@ function composeActorTagsFromBuckets(
 
   for (const bucket of allBuckets) {
     for (const item of bucket) {
-      // Split compound phrases into individual tag tokens
-      const tokens = item.toLowerCase()
-        .replace(/[,;.!?()]+/g, ' ')
-        .split(/\s+/)
-        .filter(t => t.length > 2 && t.length < 25);
-      raw.push(...tokens);
+      // Normalize the whole phrase as a single tag token
+      const phrase = item.toLowerCase().trim()
+        .replace(/[,;.!?()]+/g, '')
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_-]/g, '');
+      if (phrase.length >= 3 && phrase.length <= 30) {
+        raw.push(phrase);
+      }
     }
   }
 
@@ -1006,13 +1011,12 @@ function composeActorTagsFromBuckets(
   const seen = new Set<string>();
   const tags: string[] = [];
   for (const r of raw) {
-    const norm = r.replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
-    if (!norm || norm.length < 3 || norm.length > 25) continue;
-    if (seen.has(norm)) continue;
+    if (!r || r.length < 3 || r.length > 30) continue;
+    if (seen.has(r)) continue;
     // Final personality check — reject any personality terms that snuck through
-    if (PERSONALITY_DENYLIST.has(norm.replace(/_/g, ' '))) continue;
-    seen.add(norm);
-    tags.push(norm);
+    if (PERSONALITY_DENYLIST.has(r.replace(/_/g, ' '))) continue;
+    seen.add(r);
+    tags.push(r);
   }
 
   return tags.slice(0, 15);
@@ -1051,6 +1055,90 @@ function composeNegativePrompt(canonJson: any): string[] {
   return [...new Set(exclusions)];
 }
 
+/**
+ * Phase 17.6: Identity expansion — attempt to fill sparse buckets
+ * when minimum quality is not met, using safe deterministic rules.
+ */
+function expandIdentityBuckets(
+  buckets: ActorIdentityBuckets,
+  roleInStory: string | null,
+  worldStylingCues: string[],
+): ActorIdentityBuckets {
+  const expanded: ActorIdentityBuckets = {
+    age: [...buckets.age],
+    gender: [...buckets.gender],
+    ethnicity: [...buckets.ethnicity],
+    build: [...buckets.build],
+    height: [...buckets.height],
+    face: [...buckets.face],
+    hair: [...buckets.hair],
+    eyes: [...buckets.eyes],
+    skin: [...buckets.skin],
+    scars_marks: [...buckets.scars_marks],
+    styling: [...buckets.styling],
+    presence: [...buckets.presence],
+    archetype: [...buckets.archetype],
+  };
+
+  // If height exists but build is empty, try to pair
+  if (expanded.height.length > 0 && expanded.build.length === 0) {
+    const h = expanded.height[0].toLowerCase();
+    if (/\btall\b/.test(h)) expanded.build.push('slender frame');
+    else if (/\bpetite\b/.test(h)) expanded.build.push('petite frame');
+  }
+
+  // If styling empty and world cues available, add period styling
+  if (expanded.styling.length === 0 && worldStylingCues.length > 0) {
+    expanded.styling.push('period-appropriate styling');
+  }
+
+  // For leads, be more aggressive about promoting safe archetype to presence
+  const isLead = roleInStory
+    ? /\b(?:protagonist|lead|main\s*character|central|hero|heroine|principal)\b/i.test(roleInStory)
+    : false;
+
+  if (isLead && expanded.presence.length === 0) {
+    const promotable = expanded.archetype.filter(a => isPerformerSafePresence(a.toLowerCase()));
+    for (const p of promotable) {
+      expanded.presence.push(expandPresenceMarker(p));
+    }
+    expanded.archetype = expanded.archetype.filter(a => !promotable.includes(a));
+  }
+
+  return expanded;
+}
+
+/**
+ * Phase 17.6: Compose curated phrase-level actor criteria highlights for modal chip display.
+ * Returns 4–6 high-value, deduped, human-readable phrases.
+ */
+function composeActorCriteriaHighlights(buckets: ActorIdentityBuckets): string[] {
+  const highlights: string[] = [];
+  const seen = new Set<string>();
+
+  const addUnique = (phrase: string) => {
+    const norm = phrase.toLowerCase().trim();
+    if (norm.length < 3 || seen.has(norm)) return;
+    seen.add(norm);
+    highlights.push(phrase.trim());
+  };
+
+  // Priority: face/hair → body/height → presence → styling → marks
+  for (const f of dedupeAndResolveConflicts(buckets.face).slice(0, 1)) addUnique(f);
+  for (const h of dedupeAndResolveConflicts(buckets.hair).slice(0, 1)) addUnique(h);
+  for (const e of dedupeAndResolveConflicts(buckets.eyes).slice(0, 1)) addUnique(e);
+
+  const height = dedupeAndResolveConflicts(buckets.height);
+  const build = dedupeAndResolveConflicts(buckets.build);
+  if (height.length > 0) addUnique(height[0]);
+  else if (build.length > 0) addUnique(build[0]);
+
+  for (const p of dedupeAndResolveConflicts(buckets.presence).slice(0, 1)) addUnique(p);
+  for (const s of dedupeAndResolveConflicts(buckets.styling).slice(0, 1)) addUnique(s);
+  for (const m of dedupeAndResolveConflicts(buckets.scars_marks).slice(0, 1)) addUnique(m);
+
+  return highlights.slice(0, 6);
+}
 
 export async function buildCharacterCastingBrief(
   projectId: string,
@@ -1320,7 +1408,12 @@ export async function buildCharacterCastingBrief(
   }
 
   // ── Phase 17.5: Identity completion ────────────────────────────────────
-  const buckets = completeActorIdentityBuckets(rawBuckets, roleInStory, stylingCues);
+  let buckets = completeActorIdentityBuckets(rawBuckets, roleInStory, stylingCues);
+
+  // ── Phase 17.6: Identity expansion — enforce minimum quality ──────────
+  if (!meetsMinimumIdentityQuality(buckets)) {
+    buckets = expandIdentityBuckets(buckets, roleInStory, stylingCues);
+  }
 
   // ── Compose actor identity from completed buckets ──────────────────────
   const composedDescription = composeActorDescriptionFromBuckets(buckets);
@@ -1334,14 +1427,14 @@ export async function buildCharacterCastingBrief(
     ? dedupedPresence.slice(0, 3).join(', ')
     : null;
 
-  // Tags from buckets
+  // Tags from buckets (phrase-level)
   const actorTags = composeActorTagsFromBuckets(buckets, genderPresentation);
+
+  // Curated chips for modal display
+  const actorCriteriaHighlights = composeActorCriteriaHighlights(buckets);
 
   // Negative exclusions from project world/style
   const negativeExclusions = composeNegativePrompt(canonRow?.canon_json);
-
-  // Quality gate diagnostic (does not block, but informs)
-  const _qualityMet = meetsMinimumIdentityQuality(buckets);
 
   const brief: CastingBrief = {
     age_hint: ageHint,
@@ -1361,6 +1454,7 @@ export async function buildCharacterCastingBrief(
     suggested_actor_name: displayName,
     actor_description: actorDescription,
     actor_tags: actorTags,
+    actor_criteria_highlights: actorCriteriaHighlights,
   };
 
   return { context, brief };
@@ -1386,4 +1480,6 @@ export const _testHelpers = {
   expandPresenceMarker,
   anchorFloatingAdjective,
   FLOATING_ADJECTIVES,
+  expandIdentityBuckets,
+  composeActorCriteriaHighlights,
 };

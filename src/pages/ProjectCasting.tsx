@@ -2436,7 +2436,7 @@ function InlineCreateActorDialog({
                   {brief.visual_archetype && (
                     <Badge variant="outline" className="text-[9px] h-4 border-primary/30 text-primary">{brief.visual_archetype}</Badge>
                   )}
-                  {brief.appearance_markers.slice(0, 3).map((m, i) => (
+                  {(brief.actor_criteria_highlights || brief.appearance_markers).slice(0, 4).map((m, i) => (
                     <Badge key={i} variant="secondary" className="text-[9px] h-4">{m}</Badge>
                   ))}
                 </div>
