@@ -1,14 +1,23 @@
 /**
  * narrativeMoments — Client-side narrative moment resolver for lookbook slides.
  *
- * Resolves a deterministic “narrative moment” per slide from available canon data.
+ * Resolves a deterministic "narrative moment" per slide from available canon data.
  * Used by the pipeline for provenance and by the viewer for diagnostics.
+ *
+ * Phase 18.1: When a canonical shot list exists, it becomes the PRIORITY SOURCE
+ * for moment derivation. Canon-based fallback remains for projects without shot lists.
  *
  * The ACTUAL narrative moment injection into generation prompts happens
  * server-side in the edge function (loadNarrativeMoments + selectNarrativeMoment).
  * This client-side engine provides the pipeline with structured moment context
  * for election scoring and assembly diagnostics.
  */
+import type { LookbookShotSource } from './shotListLookbookResolver';
+import {
+  mapShotSourceToSlideType,
+  deriveShotListIntensity,
+  deriveShotListEmotionalState,
+} from './shotListLookbookResolver';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,10 +26,14 @@ export interface NarrativeMomentContext {
   characters_present: string[];
   emotional_state: string;
   intensity: number; // 0–1
+  /** Phase 18.1: source of this narrative moment */
+  narrative_source: 'shot_list' | 'canon_fallback';
+  /** Phase 18.1: IDs of shot list items used, if any */
+  shot_list_item_ids: string[];
 }
 
 // ── Slide → Intensity Map ────────────────────────────────────────────────────
-// Deterministic editorial intensity per slide type
+// Deterministic editorial intensity per slide type (canon fallback)
 
 const SLIDE_INTENSITY: Record<string, number> = {
   cover: 0.7,
@@ -54,17 +67,56 @@ const SLIDE_EMOTIONAL_STATE: Record<string, string> = {
   closing: 'resolution',
 };
 
-// ── Resolver ─────────────────────────────────────────────────────────────────
+// ── Shot-List-Driven Resolver (Phase 18.1 Priority Path) ─────────────────────
 
 /**
- * Resolve a deterministic narrative moment for a lookbook slide.
- *
- * @param slideType - The canonical slide type
- * @param canonJson - Project canon data (logline, premise, characters, etc.)
- * @param slideTitle - Optional slide title for context
- * @param slideBody - Optional slide body text for context
+ * Resolve narrative moment from canonical shot list.
+ * Returns null if shot list has no relevant items for this slide type.
  */
-export function resolveNarrativeMomentForSlide(
+function resolveFromShotList(
+  slideType: string,
+  shotSource: LookbookShotSource,
+): NarrativeMomentContext | null {
+  const mapped = mapShotSourceToSlideType(slideType, shotSource, 5);
+  if (!mapped.length) return null;
+
+  const primary = mapped[0];
+
+  // Build moment text from shot list action + scene heading
+  const parts: string[] = [];
+  if (primary.scene_heading) parts.push(primary.scene_heading);
+  if (primary.action) parts.push(primary.action);
+  let moment_text = parts.join(' — ') || 'A cinematic moment from the planned film.';
+  if (moment_text.length > 300) moment_text = moment_text.slice(0, 297) + '...';
+
+  // Collect characters from all mapped shots (deduplicated)
+  const charSet = new Set<string>();
+  for (const item of mapped) {
+    for (const c of item.characters_present) charSet.add(c);
+  }
+  let characters_present = [...charSet];
+
+  // For non-character slides, reduce character presence
+  if (['world', 'visual_language', 'themes', 'comparables', 'closing'].includes(slideType)) {
+    characters_present = [];
+  }
+  if (['key_moments', 'story_engine', 'cover', 'poster_directions'].includes(slideType)) {
+    characters_present = characters_present.slice(0, 4);
+  }
+
+  return {
+    moment_text,
+    characters_present,
+    emotional_state: deriveShotListEmotionalState(primary),
+    intensity: deriveShotListIntensity(mapped, shotSource.items.length),
+    narrative_source: 'shot_list',
+    shot_list_item_ids: mapped.map(m => m.id),
+  };
+}
+
+// ── Canon Fallback Resolver ──────────────────────────────────────────────────
+
+function resolveFromCanon(
   slideType: string,
   canonJson: Record<string, unknown> | null,
   slideTitle?: string,
@@ -73,7 +125,6 @@ export function resolveNarrativeMomentForSlide(
   const intensity = SLIDE_INTENSITY[slideType] ?? 0.5;
   const emotional_state = SLIDE_EMOTIONAL_STATE[slideType] ?? 'neutral';
 
-  // Extract characters from canon if available
   let characters_present: string[] = [];
   if (canonJson?.characters && Array.isArray(canonJson.characters)) {
     characters_present = canonJson.characters
@@ -82,17 +133,13 @@ export function resolveNarrativeMomentForSlide(
       .filter(Boolean);
   }
 
-  // For non-character slides, reduce character presence
   if (['world', 'visual_language', 'themes', 'comparables', 'closing'].includes(slideType)) {
     characters_present = [];
   }
-  // For character slides, keep all
-  // For scene slides, keep top 2
   if (['key_moments', 'story_engine', 'cover', 'poster_directions'].includes(slideType)) {
     characters_present = characters_present.slice(0, 2);
   }
 
-  // Build moment text from available canon
   const logline = typeof canonJson?.logline === 'string' ? canonJson.logline : '';
   const premise = typeof canonJson?.premise === 'string' ? canonJson.premise : '';
   const conflict = typeof canonJson?.central_conflict === 'string' ? canonJson.central_conflict : '';
@@ -129,17 +176,48 @@ export function resolveNarrativeMomentForSlide(
       moment_text = logline || premise || slideTitle || 'A moment from the story.';
   }
 
-  // Truncate to reasonable length
-  if (moment_text.length > 300) {
-    moment_text = moment_text.slice(0, 297) + '...';
-  }
+  if (moment_text.length > 300) moment_text = moment_text.slice(0, 297) + '...';
 
   return {
     moment_text,
     characters_present,
     emotional_state,
     intensity,
+    narrative_source: 'canon_fallback',
+    shot_list_item_ids: [],
   };
+}
+
+// ── Main Resolver ────────────────────────────────────────────────────────────
+
+/**
+ * Resolve a deterministic narrative moment for a lookbook slide.
+ *
+ * Phase 18.1: If shotSource is provided and contains relevant items,
+ * it becomes the PRIORITY SOURCE. Canon fallback used only when no
+ * shot list data exists or has no relevant items for this slide type.
+ *
+ * @param slideType - The canonical slide type
+ * @param canonJson - Project canon data (logline, premise, characters, etc.)
+ * @param slideTitle - Optional slide title for context
+ * @param slideBody - Optional slide body text for context
+ * @param shotSource - Optional canonical shot list source (Phase 18.1)
+ */
+export function resolveNarrativeMomentForSlide(
+  slideType: string,
+  canonJson: Record<string, unknown> | null,
+  slideTitle?: string,
+  slideBody?: string,
+  shotSource?: LookbookShotSource | null,
+): NarrativeMomentContext {
+  // Phase 18.1: Shot list is priority source when available
+  if (shotSource && shotSource.items.length > 0) {
+    const fromShotList = resolveFromShotList(slideType, shotSource);
+    if (fromShotList) return fromShotList;
+  }
+
+  // Fallback: canon-based derivation (Phase 18 behavior)
+  return resolveFromCanon(slideType, canonJson, slideTitle, slideBody);
 }
 
 /**
@@ -154,6 +232,9 @@ export function serializeNarrativeMoment(moment: NarrativeMomentContext): string
   }
   lines.push(`EMOTIONAL STATE: ${moment.emotional_state}`);
   lines.push(`INTENSITY: ${(moment.intensity * 100).toFixed(0)}%`);
+  if (moment.narrative_source === 'shot_list') {
+    lines.push(`SOURCE: Canonical Shot List`);
+  }
   lines.push('');
   lines.push('Generate this image to embody this narrative context.');
   return lines.join('\n');
