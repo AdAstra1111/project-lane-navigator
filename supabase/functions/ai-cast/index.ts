@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
       case "get_actor": {
         const { actorId } = body;
         const { data, error } = await db.from("ai_actors")
-          .select("*, ai_actor_versions(*, ai_actor_assets(*))")
+          .select("*, ai_actor_versions!ai_actor_versions_actor_id_fkey(*, ai_actor_assets(*))")
           .eq("id", actorId)
           .eq("user_id", userId)
           .single();
