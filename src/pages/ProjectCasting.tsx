@@ -237,6 +237,22 @@ export default function ProjectCasting() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Auto-repair mutation (Phase 14)
+  const autoRepairMutation = useMutation({
+    mutationFn: (priorities: ('high' | 'medium' | 'low')[]) =>
+      executeAutoRepair(projectId!, { priorities }),
+    onSuccess: (result: AutoRepairResult) => {
+      if (result.created === 0 && result.skipped_duplicates === 0) {
+        toast.info('No eligible items to repair');
+      } else {
+        toast.success(`Created ${result.created} job(s)${result.skipped_duplicates > 0 ? `, ${result.skipped_duplicates} skipped (duplicates)` : ''}`);
+      }
+      refetchRegenJobs();
+      qc.invalidateQueries({ queryKey: ['regen-policy', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
