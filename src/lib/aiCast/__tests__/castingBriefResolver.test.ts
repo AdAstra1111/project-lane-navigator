@@ -119,6 +119,14 @@ describe('sanitizePlotLanguage', () => {
   it('handles empty input', () => {
     expect(sanitizePlotLanguage('')).toBe('');
   });
+
+  it('preserves appearance sentences mixed with plot', () => {
+    const input = 'Angular jawline with high cheekbones. She hides a terrible secret. Pale complexion.';
+    const result = sanitizePlotLanguage(input);
+    expect(result).toContain('Angular jawline');
+    expect(result).toContain('Pale complexion');
+    expect(result).not.toContain('secret');
+  });
 });
 
 // ── D. Performer-safe presence markers ───────────────────────────────────
