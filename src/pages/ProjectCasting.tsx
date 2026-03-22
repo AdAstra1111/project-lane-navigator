@@ -230,6 +230,7 @@ export default function ProjectCasting() {
     qc.invalidateQueries({ queryKey: ['cast-health', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-regen-jobs', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-consistency', projectId] });
+    qc.invalidateQueries({ queryKey: ['scene-integrity', projectId] });
   };
 
   const addMapping = useMutation({
