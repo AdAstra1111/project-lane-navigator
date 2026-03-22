@@ -1070,9 +1070,104 @@ describe('description base anchor enforcement', () => {
 });
 });
 
-// ── Section-Aware Character Extraction ──────────────────────────────────────
+// ── Record-Card Format Extraction ──────────────────────────────────────
 
-describe('extractCharacterPassages — section-aware extraction', () => {
+describe('extractCharacterPassages — record-card format', () => {
+  const RECORD_CARD_BIBLE = `
+# Character Bible
+
+### NAME
+Hana
+### ROLE
+protagonist
+### AGE
+early 20s
+### PHYSICAL DESCRIPTION
+Small in stature but with a quiet strength in her posture. Her dark hair falls past her shoulders in a simple braid. Her eyes are large and expressive, hinting at intelligence beyond her years.
+### BACKSTORY
+Born into a powerful family, she was betrothed at a young age. Her mother died when she was twelve.
+### MOTIVATION
+She seeks freedom from the constraints of her social position.
+
+### NAME
+Lord Kageyama
+### ROLE
+primary antagonist
+### AGE
+late 50s
+### PHYSICAL DESCRIPTION
+Kageyama is a towering figure with a broad, powerful frame. His face bears deep-set lines from decades of warfare. A jagged scar runs from his left temple to his jaw. His hair is cropped short, streaked with grey.
+### BACKSTORY
+Rose to power through strategic marriages and ruthless military campaigns.
+### SECRETS
+He murdered his own brother to seize the estate.
+`;
+
+  it('captures Hana PHYSICAL DESCRIPTION from record-card format', () => {
+    const passages = extractCharacterPassages(RECORD_CARD_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    expect(joined).toContain('dark hair');
+    expect(joined).toContain('expressive');
+    expect(joined).toContain('quiet strength');
+  });
+
+  it('captures Hana AGE from record-card format', () => {
+    const passages = extractCharacterPassages(RECORD_CARD_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    expect(joined).toContain('early 20s');
+  });
+
+  it('excludes Hana BACKSTORY and MOTIVATION from performer passages', () => {
+    const passages = extractCharacterPassages(RECORD_CARD_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    expect(joined).not.toContain('betrothed');
+    expect(joined).not.toContain('freedom from the constraints');
+  });
+
+  it('captures Lord Kageyama via record-card format', () => {
+    const passages = extractCharacterPassages(RECORD_CARD_BIBLE, 'Lord Kageyama', 'lord kageyama');
+    const joined = passages.join(' ');
+    expect(joined).toContain('towering figure');
+    expect(joined).toContain('jagged scar');
+    expect(joined).toContain('streaked with grey');
+  });
+
+  it('excludes Lord Kageyama BACKSTORY and SECRETS', () => {
+    const passages = extractCharacterPassages(RECORD_CARD_BIBLE, 'Lord Kageyama', 'lord kageyama');
+    const joined = passages.join(' ');
+    expect(joined).not.toContain('ruthless military campaigns');
+    expect(joined).not.toContain('murdered');
+  });
+
+  it('does not cross-contaminate between record-card characters', () => {
+    const passages = extractCharacterPassages(RECORD_CARD_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    expect(joined).not.toContain('towering figure');
+    expect(joined).not.toContain('jagged scar');
+  });
+
+  it('handles bullet-prefixed record-card headings', () => {
+    const bulletDoc = `
+- ### NAME
+Akemi
+- ### AGE
+mid 20s
+- ### PHYSICAL DESCRIPTION
+Tall and slender with piercing green eyes. Her auburn hair is always pulled back.
+- ### BACKSTORY
+Wants to overthrow the regime.
+`;
+    const passages = extractCharacterPassages(bulletDoc, 'Akemi', 'akemi');
+    const joined = passages.join(' ');
+    expect(joined).toContain('piercing green eyes');
+    expect(joined).toContain('mid 20s');
+    expect(joined).not.toContain('overthrow');
+  });
+});
+
+// ── Hierarchical Section-Aware Extraction ──────────────────────────────────
+
+describe('extractCharacterPassages — hierarchical section-aware extraction', () => {
   const STRUCTURED_CHARACTER_BIBLE = `
 # Character Bible
 
@@ -1185,7 +1280,6 @@ Hana walks with a graceful posture befitting her noble birth.
   it('does not cross-contaminate between character sections', () => {
     const passages = extractCharacterPassages(STRUCTURED_CHARACTER_BIBLE, 'Hana', 'hana');
     const joined = passages.join(' ');
-    // Should not contain Lord Kageyama's physical description
     expect(joined).not.toContain('towering figure');
     expect(joined).not.toContain('jagged scar');
   });

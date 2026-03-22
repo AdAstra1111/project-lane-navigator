@@ -1999,6 +1999,7 @@ export const _testHelpers = {
   buildCharacterNamePatterns,
   parseDocumentSections,
   findCharacterSectionRange,
+  extractRecordCardCharacter,
   PERFORMER_SECTION_HEADINGS,
   STORY_SECTION_HEADINGS,
 };
