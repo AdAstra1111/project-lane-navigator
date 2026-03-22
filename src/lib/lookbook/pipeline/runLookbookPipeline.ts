@@ -278,6 +278,32 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     // ── STAGE: MODE_SELECTION ──
     updateStage(PipelineStage.MODE_SELECTION, startStage);
     log(`Mode: ${options.mode}`);
+
+    // ── Shot List Preflight (Phase 18.2) ──
+    let shotListPreflightResult: ShotListPreflightResult | undefined;
+    try {
+      reportProgress(PipelineStage.MODE_SELECTION, 'Checking shot list availability...', 30);
+      // Get current user for shot list generation attribution
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      shotListPreflightResult = await ensureCanonicalShotListForLookbook(
+        options.projectId,
+        currentUser?.id,
+      );
+      const pfStatus = shotListPreflightResult.status;
+      const pfReason = shotListPreflightResult.reason || '';
+      if (pfStatus === 'ready') {
+        log(`Shot list preflight: READY (existing) — ${pfReason}`);
+      } else if (pfStatus === 'generated') {
+        log(`Shot list preflight: GENERATED (auto) — ${pfReason}`);
+      } else if (pfStatus === 'failed') {
+        log(`Shot list preflight: FAILED — ${pfReason} — falling back to Phase 18 mode`);
+      } else {
+        log(`Shot list preflight: UNAVAILABLE — ${pfReason} — using fallback lookbook mode`);
+      }
+    } catch (e) {
+      log(`Shot list preflight error (non-blocking): ${(e as Error).message}`);
+    }
+
     updateStage(PipelineStage.MODE_SELECTION, s => completeStage(s, options.mode));
     reportProgress(PipelineStage.MODE_SELECTION, `Mode: ${options.mode}`, 100);
 
