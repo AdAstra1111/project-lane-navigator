@@ -261,6 +261,16 @@ export default function CastingStudio() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => handleGenerate()}
+            disabled={isGenerating || characters.length === 0}
+          >
+            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {isGenerating ? 'Generating…' : 'Generate Casting'}
+          </Button>
           {shortlistedIds.length > 0 && (
             <Button
               size="sm"
