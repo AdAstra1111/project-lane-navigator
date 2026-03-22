@@ -1480,4 +1480,6 @@ export const _testHelpers = {
   expandPresenceMarker,
   anchorFloatingAdjective,
   FLOATING_ADJECTIVES,
+  expandIdentityBuckets,
+  composeActorCriteriaHighlights,
 };
