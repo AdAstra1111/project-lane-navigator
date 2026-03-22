@@ -123,9 +123,9 @@ export default function ProjectCasting() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Rebind via edge function
+  // Rebind via edge function (version resolved canonically by backend RPC)
   const rebindMutation = useMutation({
-    mutationFn: async (params: { characterKey: string; nextActorId: string; nextActorVersionId?: string; reason?: string }) => {
+    mutationFn: async (params: { characterKey: string; nextActorId: string; reason?: string }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
       const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rebind-project-cast`, {
@@ -138,7 +138,6 @@ export default function ProjectCasting() {
           projectId,
           characterKey: params.characterKey,
           nextActorId: params.nextActorId,
-          nextActorVersionId: params.nextActorVersionId,
           reason: params.reason,
         }),
       });
@@ -151,7 +150,11 @@ export default function ProjectCasting() {
       return resp.json();
     },
     onSuccess: (data) => {
-      toast.success(`${data.action === 'unbind' ? 'Unbound' : 'Rebound'} successfully`);
+      if (data.no_op) {
+        toast.info('Already up to date');
+      } else {
+        toast.success(`${data.action === 'unbind' ? 'Unbound' : 'Rebound'} successfully`);
+      }
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
