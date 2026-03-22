@@ -1758,4 +1758,10 @@ export const _testHelpers = {
   generateSyntheticActorName,
   composeActorRosterName,
   allocateNextRosterNumber,
+  inferGenderFromPassages,
+  inferGenderFromRoleText,
+  inferAgeFromPassages,
+};
+  composeActorRosterName,
+  allocateNextRosterNumber,
 };
