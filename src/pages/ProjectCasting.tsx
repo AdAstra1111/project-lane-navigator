@@ -148,11 +148,20 @@ export default function ProjectCasting() {
             Map project characters to your AI actors for consistent identity across all pipelines
           </p>
         </div>
-        <Link to="/ai-cast">
-          <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
-            <ExternalLink className="h-3 w-3" /> Actor Library
-          </Button>
-        </Link>
+        <div className="flex gap-2">
+          <Link to="/ai-cast">
+            <Button variant="default" size="sm" className="h-8 text-xs gap-1.5">
+              <ExternalLink className="h-3.5 w-3.5" /> AI Actors Agency
+            </Button>
+          </Link>
+          {projectId && (
+            <Link to={`/projects/${projectId}/casting-studio`}>
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+                <Users className="h-3.5 w-3.5" /> Casting Studio
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Existing mappings */}

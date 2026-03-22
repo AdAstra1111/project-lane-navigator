@@ -219,6 +219,26 @@ export default function VisualDevHub() {
             subtitle="Headshots, profile views, full-body anchors, and continuity lock"
             defaultOpen={false}
           >
+            <div className="flex flex-wrap gap-2 mb-4">
+              <Link to="/ai-cast">
+                <Button variant="default" size="sm" className="text-xs gap-1.5">
+                  <Users className="h-3.5 w-3.5" />
+                  AI Actors Agency
+                </Button>
+              </Link>
+              <Link to={`/projects/${projectId}/casting`}>
+                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  <Users className="h-3.5 w-3.5" />
+                  Project Casting
+                </Button>
+              </Link>
+              <Link to={`/projects/${projectId}/casting-studio`}>
+                <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  <Users className="h-3.5 w-3.5" />
+                  Casting Studio
+                </Button>
+              </Link>
+            </div>
             {projectId && <CharacterBaseLookPanel projectId={projectId} />}
           </WorkSection>
 
