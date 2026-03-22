@@ -75,6 +75,25 @@ function getScoringContext(ctx: ElectionContext, slideType: string, boundPrincip
   };
 }
 
+/**
+ * Compute augmented score: base scorer + Phase 16.5 selection scoring.
+ * The selection score (0–100) is scaled to a ±15 modifier on the base score,
+ * centered at 50 (neutral). This preserves base scorer primacy while
+ * rewarding style/intent/cohesion alignment.
+ */
+function computeAugmentedScore(
+  img: ProjectImage,
+  slideType: string,
+  baseScore: number,
+  selectionCtx: SelectionScoringContext | null,
+): { total: number; selectionScore?: LookbookSelectionScore } {
+  if (!selectionCtx) return { total: baseScore };
+  const sel = scoreLookbookCandidate(img, selectionCtx);
+  // Map 0–100 → -15 to +15 (50 is neutral = 0 modifier)
+  const modifier = ((sel.total_score - 50) / 50) * 15;
+  return { total: baseScore + modifier, selectionScore: sel };
+}
+
 
 // ── Foreground election ──────────────────────────────────────────────────────
 
@@ -86,13 +105,18 @@ export function pickForegroundImages(
   excludeUrls: string[] = [],
   boundPrincipalIds?: Set<string>,
   hasSceneEvidence?: boolean,
+  selectionCtx?: SelectionScoringContext | null,
 ): string[] {
   const seen = new Set(excludeUrls);
   const scoringCtx = getScoringContext(ctx, slideType, boundPrincipalIds, hasSceneEvidence);
   const scored = pool
     .filter(img => img.signedUrl && !seen.has(img.signedUrl!))
-    .map(img => ({ img, score: scoreImageForSlide(img, slideType, true, scoringCtx) }))
-    .sort((a, b) => b.score - a.score);
+    .map(img => {
+      const base = scoreImageForSlide(img, slideType, true, scoringCtx);
+      const { total, selectionScore } = computeAugmentedScore(img, slideType, base, selectionCtx || null);
+      return { img, score: total, selectionScore };
+    })
+    .sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
 
   const result: string[] = [];
   const winners: Array<{ id: string; score: number; primary: boolean; age: string }> = [];
