@@ -116,12 +116,11 @@ async function resolveProjectCharacters(projectId: string): Promise<ProjectChara
         results.push({
           character_key: normalizeCharacterKey(subject),
           display_name: subject,
-          // traits_text now uses actor_description (visual only, plot-sanitized)
           traits_text: briefResult.brief.actor_description,
           age_hint: briefResult.brief.age_hint,
           gender_hint: briefResult.brief.gender_presentation,
-          // tags from casting brief (visual/appearance tags only)
           tags: briefResult.brief.actor_tags,
+          brief: briefResult.brief,
         });
       } catch {
         // Fallback: minimal entry if brief resolution fails
