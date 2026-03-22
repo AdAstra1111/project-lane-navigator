@@ -61,6 +61,7 @@ import {
   type RegenPolicySummary,
   type RegenPolicyItem,
 } from '@/lib/aiCast/regenPolicyEngine';
+import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
 
 interface CastMapping {
   id: string;
