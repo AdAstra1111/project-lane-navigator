@@ -1104,11 +1104,15 @@ const REGEN_STATUS_CONFIG: Record<string, { label: string; className: string }> 
   cancelled: { label: 'Cancelled', className: 'bg-muted text-muted-foreground/60 border-border/50' },
 };
 
-function RegenJobStatusBadge({ status }: { status: string }) {
-  const config = REGEN_STATUS_CONFIG[status] || REGEN_STATUS_CONFIG.queued;
+function RegenJobStatusBadge({ status, errorMessage }: { status: string; errorMessage?: string | null }) {
+  // Show "No Changes Needed" for completed jobs that were idempotent skips
+  const isNoOp = status === 'completed' && errorMessage === 'no_cast_binding';
+  const displayStatus = isNoOp ? 'completed' : status;
+  const config = REGEN_STATUS_CONFIG[displayStatus] || REGEN_STATUS_CONFIG.queued;
+  const label = isNoOp ? 'No Change' : config.label;
   return (
     <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', config.className)}>
-      {config.label}
+      {label}
     </span>
   );
 }
