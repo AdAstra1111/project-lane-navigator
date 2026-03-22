@@ -27147,6 +27147,16 @@ export type Database = {
         }
         Returns: Json
       }
+      rebind_project_ai_cast: {
+        Args: {
+          p_changed_by: string
+          p_character_key: string
+          p_next_actor_id: string
+          p_project_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       resolve_visual_set_readiness: {
         Args: { p_set_id: string }
         Returns: Json
