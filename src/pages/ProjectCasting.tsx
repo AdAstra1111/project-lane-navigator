@@ -76,6 +76,7 @@ import {
 import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import { buildCharacterActorPrefill, type CharacterActorPrefill } from '@/lib/aiCast/characterToActorPrefill';
+import { buildCharacterCastingBrief, type CharacterCastingBriefResult, type CastingBrief, type CharacterContextSummary } from '@/lib/aiCast/castingBriefResolver';
 import {
   createPendingActorBindContext,
   getPendingActorBindContextsForProject,
@@ -2297,7 +2298,7 @@ function CastFromLibraryDialog({
   );
 }
 
-// ── Inline Create Actor Dialog — Phase 17 ───────────────────────────────────
+// ── Inline Create Actor Dialog — Phase 17 + 17.2 (Casting Brief Separation) ─
 
 function InlineCreateActorDialog({
   projectId, characterKey, onClose, onCreatedAndBound, onCreatedPending, actors,
@@ -2309,7 +2310,7 @@ function InlineCreateActorDialog({
   onCreatedPending: (characterKey: string, actorId: string) => void;
   actors: any[];
 }) {
-  const [prefill, setPrefill] = useState<CharacterActorPrefill | null>(null);
+  const [briefResult, setBriefResult] = useState<CharacterCastingBriefResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -2317,21 +2318,20 @@ function InlineCreateActorDialog({
   const [tagsStr, setTagsStr] = useState('');
   const [negativePrompt, setNegativePrompt] = useState('');
 
-  // Load prefill when character key changes
+  // Load casting brief when character key changes
   useEffect(() => {
     if (!characterKey || !projectId) {
-      setPrefill(null);
+      setBriefResult(null);
       return;
     }
     setLoading(true);
-    buildCharacterActorPrefill(projectId, characterKey).then(p => {
-      setPrefill(p);
-      if (p) {
-        setName(p.suggested_actor_name);
-        setDescription(p.description);
-        setTagsStr(p.tags.join(', '));
-        setNegativePrompt('');
-      }
+    buildCharacterCastingBrief(projectId, characterKey).then(result => {
+      setBriefResult(result);
+      // Populate editable fields from casting brief only
+      setName(result.brief.suggested_actor_name);
+      setDescription(result.brief.actor_description);
+      setTagsStr(result.brief.actor_tags.join(', '));
+      setNegativePrompt(result.brief.negative_exclusions.join(', '));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [characterKey, projectId]);
@@ -2340,7 +2340,6 @@ function InlineCreateActorDialog({
     if (!characterKey || !name.trim()) return;
     setCreating(true);
     try {
-      // 1. Create actor via canonical pipeline
       const actorResult = await aiCastApi.createActor({
         name: name.trim(),
         description,
@@ -2349,25 +2348,20 @@ function InlineCreateActorDialog({
       });
       const actorId = actorResult.actor.id;
 
-      // 2. Create initial version
       await aiCastApi.createVersion(actorId, {
         invariants: [`Created from project character: ${characterKey}`],
       });
 
-      // 3. Attempt to bind if actor is already bindable
-      // Refetch actor to check roster_ready / approved_version_id
       const actorData = await aiCastApi.getActor(actorId);
       const actor = actorData?.actor;
 
       if (actor?.roster_ready && actor?.approved_version_id) {
-        // Actor is immediately bindable (unlikely for brand new, but handle)
         await bindActorToProjectCharacter(
           { projectId, characterKey, actorId, actorVersionId: actor.approved_version_id },
           [...actors, actor],
         );
         onCreatedAndBound(characterKey);
       } else {
-        // Actor created but not yet roster-ready — user must validate/promote first
         onCreatedPending(characterKey, actorId);
       }
     } catch (err: any) {
@@ -2377,16 +2371,19 @@ function InlineCreateActorDialog({
     }
   };
 
+  const context = briefResult?.context;
+  const brief = briefResult?.brief;
+
   return (
     <Dialog open={!!characterKey} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-sm flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
             Create Actor for {characterKey}
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Create a new AI actor from this character's canon data. The actor will need validation and promotion before it can be bound.
+            Review the role context and edit the suggested actor criteria below.
           </DialogDescription>
         </DialogHeader>
 
@@ -2396,53 +2393,97 @@ function InlineCreateActorDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Origin context banner */}
-            {prefill && (
-              <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5 text-[10px] text-muted-foreground">
-                Creating actor for <strong className="text-foreground">{prefill.display_name}</strong>
-                {prefill.age_hint && <> · {prefill.age_hint}</>}
-                {prefill.gender_hint && <> · {prefill.gender_hint}</>}
+            {/* Section 1 — Role Context (read-only) */}
+            {context && (
+              <div className="rounded-md border border-border/40 bg-muted/10 p-3 space-y-1.5">
+                <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Role Context
+                </h4>
+                <p className="text-xs font-medium text-foreground">{context.display_name}</p>
+                {context.role_in_story && (
+                  <p className="text-[11px] text-muted-foreground">{context.role_in_story}</p>
+                )}
+                {context.canon_notes.length > 0 && (
+                  <ul className="space-y-0.5 mt-1">
+                    {context.canon_notes.slice(0, 5).map((note, i) => (
+                      <li key={i} className="text-[10px] text-muted-foreground/80 pl-2 border-l border-border/30">
+                        {note}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Actor Name</label>
-              <Input
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Hana Kimura"
-                className="text-xs h-9"
-              />
-            </div>
+            {/* Section 2 — Suggested Actor Criteria (editable) */}
+            <div className="space-y-3">
+              <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Suggested Actor Criteria
+              </h4>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Description (identity prompt)</label>
-              <Textarea
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                placeholder="A young woman in her early 20s, elegant and poised..."
-                className="text-xs min-h-[80px]"
-              />
-            </div>
+              {/* Brief metadata badges */}
+              {brief && (
+                <div className="flex flex-wrap gap-1">
+                  {brief.age_hint && (
+                    <Badge variant="outline" className="text-[9px] h-4">{brief.age_hint}</Badge>
+                  )}
+                  {brief.gender_presentation && (
+                    <Badge variant="outline" className="text-[9px] h-4">{brief.gender_presentation}</Badge>
+                  )}
+                  {brief.ethnicity_or_cultural_appearance && (
+                    <Badge variant="outline" className="text-[9px] h-4">{brief.ethnicity_or_cultural_appearance}</Badge>
+                  )}
+                  {brief.visual_archetype && (
+                    <Badge variant="outline" className="text-[9px] h-4 border-primary/30 text-primary">{brief.visual_archetype}</Badge>
+                  )}
+                  {brief.appearance_markers.slice(0, 3).map((m, i) => (
+                    <Badge key={i} variant="secondary" className="text-[9px] h-4">{m}</Badge>
+                  ))}
+                </div>
+              )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Negative Prompt</label>
-              <Input
-                value={negativePrompt}
-                onChange={e => setNegativePrompt(e.target.value)}
-                placeholder="celebrity, real person, cartoon..."
-                className="text-xs h-9"
-              />
-            </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Actor Name</label>
+                <Input
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Hana Kimura"
+                  className="text-xs h-9"
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
-              <Input
-                value={tagsStr}
-                onChange={e => setTagsStr(e.target.value)}
-                placeholder="lead, elegant, young_adult"
-                className="text-xs h-9"
-              />
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Description (visual identity only)</label>
+                <Textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  placeholder="A young woman in her early 20s, elegant and poised..."
+                  className="text-xs min-h-[80px]"
+                />
+                <p className="text-[9px] text-muted-foreground/60">
+                  Describe the performer's visual appearance only. Story details are excluded automatically.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Negative Prompt</label>
+                <Input
+                  value={negativePrompt}
+                  onChange={e => setNegativePrompt(e.target.value)}
+                  placeholder="celebrity, real person, cartoon..."
+                  className="text-xs h-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
+                <Input
+                  value={tagsStr}
+                  onChange={e => setTagsStr(e.target.value)}
+                  placeholder="lead, elegant, young_adult"
+                  className="text-xs h-9"
+                />
+              </div>
             </div>
 
             <Button

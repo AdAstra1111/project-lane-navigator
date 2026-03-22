@@ -1,16 +1,19 @@
 /**
- * castRecommendationEngine — Phase 16.7: Deterministic cast recommendations.
+ * castRecommendationEngine — Phase 16.7 + 17.2: Deterministic cast recommendations.
  *
  * Proposes strong actor candidates for a project's characters using:
+ * - casting brief (visual performer requirements, NOT raw story text)
  * - existing actor intelligence (quality, reusability, usage)
- * - project canon (character facts, traits, tags)
  * - deterministic tag/text overlap scoring
+ *
+ * Phase 17.2 update: recommendations now consume CastingBrief to prevent
+ * plot-language from influencing actor matching.
  *
  * READ-ONLY. Advisory only. No bindings are mutated.
  *
  * WEIGHTS (documented):
- *   tag_overlap:     35%  — character tags vs actor tags
- *   text_overlap:    25%  — descriptor token overlap
+ *   tag_overlap:     35%  — casting brief tags vs actor tags
+ *   text_overlap:    25%  — actor description token overlap
  *   quality:         20%  — validation quality score
  *   reusability:     12%  — tier-based boost
  *   usage_proof:      8%  — cross-project proof
@@ -27,6 +30,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeCharacterKey } from './normalizeCharacterKey';
 import { getRosterActorsForCasting, type ActorIntelligenceProfile } from './actorIntelligence';
+import { buildCharacterCastingBrief } from './castingBriefResolver';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,26 +78,13 @@ const MAX_RECOMMENDATIONS = 5;
 // ── Character Extraction ─────────────────────────────────────────────────────
 
 /**
- * Resolve project characters from canonical sources.
+ * Resolve project characters from canonical sources, using CastingBrief
+ * to derive visual-only traits/tags (Phase 17.2 separation).
  * Priority: canon_facts (character type) → project_images subjects.
- * Returns enriched character candidates with available traits.
+ * Returns enriched character candidates with appearance-only traits.
  */
 async function resolveProjectCharacters(projectId: string): Promise<ProjectCharacterCandidate[]> {
-  // 1. Try canon_facts for character-type facts
-  const { data: canonFacts } = await supabase
-    .from('canon_facts')
-    .select('subject, predicate, object, value')
-    .eq('project_id', projectId)
-    .eq('is_active', true);
-
-  // Group facts by subject where fact_type = 'character' or predicate suggests character
-  const characterFacts = (canonFacts || []).filter(
-    (f: any) => f.predicate === 'is_character' || f.predicate === 'character_trait' ||
-    f.predicate === 'age' || f.predicate === 'gender' || f.predicate === 'description' ||
-    f.predicate === 'role' || f.predicate === 'appearance'
-  );
-
-  // Get unique character subjects from character-typed facts
+  // 1. Get character subjects from canon_facts
   const { data: charTypeFacts } = await supabase
     .from('canon_facts')
     .select('subject')
@@ -104,27 +95,34 @@ async function resolveProjectCharacters(projectId: string): Promise<ProjectChara
   const charSubjects = [...new Set((charTypeFacts || []).map((d: any) => d.subject))];
 
   if (charSubjects.length > 0) {
-    return charSubjects.map(subject => {
-      const subjectFacts = characterFacts.filter((f: any) => f.subject === subject);
-      const traits: string[] = [];
-      let ageHint: string | null = null;
-      let genderHint: string | null = null;
-
-      for (const fact of subjectFacts) {
-        if (fact.predicate === 'age') ageHint = fact.object;
-        else if (fact.predicate === 'gender') genderHint = fact.object;
-        else if (fact.object) traits.push(fact.object.toLowerCase());
+    // Use casting brief resolver for each character to get visual-only data
+    const results: ProjectCharacterCandidate[] = [];
+    for (const subject of charSubjects) {
+      try {
+        const briefResult = await buildCharacterCastingBrief(projectId, subject);
+        results.push({
+          character_key: normalizeCharacterKey(subject),
+          display_name: subject,
+          // traits_text now uses actor_description (visual only, plot-sanitized)
+          traits_text: briefResult.brief.actor_description,
+          age_hint: briefResult.brief.age_hint,
+          gender_hint: briefResult.brief.gender_presentation,
+          // tags from casting brief (visual/appearance tags only)
+          tags: briefResult.brief.actor_tags,
+        });
+      } catch {
+        // Fallback: minimal entry if brief resolution fails
+        results.push({
+          character_key: normalizeCharacterKey(subject),
+          display_name: subject,
+          traits_text: '',
+          age_hint: null,
+          gender_hint: null,
+          tags: [],
+        });
       }
-
-      return {
-        character_key: normalizeCharacterKey(subject),
-        display_name: subject,
-        traits_text: traits.join(' '),
-        age_hint: ageHint,
-        gender_hint: genderHint,
-        tags: traits.filter(t => t.length > 2 && t.length < 30),
-      };
-    });
+    }
+    return results;
   }
 
   // 2. Fallback: project_images subjects
