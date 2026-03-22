@@ -475,7 +475,316 @@ function extractStylingSignalsFromText(text: string): string[] {
   }
   return signals;
 }
+// ── Phase 17.4: Actor Identity Buckets & Composer ────────────────────────────
 
+/**
+ * Structured identity buckets for deterministic actor description composition.
+ * Signals are classified into explicit physical/visual categories before composition.
+ */
+interface ActorIdentityBuckets {
+  age: string[];
+  gender: string[];
+  ethnicity: string[];
+  build: string[];
+  height: string[];
+  face: string[];
+  hair: string[];
+  eyes: string[];
+  skin: string[];
+  scars_marks: string[];
+  styling: string[];
+  presence: string[];
+  archetype: string[];
+}
+
+function createEmptyBuckets(): ActorIdentityBuckets {
+  return {
+    age: [], gender: [], ethnicity: [], build: [], height: [],
+    face: [], hair: [], eyes: [], skin: [], scars_marks: [],
+    styling: [], presence: [], archetype: [],
+  };
+}
+
+/**
+ * Map a visual marker string into the appropriate identity bucket.
+ * Uses keyword detection to classify — deterministic, no LLM.
+ */
+function classifyIntoBucket(signal: string, buckets: ActorIdentityBuckets): void {
+  const lower = signal.toLowerCase();
+
+  // Age patterns
+  if (/\b(?:early|mid|late)\s*(?:teens|twenties|thirties|forties|fifties|sixties|seventies|eighties)\b/i.test(signal)
+    || /\b\d{1,2}[\s-]*(?:year|yo)\b/i.test(signal)) {
+    buckets.age.push(signal);
+    return;
+  }
+
+  // Hair
+  if (/\bhair\b/i.test(lower) || /\bbraid/i.test(lower) || /\bcropped\b/i.test(lower)
+    || /\bshaved\b/i.test(lower) || /\blocks\b/i.test(lower) || /\bbun\b/i.test(lower)) {
+    buckets.hair.push(signal);
+    return;
+  }
+
+  // Eyes
+  if (/\beyes?\b/i.test(lower) || /\bgaze\b/i.test(lower)) {
+    buckets.eyes.push(signal);
+    return;
+  }
+
+  // Skin / complexion
+  if (/\bskin\b/i.test(lower) || /\bcomplexion\b/i.test(lower) || /\btone\b/i.test(lower)
+    || /\bfreckle/i.test(lower) || /\bpale\b/i.test(lower) || /\bolive\b/i.test(lower)
+    || /\bporcelain\b/i.test(lower) || /\bebony\b/i.test(lower) || /\bivory\b/i.test(lower)) {
+    buckets.skin.push(signal);
+    return;
+  }
+
+  // Scars / marks / tattoos
+  if (/\bscar\b/i.test(lower) || /\btattoo\b/i.test(lower) || /\bpiercing\b/i.test(lower)
+    || /\bbirthmark\b/i.test(lower)) {
+    buckets.scars_marks.push(signal);
+    return;
+  }
+
+  // Height
+  if (/\b(?:tall|short|petite|statuesque|towering|diminutive)\b/i.test(lower)
+    && !/\b(?:features?|face|jaw|cheekbones?)\b/i.test(lower)) {
+    buckets.height.push(signal);
+    return;
+  }
+
+  // Build / physique
+  if (/\b(?:slender|lean|stocky|muscular|athletic|heavyset|wiry|compact|lithe|broad|thin|slight|curvy)\b/i.test(lower)
+    || /\bbuild\b/i.test(lower) || /\bframe\b/i.test(lower) || /\bphysique\b/i.test(lower)
+    || /\bfigure\b/i.test(lower)) {
+    buckets.build.push(signal);
+    return;
+  }
+
+  // Face / facial features
+  if (/\b(?:face|jaw|cheekbone|chin|brow|forehead|features?)\b/i.test(lower)
+    || /\b(?:angular|chiseled|gaunt|round|oval|square|heart-shaped)\b/i.test(lower)) {
+    buckets.face.push(signal);
+    return;
+  }
+
+  // Styling / costume / clothing
+  if (/\b(?:wears?|dressed|wearing|clad|dress|suit|uniform|coat|kimono|gown|robe|tunic|armor|cloak|silk|linen|velvet|satin|lace|wool|leather|costume|wardrobe|period|victorian|edwardian|regency|medieval|meiji|edo|taisho|aristocrat|working.class|upper.class|nobility|courtly|royal)\b/i.test(lower)) {
+    buckets.styling.push(signal);
+    return;
+  }
+
+  // Default: check if it's a presence term
+  const words = lower.split(/[\s,]+/).filter(Boolean);
+  const hasPresence = words.some(w => isPerformerSafePresence(w));
+  if (hasPresence && words.length <= 3) {
+    buckets.presence.push(signal);
+    return;
+  }
+
+  // Remaining visual markers go to archetype
+  buckets.archetype.push(signal);
+}
+
+/** Known contradictory pairs — if both appear, keep the first (higher-trust source) */
+const CONTRADICTION_PAIRS: Array<[RegExp, RegExp]> = [
+  [/\btall\b/i, /\bpetite\b/i],
+  [/\btall\b/i, /\bshort\b/i],
+  [/\bslender\b/i, /\bstocky\b/i],
+  [/\bslender\b/i, /\bheavyset\b/i],
+  [/\bmuscular\b/i, /\bthin\b/i],
+  [/\bangular\b/i, /\bround\b/i],
+  [/\bsharp features\b/i, /\bsoft features\b/i],
+  [/\bdark hair\b/i, /\bblonde? hair\b/i],
+  [/\bblack hair\b/i, /\bblonde? hair\b/i],
+  [/\byouthful\b/i, /\bweathered\b/i],
+];
+
+/**
+ * Deduplicate and resolve contradictions within a bucket.
+ * Items are ordered by insertion (source trust priority).
+ */
+function dedupeAndResolveConflicts(items: string[]): string[] {
+  // Dedupe by normalized form
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const item of items) {
+    const norm = item.toLowerCase().trim();
+    if (norm.length < 2) continue;
+    if (seen.has(norm)) continue;
+    seen.add(norm);
+    unique.push(item.trim());
+  }
+
+  // Resolve contradictions: keep the first (higher-trust) of each pair
+  const result: string[] = [];
+  const removed = new Set<number>();
+  for (let i = 0; i < unique.length; i++) {
+    if (removed.has(i)) continue;
+    for (let j = i + 1; j < unique.length; j++) {
+      if (removed.has(j)) continue;
+      for (const [patA, patB] of CONTRADICTION_PAIRS) {
+        if ((patA.test(unique[i]) && patB.test(unique[j]))
+          || (patB.test(unique[i]) && patA.test(unique[j]))) {
+          removed.add(j); // Keep i (higher trust), remove j
+        }
+      }
+    }
+    result.push(unique[i]);
+  }
+  return result;
+}
+
+/**
+ * Compose a structured, generation-ready actor identity description from identity buckets.
+ *
+ * Output order (deterministic):
+ * 1. ethnicity/cultural appearance (if explicit)
+ * 2. gender + age
+ * 3. height + build
+ * 4. face features
+ * 5. eyes
+ * 6. hair
+ * 7. skin
+ * 8. scars/marks
+ * 9. presence
+ * 10. styling/costume
+ *
+ * This produces a casting-ready description, not raw tag soup.
+ */
+function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): string {
+  const parts: string[] = [];
+
+  // 1. Ethnicity (if explicit)
+  const ethnicity = dedupeAndResolveConflicts(buckets.ethnicity);
+  if (ethnicity.length > 0) parts.push(ethnicity[0]);
+
+  // 2. Gender + Age
+  const gender = dedupeAndResolveConflicts(buckets.gender);
+  const age = dedupeAndResolveConflicts(buckets.age);
+  const genderAge: string[] = [];
+  if (gender.length > 0) genderAge.push(gender[0]);
+  if (age.length > 0) genderAge.push(age[0]);
+  if (genderAge.length > 0) parts.push(genderAge.join(', '));
+
+  // 3. Height + Build
+  const height = dedupeAndResolveConflicts(buckets.height);
+  const build = dedupeAndResolveConflicts(buckets.build);
+  const physique = [...height.slice(0, 1), ...build.slice(0, 2)];
+  if (physique.length > 0) parts.push(physique.join(' '));
+
+  // 4. Face
+  const face = dedupeAndResolveConflicts(buckets.face);
+  if (face.length > 0) parts.push(face.slice(0, 2).join(', '));
+
+  // 5. Eyes
+  const eyes = dedupeAndResolveConflicts(buckets.eyes);
+  if (eyes.length > 0) parts.push(eyes[0]);
+
+  // 6. Hair
+  const hair = dedupeAndResolveConflicts(buckets.hair);
+  if (hair.length > 0) parts.push(hair[0]);
+
+  // 7. Skin
+  const skin = dedupeAndResolveConflicts(buckets.skin);
+  if (skin.length > 0) parts.push(skin[0]);
+
+  // 8. Scars / marks
+  const marks = dedupeAndResolveConflicts(buckets.scars_marks);
+  if (marks.length > 0) parts.push(marks.slice(0, 2).join(', '));
+
+  // 9. Presence (performer-safe only)
+  const presence = dedupeAndResolveConflicts(buckets.presence);
+  if (presence.length > 0) {
+    parts.push(presence.slice(0, 3).join(', ') + ' presence');
+  }
+
+  // 10. Styling
+  const styling = dedupeAndResolveConflicts(buckets.styling);
+  if (styling.length > 0) parts.push(styling.slice(0, 2).join(', '));
+
+  return parts.filter(p => p.trim().length > 0).join(', ');
+}
+
+/**
+ * Compose clean, concise actor tags from identity buckets.
+ * Tags are lowercase, underscore-separated, deduped, reusable.
+ */
+function composeActorTagsFromBuckets(
+  buckets: ActorIdentityBuckets,
+  genderHint: string | null,
+): string[] {
+  const raw: string[] = [];
+
+  if (genderHint) raw.push(genderHint);
+
+  // Flatten all buckets into tag candidates
+  const allBuckets = [
+    buckets.age, buckets.ethnicity, buckets.build, buckets.height,
+    buckets.face, buckets.hair, buckets.eyes, buckets.skin,
+    buckets.presence, buckets.styling, buckets.archetype,
+  ];
+
+  for (const bucket of allBuckets) {
+    for (const item of bucket) {
+      // Split compound phrases into individual tag tokens
+      const tokens = item.toLowerCase()
+        .replace(/[,;.!?()]+/g, ' ')
+        .split(/\s+/)
+        .filter(t => t.length > 2 && t.length < 25);
+      raw.push(...tokens);
+    }
+  }
+
+  // Dedupe and filter
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const r of raw) {
+    const norm = r.replace(/\s+/g, '_').replace(/[^a-z0-9_-]/g, '');
+    if (!norm || norm.length < 3 || norm.length > 25) continue;
+    if (seen.has(norm)) continue;
+    // Final personality check — reject any personality terms that snuck through
+    if (PERSONALITY_DENYLIST.has(norm.replace(/_/g, ' '))) continue;
+    seen.add(norm);
+    tags.push(norm);
+  }
+
+  return tags.slice(0, 15);
+}
+
+/**
+ * Compose a concise negative prompt from project world/style constraints.
+ * Conservative — never bloated.
+ */
+function composeNegativePrompt(canonJson: any): string[] {
+  const exclusions: string[] = [
+    'celebrity likeness',
+    'real person',
+    'cartoon',
+    'anime',
+  ];
+
+  if (!canonJson) return exclusions;
+
+  const toneStyle = typeof canonJson.tone_style === 'string' ? canonJson.tone_style.toLowerCase() : '';
+  const worldRules = typeof canonJson.world_rules === 'string' ? canonJson.world_rules.toLowerCase() : '';
+  const combined = toneStyle + ' ' + worldRules;
+
+  if (/period|histori|19th|18th|medieval|victorian|edo|meiji|taisho|regency/i.test(combined)) {
+    exclusions.push('modern fashion', 'contemporary clothing');
+  }
+
+  if (/sci-?fi|futuris|cyberpunk|space/i.test(combined)) {
+    exclusions.push('period costume', 'historical clothing');
+  }
+
+  if (/realis|grounded|naturalis/i.test(combined)) {
+    exclusions.push('fantasy elements', 'stylized', 'exaggerated features');
+  }
+
+  return [...new Set(exclusions)];
+}
 
 
 export async function buildCharacterCastingBrief(
