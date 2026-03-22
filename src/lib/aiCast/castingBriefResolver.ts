@@ -879,6 +879,84 @@ function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | nul
   return null;
 }
 
+// ── Playing age derivation ───────────────────────────────────────────────────
+
+const PLAYING_AGE_MAP: Record<string, string> = {
+  'teens': '13–19',
+  'late teens': '16–19',
+  'early twenties': '20–25',
+  'early 20s': '20–25',
+  'mid twenties': '23–28',
+  'mid 20s': '23–28',
+  'late twenties': '25–30',
+  'late 20s': '25–30',
+  'twenties': '20–29',
+  '20s': '20–29',
+  'early thirties': '30–35',
+  'early 30s': '30–35',
+  'mid thirties': '33–38',
+  'mid 30s': '33–38',
+  'late thirties': '35–40',
+  'late 30s': '35–40',
+  'thirties': '30–39',
+  '30s': '30–39',
+  'early forties': '40–45',
+  'early 40s': '40–45',
+  'mid forties': '43–48',
+  'mid 40s': '43–48',
+  'late forties': '45–50',
+  'late 40s': '45–50',
+  'forties': '40–49',
+  '40s': '40–49',
+  'fifties': '50–59',
+  '50s': '50–59',
+  'sixties': '60–69',
+  '60s': '60–69',
+};
+
+function derivePlayingAge(ageHints: string[]): string | null {
+  for (const hint of ageHints) {
+    const normalized = hint.toLowerCase().trim();
+    if (PLAYING_AGE_MAP[normalized]) return PLAYING_AGE_MAP[normalized];
+    // Partial match fallback
+    for (const [key, range] of Object.entries(PLAYING_AGE_MAP)) {
+      if (normalized.includes(key)) return range;
+    }
+  }
+  return null;
+}
+
+// ── Actor placeholder name generator ─────────────────────────────────────────
+
+function generateActorPlaceholderName(
+  ethnicity: string | null,
+  gender: string | null,
+  role: string | null,
+): string {
+  const parts: string[] = [];
+
+  if (ethnicity) parts.push(ethnicity);
+
+  if (gender) {
+    const g = gender.toLowerCase();
+    if (/woman|female|girl/.test(g)) parts.push('Female');
+    else if (/man|male|boy/.test(g)) parts.push('Male');
+    else parts.push(gender);
+  }
+
+  // Add role label if available
+  if (role) {
+    const r = role.toLowerCase();
+    if (/protagonist|lead|hero|heroine|main/.test(r)) parts.push('Lead');
+    else if (/antagonist|villain/.test(r)) parts.push('Antagonist');
+    else if (/support/.test(r)) parts.push('Supporting');
+  }
+
+  if (parts.length === 0) return 'AI Actor A';
+
+  return parts.join(' ') + ' A';
+}
+
 /**
  * Compose a structured, generation-ready actor identity description from identity buckets.
  *
@@ -897,10 +975,11 @@ function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | nul
  * This produces a casting-ready description, not raw tag soup.
  */
 function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): string {
-  // ── 1. Base anchor: [ethnicity] [gender] [age] ──
+  // ── 1. Base anchor: [ethnicity] [gender], playing age X–Y ──
   const ethnicity = dedupeAndResolveConflicts(buckets.ethnicity);
   const gender = dedupeAndResolveConflicts(buckets.gender);
   const age = dedupeAndResolveConflicts(buckets.age);
+  const playingAge = derivePlayingAge(age);
 
   let baseAnchor = '';
   const baseParts: string[] = [];
@@ -908,14 +987,11 @@ function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): stri
   if (gender.length > 0) baseParts.push(gender[0]);
   if (baseParts.length > 0) {
     baseAnchor = baseParts.join(' ');
-    if (age.length > 0) {
-      // Determine correct pronoun from gender
-      const genderLower = (gender[0] || '').toLowerCase();
-      const pronoun = /\b(woman|female|girl)\b/i.test(genderLower) ? 'her'
-        : /\b(man|male|boy)\b/i.test(genderLower) ? 'his'
-        : 'their';
-      baseAnchor += ` in ${pronoun} ${age[0]}`;
+    if (playingAge) {
+      baseAnchor += `, playing age ${playingAge}`;
     }
+  } else if (playingAge) {
+    baseAnchor = `playing age ${playingAge}`;
   } else if (age.length > 0) {
     baseAnchor = age[0];
   }
@@ -1499,7 +1575,7 @@ export async function buildCharacterCastingBrief(
     styling_cues: [...new Set(buckets.styling)].slice(0, 5),
     performance_vibe: dedupedPresence.slice(0, 5),
     negative_exclusions: negativeExclusions,
-    suggested_actor_name: displayName,
+    suggested_actor_name: generateActorPlaceholderName(ethnicityHint, genderPresentation, roleInStory),
     actor_description: actorDescription,
     actor_tags: actorTags,
     actor_criteria_highlights: actorCriteriaHighlights,
@@ -1531,4 +1607,6 @@ export const _testHelpers = {
   expandIdentityBuckets,
   composeActorCriteriaHighlights,
   inferEthnicityFromCanonContext,
+  derivePlayingAge,
+  generateActorPlaceholderName,
 };

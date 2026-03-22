@@ -272,7 +272,7 @@ describe('composeActorDescriptionFromBuckets', () => {
     const result = composeActorDescriptionFromBuckets(b);
 
     expect(result).toContain('woman');
-    expect(result).toContain('early twenties');
+    expect(result).toContain('playing age 20–25');
     expect(result).toContain('slender');
     expect(result).toContain('sharp features');
     expect(result).toContain('dark hair');
@@ -332,7 +332,7 @@ describe('composeActorDescriptionFromBuckets', () => {
     b.hair.push('dark hair');
     const result = composeActorDescriptionFromBuckets(b);
     expect(result).toMatch(/^woman/i);
-    expect(result).toContain('early twenties');
+    expect(result).toContain('playing age 20–25');
   });
 
   it('enforces max 220 char length', () => {
@@ -611,7 +611,7 @@ describe('Phase 17.5 — sparse input produces casting-grade output', () => {
 
     // Must start with base anchor
     expect(desc).toMatch(/^woman/i);
-    expect(desc).toContain('early twenties');
+    expect(desc).toContain('playing age 20–25');
     // Physical traits must be anchored
     expect(desc).toContain('sharp features');
     expect(desc).toContain('dark hair');
