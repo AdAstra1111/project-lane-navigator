@@ -21,9 +21,8 @@ export function getIdentityStrength(versions: AIActorVersion[] | undefined, appr
     return { strength: 'weak', hasHeadshot: false, hasFullBody: false, totalAssets: 0, label: 'No versions' };
   }
 
-  // Use Phase 4 canonical approved_version_id if available, then legacy is_approved fallback, then latest
+  // Use Phase 4 canonical approved_version_id only, then latest as display fallback
   const approved = (approvedVersionId ? versions.find(v => v.id === approvedVersionId) : null)
-    || versions.find(v => v.is_approved)
     || versions[versions.length - 1];
   const assets = approved?.ai_actor_assets || [];
 
@@ -75,7 +74,6 @@ export function getIdentityStrength(versions: AIActorVersion[] | undefined, appr
 export function getActorThumbnail(versions: AIActorVersion[] | undefined, approvedVersionId?: string | null): string | null {
   if (!versions || versions.length === 0) return null;
   const approved = (approvedVersionId ? versions.find(v => v.id === approvedVersionId) : null)
-    || versions.find(v => v.is_approved)
     || versions[versions.length - 1];
   const assets = approved?.ai_actor_assets || [];
 

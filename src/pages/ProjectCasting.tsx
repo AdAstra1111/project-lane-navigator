@@ -95,13 +95,19 @@ export default function ProjectCasting() {
 
   const addMapping = useMutation({
     mutationFn: async (params: { character_key: string; ai_actor_id: string; ai_actor_version_id?: string }) => {
+      // Validate actor is roster-ready with a canonical approved version
+      const actor = actors.find((a: any) => a.id === params.ai_actor_id);
+      const approvedVersionId = (actor as any)?.approved_version_id || params.ai_actor_version_id || null;
+      if (!(actor as any)?.roster_ready || !approvedVersionId) {
+        throw new Error('Only roster-ready actors with an approved version can be cast');
+      }
       const { error } = await supabase
         .from('project_ai_cast' as any)
         .upsert({
           project_id: projectId,
           character_key: params.character_key,
           ai_actor_id: params.ai_actor_id,
-          ai_actor_version_id: params.ai_actor_version_id || null,
+          ai_actor_version_id: approvedVersionId,
         } as any, { onConflict: 'project_id,character_key' });
       if (error) throw error;
     },
@@ -398,18 +404,21 @@ function CastActorSelect({ actors, onSelect }: {
   actors: any[];
   onSelect: (actorId: string, versionId?: string) => void;
 }) {
+  // Only show roster-ready actors with canonical approved versions
+  const rosterActors = actors.filter((a: any) => (a as any).roster_ready === true && (a as any).approved_version_id);
   return (
     <Select onValueChange={(val) => {
       const actor = actors.find((a: any) => a.id === val);
-      // Use Phase 4 canonical approved_version_id, not legacy is_approved
       const approvedVersionId = (actor as any)?.approved_version_id || null;
       onSelect(val, approvedVersionId);
     }}>
       <SelectTrigger className="h-9 text-xs w-[200px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
       <SelectContent>
-        {actors.map((a: any) => (
+        {rosterActors.length > 0 ? rosterActors.map((a: any) => (
           <SelectItem key={a.id} value={a.id} className="text-xs">{a.name}</SelectItem>
-        ))}
+        )) : (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">No roster-ready actors</div>
+        )}
       </SelectContent>
     </Select>
   );
