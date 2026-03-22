@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
 
       case "list_actors": {
         const { data, error } = await db.from("ai_actors")
-          .select("*, ai_actor_versions(id, version_number, is_approved, created_at)")
+          .select("*, ai_actor_versions(id, version_number, created_at)")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -262,36 +262,45 @@ Deno.serve(async (req) => {
           (m: any) => (m as any).ai_actors?.user_id === userId
         );
 
-        // For each mapping, resolve canonical approved version and assets
+        // For each mapping, resolve ONLY the pinned version from binding — no fallback
         const castContext: any[] = [];
         for (const mapping of ownedMappings) {
           const actor = (mapping as any).ai_actors;
-          // Use pinned version from binding, else Phase 4 canonical approved_version_id
-          const versionId = (mapping as any).ai_actor_version_id || actor?.approved_version_id || null;
+          // MUST use pinned version from binding only — no fallback to approved_version_id
+          const versionId = (mapping as any).ai_actor_version_id || null;
 
-          let version: any = null;
-          let assets: any[] = [];
-          if (versionId) {
-            const { data: verData } = await db.from("ai_actor_versions")
-              .select("id, version_number, recipe_json")
-              .eq("id", versionId)
-              .maybeSingle();
-            version = verData;
-
-            const { data: assetData } = await db.from("ai_actor_assets")
-              .select("asset_type, storage_path, public_url, meta_json")
-              .eq("actor_version_id", versionId)
-              .in("asset_type", ["reference_image", "screen_test_still", "reference_headshot", "reference_full_body"]);
-            assets = assetData || [];
+          if (!versionId) {
+            // No pinned version — explicit unbound, skip this mapping
+            castContext.push({
+              character_key: mapping.character_key,
+              actor_name: actor?.name,
+              bound: false,
+              reason: 'no_pinned_version',
+            });
+            continue;
           }
+
+          const { data: verData } = await db.from("ai_actor_versions")
+            .select("id, version_number, recipe_json")
+            .eq("id", versionId)
+            .maybeSingle();
+
+          const { data: assetData } = await db.from("ai_actor_assets")
+            .select("asset_type, storage_path, public_url, meta_json")
+            .eq("actor_version_id", versionId)
+            .in("asset_type", ["reference_image", "screen_test_still", "reference_headshot", "reference_full_body"]);
+          const assets = assetData || [];
 
           castContext.push({
             character_key: mapping.character_key,
+            bound: true,
+            actor_id: actor?.id,
             actor_name: actor?.name,
+            actor_version_id: versionId,
             description: actor?.description,
             negative_prompt: actor?.negative_prompt,
-            recipe: version?.recipe_json || {},
-            reference_images: assets.filter((a: any) => a.asset_type === "reference_image").map((a: any) => a.public_url),
+            recipe: verData?.recipe_json || {},
+            reference_images: assets.filter((a: any) => a.asset_type === "reference_image" || a.asset_type === "reference_headshot" || a.asset_type === "reference_full_body").map((a: any) => a.public_url),
             screen_test_images: assets.filter((a: any) => a.asset_type === "screen_test_still").map((a: any) => a.public_url),
             wardrobe_pack: mapping.wardrobe_pack,
           });

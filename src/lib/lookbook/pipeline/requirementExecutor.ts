@@ -54,6 +54,8 @@ interface CharacterAnchorSet {
   source: ActorIdentityAnchors['source'];
   /** AI Actor ID if actor-bound */
   aiActorId?: string | null;
+  /** AI Actor Version ID if actor-bound (pinned from project_ai_cast) */
+  aiActorVersionId?: string | null;
   /** Additional reference URLs from actor assets */
   additionalRefs?: string[];
 }
@@ -73,6 +75,7 @@ async function resolveCharacterAnchors(projectId: string): Promise<Map<string, C
       hasAnchors: anchors.hasAnchors,
       source: anchors.source,
       aiActorId: anchors.aiActorId,
+      aiActorVersionId: anchors.aiActorVersionId,
       additionalRefs: anchors.additionalRefs,
     });
   }
@@ -243,7 +246,7 @@ export async function executeRequirements(
             };
             identityCharCount++;
             if (anchors.aiActorId) resolvedActorIds[cn] = anchors.aiActorId;
-            if ((anchors as any).aiActorVersionId) resolvedActorVersionIds[cn] = (anchors as any).aiActorVersionId;
+            if (anchors.aiActorVersionId) resolvedActorVersionIds[cn] = anchors.aiActorVersionId;
             identitySources[cn] = anchors.source;
           }
         }
