@@ -539,15 +539,24 @@ export default function ProjectCasting() {
             {unmappedCharacters.map(charKey => {
               const resolvedIdentity = identityMap?.[normalizeCharacterKey(charKey)];
               return (
-                <CastCharacterRow
-                  key={charKey}
-                  characterKey={charKey}
-                  actors={actors}
-                  resolvedIdentity={resolvedIdentity || null}
-                  onCast={(actorId, versionId) =>
-                    addMapping.mutate({ character_key: charKey, ai_actor_id: actorId, ai_actor_version_id: versionId })
-                  }
-                />
+                <div className="flex items-center gap-2">
+                  <CastCharacterRow
+                    key={charKey}
+                    characterKey={charKey}
+                    actors={actors}
+                    resolvedIdentity={resolvedIdentity || null}
+                    onCast={(actorId, versionId) =>
+                      addMapping.mutate({ character_key: charKey, ai_actor_id: actorId, ai_actor_version_id: versionId })
+                    }
+                  />
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 text-[10px] gap-1 shrink-0"
+                    onClick={() => setShowCastLibrary(charKey)}
+                  >
+                    <Users className="h-3 w-3" /> Library
+                  </Button>
+                </div>
               );
             })}
           </div>
