@@ -32,6 +32,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { resolveCompositionRuleForLookbookSlot } from '@/lib/lookbook/compositionRules';
 
 interface LookBookViewerProps {
   data: LookBookData;
