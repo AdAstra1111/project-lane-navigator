@@ -28,6 +28,7 @@ interface CandidateFilmstripProps {
   onCreateAnother: () => void;
   onRetryLoad?: (id: string) => void;
   isGenerating?: boolean;
+  generationBlocked?: boolean;
   className?: string;
 }
 
@@ -99,7 +100,7 @@ function CandidateThumbnail({ candidate, onRetry }: { candidate: CandidateItem; 
 }
 
 export function CandidateFilmstrip({
-  candidates, selectedId, onSelect, onCreateAnother, onRetryLoad, isGenerating, className,
+  candidates, selectedId, onSelect, onCreateAnother, onRetryLoad, isGenerating, generationBlocked, className,
 }: CandidateFilmstripProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -178,7 +179,7 @@ export function CandidateFilmstrip({
         {/* Create Another card */}
         <button
           onClick={onCreateAnother}
-          disabled={isGenerating}
+          disabled={isGenerating || generationBlocked}
           className={cn(
             'shrink-0 snap-start w-[120px] rounded-lg border border-dashed border-border/40',
             'flex flex-col items-center justify-center gap-2 transition-all',
@@ -189,11 +190,13 @@ export function CandidateFilmstrip({
         >
           {isGenerating ? (
             <Loader2 className="h-5 w-5 animate-spin text-primary/50" />
+          ) : generationBlocked ? (
+            <ImageIcon className="h-5 w-5 text-muted-foreground/30" />
           ) : (
             <Plus className="h-5 w-5 text-muted-foreground/50" />
           )}
-          <span className="text-[10px] text-muted-foreground">
-            {isGenerating ? 'Generating…' : 'Create another'}
+          <span className="text-[10px] text-muted-foreground text-center px-1">
+            {isGenerating ? 'Generating…' : generationBlocked ? 'Needs references' : 'Create another'}
           </span>
         </button>
       </div>

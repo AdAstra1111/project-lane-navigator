@@ -1076,6 +1076,7 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
           actorId={actorId}
           versions={versions}
           approvedVersionId={(actor as any).approved_version_id}
+          anchorCoverageStatus={(actor as any).anchor_coverage_status || 'insufficient'}
         />
       </div>
     </div>
