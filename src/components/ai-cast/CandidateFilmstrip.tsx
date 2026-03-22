@@ -100,7 +100,7 @@ function CandidateThumbnail({ candidate, onRetry }: { candidate: CandidateItem; 
 }
 
 export function CandidateFilmstrip({
-  candidates, selectedId, onSelect, onCreateAnother, onRetryLoad, isGenerating, className,
+  candidates, selectedId, onSelect, onCreateAnother, onRetryLoad, isGenerating, generationBlocked, className,
 }: CandidateFilmstripProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
