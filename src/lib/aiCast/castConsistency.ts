@@ -72,7 +72,18 @@ export async function evaluateOutputConsistency(
     const params = item.generation_params as any;
     const provenance = params?.cast_provenance || params?.cast_context;
 
-    if (!Array.isArray(provenance) || provenance.length === 0) continue;
+    if (!Array.isArray(provenance) || provenance.length === 0) {
+      // Missing or malformed provenance → unknown
+      results.push({
+        output_id: item.id,
+        output_type: 'ai_generated_media',
+        character_key: '',
+        expected_actor_version_id: null,
+        actual_actor_version_id: null,
+        status: 'unknown',
+      });
+      continue;
+    }
 
     for (const p of provenance) {
       const rawKey = p?.character_key;
