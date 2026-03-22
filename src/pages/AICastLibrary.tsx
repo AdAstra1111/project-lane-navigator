@@ -201,7 +201,7 @@ export default function AICastLibrary() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map(actor => (
-            <ActorCard key={actor.id} actor={actor} usageCount={usageCounts.get(actor.id) || 0} onClick={() => setSelectedActorId(actor.id)} />
+            <ActorCard key={actor.id} actor={actor} usageCount={usageCounts.get(actor.id) || 0} intelligence={intelligenceMap.get(actor.id) || null} onClick={() => setSelectedActorId(actor.id)} />
           ))}
         </div>
       )}
