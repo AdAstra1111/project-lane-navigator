@@ -10,7 +10,7 @@ import {
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
   AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert,
   FlaskConical, Clock, XCircle, TrendingUp, Zap, BarChart3, Crown, Ban,
-  RotateCcw, FileText, ShieldOff
+  RotateCcw, FileText, ShieldOff, Store
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
