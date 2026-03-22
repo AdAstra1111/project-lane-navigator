@@ -8,7 +8,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
   RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle,
-  Play, PlayCircle, RotateCcw
+  Play, PlayCircle, RotateCcw, Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
