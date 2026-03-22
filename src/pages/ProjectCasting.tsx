@@ -804,6 +804,17 @@ export default function ProjectCasting() {
           </div>
         </div>
       )}
+      {/* Cast from Library Dialog */}
+      <CastFromLibraryDialog
+        characterKey={showCastLibrary}
+        onClose={() => setShowCastLibrary(null)}
+        onSelect={(actorId) => {
+          if (showCastLibrary) {
+            addMapping.mutate({ character_key: showCastLibrary, ai_actor_id: actorId });
+            setShowCastLibrary(null);
+          }
+        }}
+      />
     </div>
   );
 }
