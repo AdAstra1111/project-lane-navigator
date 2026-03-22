@@ -696,7 +696,7 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   usageEntries: { projectId: string; projectTitle: string; characterKey: string }[];
   onBack: () => void;
 }) {
-  const { data, isLoading } = useAIActor(actorId);
+  const { data, isLoading, isError } = useAIActor(actorId);
   const { updateActor, createVersion, deleteActor } = useAICastMutations();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const actor: AIActor | undefined = data?.actor;
@@ -731,6 +731,18 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const handleSave = () => {
     updateActor.mutate({ actorId, name: editName, description: editDesc, negative_prompt: editNeg });
   };
+
+  // Actor was deleted or not found — return to list
+  if (isError || (!isLoading && !actor)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-4">
+        <p className="text-sm text-muted-foreground">Actor not found — it may have been deleted.</p>
+        <Button variant="outline" size="sm" onClick={onBack}>
+          <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back to Actors
+        </Button>
+      </div>
+    );
+  }
 
   if (isLoading || !actor) {
     return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
