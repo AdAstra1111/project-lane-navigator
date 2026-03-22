@@ -62,6 +62,17 @@ export default function AICastLibrary() {
   const { data: usageData } = useActorUsage();
   const usageCounts = useMemo(() => getActorUsageCounts(usageData || []), [usageData]);
 
+  const { data: intelligenceData } = useQuery({
+    queryKey: ['actor-intelligence'],
+    queryFn: buildActorIntelligence,
+    staleTime: 60_000,
+  });
+  const intelligenceMap = useMemo(() => {
+    const m = new Map<string, (typeof intelligenceData)['actors'][number]>();
+    for (const a of intelligenceData?.actors || []) m.set(a.actor_id, a);
+    return m;
+  }, [intelligenceData]);
+
   const [search, setSearch] = useState('');
   const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -75,14 +86,20 @@ export default function AICastLibrary() {
       a.tags.some(t => t.toLowerCase().includes(search.toLowerCase())) ||
       a.description?.toLowerCase().includes(search.toLowerCase())
     );
-    if (filterStatus !== 'all') list = list.filter(a => a.status === filterStatus);
+    if (filterStatus === 'roster') list = list.filter(a => (a as any).roster_ready);
+    else if (filterStatus !== 'all') list = list.filter(a => a.status === filterStatus);
     list.sort((a, b) => {
       if (sortMode === 'name') return a.name.localeCompare(b.name);
       if (sortMode === 'usage') return (usageCounts.get(b.id) || 0) - (usageCounts.get(a.id) || 0);
+      if (sortMode === 'quality') {
+        const qa = intelligenceMap.get(a.id)?.quality_score ?? -1;
+        const qb = intelligenceMap.get(b.id)?.quality_score ?? -1;
+        return qb - qa;
+      }
       return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
     });
     return list;
-  }, [actors, search, filterStatus, sortMode, usageCounts]);
+  }, [actors, search, filterStatus, sortMode, usageCounts, intelligenceMap]);
 
   if (selectedActorId) {
     return (
