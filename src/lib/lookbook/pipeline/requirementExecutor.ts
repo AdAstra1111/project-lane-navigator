@@ -54,6 +54,8 @@ interface CharacterAnchorSet {
   source: ActorIdentityAnchors['source'];
   /** AI Actor ID if actor-bound */
   aiActorId?: string | null;
+  /** AI Actor Version ID if actor-bound (pinned from project_ai_cast) */
+  aiActorVersionId?: string | null;
   /** Additional reference URLs from actor assets */
   additionalRefs?: string[];
 }
