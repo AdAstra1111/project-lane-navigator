@@ -1,17 +1,17 @@
 /**
  * castRegenJobs — Canonical cast regeneration job creation module.
  *
- * Converts planner output into queued jobs in cast_regen_jobs.
- * Backend-authoritative via edge function. No execution logic.
+ * Calls the backend-authoritative edge function which:
+ * 1. Computes the canonical regen plan server-side
+ * 2. Filters by caller intent
+ * 3. Inserts queued jobs
  *
- * IMPORTANT: This module calls the canonical planner (castRegenPlanner.ts)
- * and sends the resulting items to the edge function for insertion.
- * The edge function is a pure job inserter — no planner logic lives there.
+ * Client sends only projectId + optional filters.
+ * No client-supplied items. No execution logic.
  */
 
 import { supabase } from '@/integrations/supabase/client';
-import { buildCastRegenPlan, type RegenReason, type RegenItem } from './castRegenPlanner';
-import { normalizeCharacterKey } from './normalizeCharacterKey';
+import type { RegenReason } from './castRegenPlanner';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ export interface QueueResult {
     id: string;
     output_id: string;
     character_key: string;
-    reason: RegenReason;
+    reason: string;
   }>;
 }
 
@@ -67,37 +67,12 @@ export async function cancelCastRegenJob(jobId: string): Promise<void> {
   if (error) throw error;
 }
 
-// ── Queue via canonical planner + edge function ─────────────────────────────
+// ── Queue via backend-authoritative edge function ───────────────────────────
 
 export async function queueCastRegenJobs(
   projectId: string,
   opts?: { characterKey?: string; reasons?: RegenReason[] },
 ): Promise<QueueResult> {
-  // 1. Run canonical planner (single source of truth)
-  const plan = await buildCastRegenPlan(projectId);
-
-  // 2. Collect all items from the plan
-  let items: RegenItem[] = [];
-  for (const reason of Object.keys(plan.by_reason) as RegenReason[]) {
-    items.push(...plan.by_reason[reason]);
-  }
-
-  // 3. Filter by opts
-  if (opts?.characterKey) {
-    const normKey = normalizeCharacterKey(opts.characterKey);
-    items = items.filter(i => i.character_key === normKey);
-  }
-  if (opts?.reasons && opts.reasons.length > 0) {
-    const reasonSet = new Set(opts.reasons);
-    items = items.filter(i => reasonSet.has(i.reason));
-  }
-
-  // 4. Nothing to queue
-  if (items.length === 0) {
-    return { created_count: 0, skipped_duplicates: 0, jobs: [] };
-  }
-
-  // 5. Send planned items to edge function for insertion
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
@@ -111,12 +86,8 @@ export async function queueCastRegenJobs(
       },
       body: JSON.stringify({
         projectId,
-        items: items.map(i => ({
-          output_id: i.output_id,
-          output_type: i.output_type,
-          character_key: i.character_key,
-          reason: i.reason,
-        })),
+        characterKey: opts?.characterKey,
+        reasons: opts?.reasons,
       }),
     },
   );
