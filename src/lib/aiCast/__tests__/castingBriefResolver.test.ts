@@ -963,9 +963,48 @@ describe('inferAgeFromPassages', () => {
     expect(inferAgeFromPassages(passages)).toBe('early twenties');
   });
 
+  it('infers child from "child" descriptor', () => {
+    const passages = ['The child ran through the garden.'];
+    expect(inferAgeFromPassages(passages)).toBe('child');
+  });
+
+  it('infers late sixties from "elderly" descriptor', () => {
+    const passages = ['The elderly woman sat by the fire.'];
+    expect(inferAgeFromPassages(passages)).toBe('late sixties');
+  });
+
+  it('infers late fifties from "battle-worn" descriptor', () => {
+    const passages = ['A battle-worn soldier with scars across his face.'];
+    expect(inferAgeFromPassages(passages)).toBe('late fifties');
+  });
+
   it('returns null when no age-adjacent descriptors', () => {
     const passages = ['The warrior stood at the gate.'];
     expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+});
+
+// ── Playing age map coverage ─────────────────────────────────────────────────
+
+describe('derivePlayingAge — inferred age hints', () => {
+  it('maps "child" to 6–12', () => {
+    expect(derivePlayingAge(['child'])).toBe('6–12');
+  });
+
+  it('maps "late teens" to 16–19', () => {
+    expect(derivePlayingAge(['late teens'])).toBe('16–19');
+  });
+
+  it('maps "early twenties" to 20–25', () => {
+    expect(derivePlayingAge(['early twenties'])).toBe('20–25');
+  });
+
+  it('maps "late fifties" to 55–60', () => {
+    expect(derivePlayingAge(['late fifties'])).toBe('55–60');
+  });
+
+  it('maps "late sixties" to 65–70', () => {
+    expect(derivePlayingAge(['late sixties'])).toBe('65–70');
   });
 });
 
