@@ -1,6 +1,10 @@
 /**
  * ActorCandidateReview — Wires CandidateFilmstrip + CandidateDetailPanel
  * into an actor's versions and assets, replacing the flat VersionCard grid.
+ *
+ * Gates candidate display on anchor coverage status:
+ * - If coverage is insufficient AND no real image assets exist,
+ *   shows an actionable blocking state instead of empty candidates.
  */
 import { useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -9,15 +13,16 @@ import { CandidateFilmstrip, type CandidateItem, type CandidateStatus } from './
 import { CandidateDetailPanel, type VersionItem } from './CandidateDetailPanel';
 import type { AIActorVersion, AIActorAsset } from '@/lib/aiCast/aiCastApi';
 import { useAICastMutations } from '@/lib/aiCast/useAICast';
+import { ImageIcon, Upload, AlertTriangle } from 'lucide-react';
 
 interface ActorCandidateReviewProps {
   actorId: string;
   versions: AIActorVersion[];
   approvedVersionId?: string | null;
+  anchorCoverageStatus?: string;
 }
 
 function assetToCandidateStatus(asset: AIActorAsset): CandidateStatus {
-  // For now, all persisted assets with a URL are "ready"
   if (asset.public_url) return 'ready';
   if ((asset.meta_json as any)?.error) return 'failed';
   return 'rendering';
@@ -29,7 +34,6 @@ function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[
   for (const ver of versions) {
     const assets = ver.ai_actor_assets || [];
     if (assets.length === 0) {
-      // Version exists, but no generated/uploaded images were persisted for it yet.
       items.push({
         id: ver.id,
         label: `Version ${ver.version_number}`,
@@ -39,7 +43,6 @@ function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[
         versionNumber: ver.version_number,
       });
     } else {
-      // Each asset is a candidate
       for (const asset of assets) {
         items.push({
           id: asset.id,
@@ -57,15 +60,29 @@ function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[
   return items;
 }
 
-export function ActorCandidateReview({ actorId, versions, approvedVersionId }: ActorCandidateReviewProps) {
+/** Check if any version has real image assets (not just empty versions). */
+function hasRealAssets(versions: AIActorVersion[]): boolean {
+  return versions.some(v => (v.ai_actor_assets || []).length > 0);
+}
+
+export function ActorCandidateReview({ actorId, versions, approvedVersionId, anchorCoverageStatus }: ActorCandidateReviewProps) {
   const { generateScreenTest, approveVersion, deleteAsset } = useAICastMutations();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [comparisonMode, setComparisonMode] = useState(false);
 
-  const candidates = useMemo(() => buildCandidatesFromVersions(versions), [versions]);
+  const coverageInsufficient = anchorCoverageStatus !== 'sufficient' && anchorCoverageStatus !== 'complete';
+  const realAssetsExist = hasRealAssets(versions);
 
-  // Auto-select first ready candidate if nothing selected
+  // If coverage is insufficient AND no real assets exist, show blocking state
+  // (If real assets already exist from prior runs, still show them)
+  const isBlocked = coverageInsufficient && !realAssetsExist;
+
+  const candidates = useMemo(() => {
+    if (isBlocked) return []; // Don't show empty version cards as fake candidates
+    return buildCandidatesFromVersions(versions);
+  }, [versions, isBlocked]);
+
   const selected = useMemo(() => {
     if (selectedId) {
       return candidates.find(c => c.id === selectedId) || candidates[0] || null;
@@ -73,7 +90,6 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
     return candidates.find(c => c.status === 'ready') || candidates[0] || null;
   }, [candidates, selectedId]);
 
-  // Build version items for carousel
   const versionItems = useMemo((): VersionItem[] => {
     return versions.map(v => {
       const assets = v.ai_actor_assets || [];
@@ -88,6 +104,10 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
   }, [versions, approvedVersionId]);
 
   const handleCreateAnother = useCallback(() => {
+    if (isBlocked) {
+      toast.error('Add anchor references (headshot, profile, full-body) before generating images.');
+      return;
+    }
     const latestVersion = versions[versions.length - 1];
     if (!latestVersion) {
       toast.error('No version available to generate from');
@@ -101,10 +121,9 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
         },
       }
     );
-  }, [actorId, versions, generateScreenTest, queryClient]);
+  }, [actorId, versions, generateScreenTest, queryClient, isBlocked]);
 
   const handleApprove = useCallback((id: string) => {
-    // Find which version contains this asset
     for (const ver of versions) {
       if (ver.ai_actor_assets?.some(a => a.id === id) || ver.id === id) {
         approveVersion.mutate({ actorId, versionId: ver.id });
@@ -114,7 +133,6 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
   }, [actorId, versions, approveVersion]);
 
   const handleReject = useCallback((id: string) => {
-    // Delete the asset
     deleteAsset.mutate(id, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
@@ -124,7 +142,10 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
   }, [actorId, deleteAsset, queryClient]);
 
   const handleRegenerate = useCallback((id: string) => {
-    // Find version and regenerate
+    if (isBlocked) {
+      toast.error('Add anchor references before generating images.');
+      return;
+    }
     for (const ver of versions) {
       if (ver.ai_actor_assets?.some(a => a.id === id) || ver.id === id) {
         generateScreenTest.mutate(
@@ -138,8 +159,46 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
         return;
       }
     }
-  }, [actorId, versions, generateScreenTest, queryClient]);
+  }, [actorId, versions, generateScreenTest, queryClient, isBlocked]);
 
+  // ── Blocked state: anchor coverage insufficient ──────────────────────────
+  if (isBlocked) {
+    return (
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-6 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="rounded-full bg-amber-500/10 p-2 shrink-0">
+            <AlertTriangle className="h-5 w-5 text-amber-400" />
+          </div>
+          <div className="space-y-1.5">
+            <h4 className="text-sm font-medium text-foreground">
+              Needs references before image generation
+            </h4>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This actor's text identity has been drafted, but image generation requires anchor references 
+              to ensure visual consistency. Upload at least a <strong>headshot</strong>, <strong>profile</strong>, 
+              and <strong>full-body</strong> reference image to unlock generation and validation.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 pl-12">
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div className="w-2 h-2 rounded-full bg-emerald-500/60" />
+            Text draft created
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-amber-400">
+            <div className="w-2 h-2 rounded-full bg-amber-500/60" />
+            Anchor images needed
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
+            <div className="w-2 h-2 rounded-full bg-muted/40" />
+            Image generation locked
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No versions at all ───────────────────────────────────────────────────
   if (candidates.length === 0 && versions.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border/40 p-8 text-center space-y-3">
@@ -153,16 +212,15 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId }: A
 
   return (
     <div className="space-y-4">
-      {/* Filmstrip */}
       <CandidateFilmstrip
         candidates={candidates}
         selectedId={selected?.id || null}
         onSelect={setSelectedId}
         onCreateAnother={handleCreateAnother}
         isGenerating={generateScreenTest.isPending}
+        generationBlocked={coverageInsufficient}
       />
 
-      {/* Detail Panel */}
       {selected && (
         <CandidateDetailPanel
           candidate={selected}
