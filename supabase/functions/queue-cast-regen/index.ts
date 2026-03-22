@@ -7,12 +7,13 @@ const corsHeaders = {
 };
 
 /**
- * Normalize character key: lowercase, trim, collapse whitespace.
- * Must match src/lib/aiCast/normalizeCharacterKey.ts
+ * queue-cast-regen — Pure job insertion endpoint.
+ *
+ * Receives pre-planned RegenItems from the canonical client-side planner
+ * (castRegenPlanner.ts) and inserts them as queued jobs.
+ *
+ * NO planner logic lives here. This is a job inserter only.
  */
-function normalizeCharacterKey(input: string): string {
-  return input.toLowerCase().trim().replace(/\s+/g, " ");
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -49,11 +50,21 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { projectId, characterKey, reasons } = body;
+    const { projectId, items } = body;
 
     if (!projectId) {
       return new Response(
         JSON.stringify({ error: "projectId is required" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "items array is required and must be non-empty" }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -73,167 +84,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // ── A. Build regen plan (server-side) ──
-
-    // Fetch current bindings
-    const { data: bindings } = await db
-      .from("project_ai_cast")
-      .select("character_key, ai_actor_id, ai_actor_version_id")
-      .eq("project_id", projectId);
-
-    const bindingMap: Record<
-      string,
-      { actor_id: string; version_id: string | null }
-    > = {};
-    const boundActorIds = new Set<string>();
-    for (const b of bindings || []) {
-      const key = normalizeCharacterKey(b.character_key || "");
-      bindingMap[key] = {
-        actor_id: b.ai_actor_id,
-        version_id: b.ai_actor_version_id,
-      };
-      if (b.ai_actor_id) boundActorIds.add(b.ai_actor_id);
-    }
-
-    // Fetch generated outputs with provenance
-    const { data: media } = await db
-      .from("ai_generated_media")
-      .select("id, generation_params")
-      .eq("project_id", projectId)
-      .limit(500);
-
-    // Extract provenance entries
-    interface RawEntry {
-      outputId: string;
-      charKey: string;
-      storedVersionId: string | null;
-      storedActorId: string | null;
-    }
-    const rawEntries: RawEntry[] = [];
-    const allActorIds = new Set(boundActorIds);
-
-    for (const item of media || []) {
-      const params = item.generation_params as any;
-      const provenance = params?.cast_provenance || params?.cast_context;
-      if (!Array.isArray(provenance)) continue;
-
-      for (const p of provenance) {
-        const charKey = normalizeCharacterKey(p.character_key || "");
-        if (!charKey) continue;
-        const actorId = p.actor_id || null;
-        if (actorId) allActorIds.add(actorId);
-        rawEntries.push({
-          outputId: item.id,
-          charKey,
-          storedVersionId: p.actor_version_id || null,
-          storedActorId: actorId,
-        });
-      }
-    }
-
-    // Batch fetch actor roster state
-    const actorState: Record<string, { roster_ready: boolean }> = {};
-    const actorIdArr = [...allActorIds];
-    if (actorIdArr.length > 0) {
-      const { data: actorRows } = await db
-        .from("ai_actors")
-        .select("id, roster_ready")
-        .in("id", actorIdArr);
-      for (const a of actorRows || []) {
-        actorState[a.id] = { roster_ready: a.roster_ready };
-      }
-    }
-
-    // Batch fetch version existence
-    const boundVersionIds = [
-      ...new Set(
-        (bindings || [])
-          .map((b: any) => b.ai_actor_version_id)
-          .filter(Boolean),
-      ),
-    ];
-    const versionExists = new Set<string>();
-    if (boundVersionIds.length > 0) {
-      const { data: versionRows } = await db
-        .from("ai_actor_versions")
-        .select("id")
-        .in("id", boundVersionIds);
-      for (const v of versionRows || []) {
-        versionExists.add(v.id);
-      }
-    }
-
-    // Classify entries (same logic as castRegenPlanner.ts)
-    type RegenReason =
-      | "out_of_sync_with_current_cast"
-      | "unbound"
-      | "stale_roster_revoked"
-      | "invalid_missing_version";
-
-    interface RegenItem {
-      output_id: string;
-      character_key: string;
-      reason: RegenReason;
-    }
-
-    const items: RegenItem[] = [];
-
-    for (const entry of rawEntries) {
-      const binding = bindingMap[entry.charKey];
-      const currentVersionId = binding?.version_id ?? null;
-
-      if (!binding) {
-        items.push({
-          output_id: entry.outputId,
-          character_key: entry.charKey,
-          reason: "unbound",
-        });
-        continue;
-      }
-
-      if (currentVersionId && !versionExists.has(currentVersionId)) {
-        items.push({
-          output_id: entry.outputId,
-          character_key: entry.charKey,
-          reason: "invalid_missing_version",
-        });
-        continue;
-      }
-
-      const bindingActor = binding.actor_id
-        ? actorState[binding.actor_id]
-        : null;
-      if (bindingActor && !bindingActor.roster_ready) {
-        items.push({
-          output_id: entry.outputId,
-          character_key: entry.charKey,
-          reason: "stale_roster_revoked",
-        });
-        continue;
-      }
-
-      if (entry.storedVersionId === currentVersionId) continue;
-
-      items.push({
-        output_id: entry.outputId,
-        character_key: entry.charKey,
-        reason: "out_of_sync_with_current_cast",
-      });
-    }
-
-    // ── B. Filter by opts ──
-    let filtered = items;
-    if (characterKey) {
-      const normKey = normalizeCharacterKey(characterKey);
-      filtered = filtered.filter((i) => i.character_key === normKey);
-    }
-    if (reasons && Array.isArray(reasons) && reasons.length > 0) {
-      const reasonSet = new Set(reasons);
-      filtered = filtered.filter((i) => reasonSet.has(i.reason));
-    }
-
-    // ── C. Insert jobs, skipping active duplicates ──
-    // The unique partial index prevents duplicate queued/running jobs.
+    // Insert jobs, skipping active duplicates via unique partial index
     let created_count = 0;
     let skipped_duplicates = 0;
     const jobs: Array<{
@@ -243,14 +94,18 @@ Deno.serve(async (req) => {
       reason: string;
     }> = [];
 
-    for (const item of filtered) {
+    for (const item of items) {
+      if (!item.output_id || !item.character_key || !item.reason) {
+        continue; // skip malformed items
+      }
+
       const { data: inserted, error: insertErr } = await db
         .from("cast_regen_jobs")
         .insert({
           project_id: projectId,
           character_key: item.character_key,
           output_id: item.output_id,
-          output_type: "ai_generated_media",
+          output_type: item.output_type || "ai_generated_media",
           reason: item.reason,
           status: "queued",
           requested_by: user.id,
