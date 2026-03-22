@@ -1322,7 +1322,12 @@ export async function buildCharacterCastingBrief(
   }
 
   // ── Phase 17.5: Identity completion ────────────────────────────────────
-  const buckets = completeActorIdentityBuckets(rawBuckets, roleInStory, stylingCues);
+  let buckets = completeActorIdentityBuckets(rawBuckets, roleInStory, stylingCues);
+
+  // ── Phase 17.6: Identity expansion — enforce minimum quality ──────────
+  if (!meetsMinimumIdentityQuality(buckets)) {
+    buckets = expandIdentityBuckets(buckets, roleInStory, stylingCues);
+  }
 
   // ── Compose actor identity from completed buckets ──────────────────────
   const composedDescription = composeActorDescriptionFromBuckets(buckets);
@@ -1336,14 +1341,14 @@ export async function buildCharacterCastingBrief(
     ? dedupedPresence.slice(0, 3).join(', ')
     : null;
 
-  // Tags from buckets
+  // Tags from buckets (phrase-level)
   const actorTags = composeActorTagsFromBuckets(buckets, genderPresentation);
+
+  // Curated chips for modal display
+  const actorCriteriaHighlights = composeActorCriteriaHighlights(buckets);
 
   // Negative exclusions from project world/style
   const negativeExclusions = composeNegativePrompt(canonRow?.canon_json);
-
-  // Quality gate diagnostic (does not block, but informs)
-  const _qualityMet = meetsMinimumIdentityQuality(buckets);
 
   const brief: CastingBrief = {
     age_hint: ageHint,
