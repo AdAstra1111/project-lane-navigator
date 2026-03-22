@@ -324,6 +324,8 @@ export default function CastingStudio() {
               onToggleCompare={toggleCompare}
               compareIds={compareIds}
               onDelete={(id) => deleteCandidate.mutate(id)}
+              onGenerate={() => handleGenerate(charName)}
+              isGenerating={isGenerating}
             />
           ))}
         </div>
