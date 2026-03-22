@@ -1,13 +1,14 @@
 /**
  * AI Actors Agency — Global actor registry with search, filter, identity strength, usage tracking.
  * Includes: create from project images, actor detail, version management, anchor validation badges.
+ * Phase 3: Scoring results display, auto-trigger scoring, hard fail visibility.
  */
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
   AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert,
-  FlaskConical, Clock, XCircle
+  FlaskConical, Clock, XCircle, TrendingUp, Zap, BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,9 +35,12 @@ import {
   type AnchorCoverageStatus, type AnchorCoherenceStatus,
 } from '@/lib/aiCast/anchorValidation';
 import {
-  useLatestValidationRun, useValidationImages, useStartValidation,
-  VALIDATION_SLOTS, type ValidationRun, type ValidationImage,
+  useLatestValidationRun, useValidationImages, useValidationResult, useStartValidation,
+  VALIDATION_SLOTS, type ValidationRun, type ValidationImage, type ValidationResult,
 } from '@/lib/aiCast/actorValidation';
+import {
+  useTriggerScoring, getScoreBandColor, getConfidenceColor,
+} from '@/lib/aiCast/validationScoring';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
