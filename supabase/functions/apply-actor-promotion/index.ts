@@ -242,6 +242,12 @@ Deno.serve(async (req) => {
       return jsonRes({ error: "action and actorId are required" }, 400);
     }
 
+    // ── CHECK ELIGIBILITY (read-only) ───────────────────────────────────
+    if (action === "check_eligibility") {
+      const eligibility = await evaluateEligibility(supabase, actorId, actorVersionId || null);
+      return jsonRes({ eligibility });
+    }
+
     const validActions: PromotionAction[] = [
       "approve", "reject", "override_approve", "override_reject", "revoke",
     ];
