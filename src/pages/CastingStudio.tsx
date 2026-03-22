@@ -376,10 +376,12 @@ interface LaneProps {
   onToggleCompare: (id: string) => void;
   compareIds: string[];
   onDelete: (id: string) => void;
+  onGenerate: () => void;
+  isGenerating: boolean;
 }
 
 function CharacterLane({
-  characterName, candidates, allCandidates, onShortlist, onReject, onUndo, onExpand, onToggleCompare, compareIds, onDelete
+  characterName, candidates, allCandidates, onShortlist, onReject, onUndo, onExpand, onToggleCompare, compareIds, onDelete, onGenerate, isGenerating
 }: LaneProps) {
   const shortlisted = allCandidates.filter(c => c.status === 'shortlisted').length;
   const promoted = allCandidates.filter(c => c.status === 'promoted').length;
@@ -396,6 +398,16 @@ function CharacterLane({
             {promoted > 0 && <Badge variant="outline" className="h-5 text-[10px] text-primary border-primary/30">{promoted} promoted</Badge>}
           </div>
         </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-[11px] gap-1"
+          onClick={onGenerate}
+          disabled={isGenerating}
+        >
+          {isGenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Generate
+        </Button>
       </div>
 
       {/* Candidate Grid */}
