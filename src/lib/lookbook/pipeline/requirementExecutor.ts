@@ -246,7 +246,7 @@ export async function executeRequirements(
             };
             identityCharCount++;
             if (anchors.aiActorId) resolvedActorIds[cn] = anchors.aiActorId;
-            if ((anchors as any).aiActorVersionId) resolvedActorVersionIds[cn] = (anchors as any).aiActorVersionId;
+            if (anchors.aiActorVersionId) resolvedActorVersionIds[cn] = anchors.aiActorVersionId;
             identitySources[cn] = anchors.source;
           }
         }
