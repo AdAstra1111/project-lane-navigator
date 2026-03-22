@@ -375,6 +375,12 @@ export default function ProjectCasting() {
           </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowRegenPolicy(!showRegenPolicy); if (!showRegenPolicy) refetchRegenPolicy(); }}
+          >
+            <Eye className="h-3.5 w-3.5" /> {showRegenPolicy ? 'Hide' : ''} Regen Policy
+          </Button>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowRegenJobs(!showRegenJobs); if (!showRegenJobs) refetchRegenJobs(); }}
           >
             <ListChecks className="h-3.5 w-3.5" /> {showRegenJobs ? 'Hide' : ''} Regen Jobs
