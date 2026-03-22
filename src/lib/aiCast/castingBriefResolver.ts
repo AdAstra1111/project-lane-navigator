@@ -871,11 +871,12 @@ function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): stri
   if (baseParts.length > 0) {
     baseAnchor = baseParts.join(' ');
     if (age.length > 0) {
-      baseAnchor += ` in her ${age[0]}`.replace('in her his', 'in his');
-      // Normalize: use "in their" if no gender hint
-      if (gender.length === 0) {
-        baseAnchor = baseParts.join(' ') + ', ' + age[0];
-      }
+      // Determine correct pronoun from gender
+      const genderLower = (gender[0] || '').toLowerCase();
+      const pronoun = /\b(woman|female|girl)\b/i.test(genderLower) ? 'her'
+        : /\b(man|male|boy)\b/i.test(genderLower) ? 'his'
+        : 'their';
+      baseAnchor += ` in ${pronoun} ${age[0]}`;
     }
   } else if (age.length > 0) {
     baseAnchor = age[0];
