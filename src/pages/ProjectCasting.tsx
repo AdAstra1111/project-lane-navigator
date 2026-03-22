@@ -288,22 +288,49 @@ export default function ProjectCasting() {
 
   const addMapping = useMutation({
     mutationFn: async (params: { character_key: string; ai_actor_id: string; ai_actor_version_id?: string }) => {
-      const actor = actors.find((a: any) => a.id === params.ai_actor_id);
-      const approvedVersionId = (actor as any)?.approved_version_id || params.ai_actor_version_id || null;
-      if (!(actor as any)?.roster_ready || !approvedVersionId) {
-        throw new Error('Only roster-ready actors with an approved version can be cast');
-      }
-      const { error } = await supabase
-        .from('project_ai_cast' as any)
-        .upsert({
-          project_id: projectId,
-          character_key: params.character_key,
-          ai_actor_id: params.ai_actor_id,
-          ai_actor_version_id: approvedVersionId,
-        } as any, { onConflict: 'project_id,character_key' });
-      if (error) throw error;
+      return bindActorToProjectCharacter(
+        { projectId: projectId!, characterKey: params.character_key, actorId: params.ai_actor_id, actorVersionId: params.ai_actor_version_id },
+        actors,
+      );
     },
     onSuccess: () => { toast.success('Cast mapping saved'); invalidateAll(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Cast Pack mutations (Phase 16.8)
+  const generatePackMutation = useMutation({
+    mutationFn: () => buildProjectCastPack(projectId!),
+    onSuccess: (pack) => {
+      setCastPack(pack);
+      const selections: Record<string, string | null> = {};
+      for (const c of pack.characters) {
+        selections[c.character_key] = c.selected_actor_id;
+      }
+      setPackSelections(selections);
+      setShowCastPack(true);
+      toast.success(`Cast pack generated: ${pack.characters.length} character(s)`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const applyPackMutation = useMutation({
+    mutationFn: (overwrite: boolean) => {
+      const selections = Object.entries(packSelections).map(([character_key, actor_id]) => ({
+        character_key,
+        actor_id,
+      }));
+      return applyProjectCastPack(projectId!, selections, { overwriteExisting: overwrite });
+    },
+    onSuccess: (result: ApplyCastPackResult) => {
+      if (result.applied === 0 && result.skipped_existing > 0) {
+        toast.info(`All ${result.skipped_existing} character(s) already bound — use "Apply & Replace" to overwrite`);
+      } else if (result.applied === 0) {
+        toast.info('No eligible selections to apply');
+      } else {
+        toast.success(`Applied ${result.applied} binding(s)${result.skipped_existing > 0 ? `, skipped ${result.skipped_existing} existing` : ''}${result.skipped_invalid > 0 ? `, ${result.skipped_invalid} invalid` : ''}`);
+      }
+      invalidateAll();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
