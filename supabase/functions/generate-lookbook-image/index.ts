@@ -1636,6 +1636,9 @@ FRAMING RULES:
               style_lock_active: !!cinematicStyleLock,
               shot_intent: resolvedShotIntent || null,
               shot_intent_slide_type: slideType,
+              // ── COMPOSITION RULE: provenance ──
+              composition_rule: resolvedCompositionRule || null,
+              composition_rule_hash: compositionRuleHash || null,
               // ── AUTO-COMPLETE CONTEXT: requirement-origin + actor attribution metadata ──
               ...(autoCompleteContext ? {
                 auto_complete_context: {
