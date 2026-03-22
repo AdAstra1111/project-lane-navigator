@@ -851,57 +851,119 @@ function dedupeAndResolveConflicts(items: string[]): string[] {
  * This produces a casting-ready description, not raw tag soup.
  */
 function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): string {
-  const parts: string[] = [];
-
-  // 1. Ethnicity (if explicit)
+  // ── 1. Base anchor: [ethnicity] [gender] [age] ──
   const ethnicity = dedupeAndResolveConflicts(buckets.ethnicity);
-  if (ethnicity.length > 0) parts.push(ethnicity[0]);
-
-  // 2. Gender + Age
   const gender = dedupeAndResolveConflicts(buckets.gender);
   const age = dedupeAndResolveConflicts(buckets.age);
-  const genderAge: string[] = [];
-  if (gender.length > 0) genderAge.push(gender[0]);
-  if (age.length > 0) genderAge.push(age[0]);
-  if (genderAge.length > 0) parts.push(genderAge.join(', '));
 
-  // 3. Height + Build
-  const height = dedupeAndResolveConflicts(buckets.height);
-  const build = dedupeAndResolveConflicts(buckets.build);
-  const physique = [...height.slice(0, 1), ...build.slice(0, 2)];
-  if (physique.length > 0) parts.push(physique.join(' '));
-
-  // 4. Face
-  const face = dedupeAndResolveConflicts(buckets.face);
-  if (face.length > 0) parts.push(face.slice(0, 2).join(', '));
-
-  // 5. Eyes
-  const eyes = dedupeAndResolveConflicts(buckets.eyes);
-  if (eyes.length > 0) parts.push(eyes[0]);
-
-  // 6. Hair
-  const hair = dedupeAndResolveConflicts(buckets.hair);
-  if (hair.length > 0) parts.push(hair[0]);
-
-  // 7. Skin
-  const skin = dedupeAndResolveConflicts(buckets.skin);
-  if (skin.length > 0) parts.push(skin[0]);
-
-  // 8. Scars / marks
-  const marks = dedupeAndResolveConflicts(buckets.scars_marks);
-  if (marks.length > 0) parts.push(marks.slice(0, 2).join(', '));
-
-  // 9. Presence (performer-safe only)
-  const presence = dedupeAndResolveConflicts(buckets.presence);
-  if (presence.length > 0) {
-    parts.push(presence.slice(0, 3).join(', ') + ' presence');
+  let baseAnchor = '';
+  const baseParts: string[] = [];
+  if (ethnicity.length > 0) baseParts.push(ethnicity[0]);
+  if (gender.length > 0) baseParts.push(gender[0]);
+  if (baseParts.length > 0) {
+    baseAnchor = baseParts.join(' ');
+    if (age.length > 0) {
+      baseAnchor += ` in her ${age[0]}`.replace('in her his', 'in his');
+      // Normalize: use "in their" if no gender hint
+      if (gender.length === 0) {
+        baseAnchor = baseParts.join(' ') + ', ' + age[0];
+      }
+    }
+  } else if (age.length > 0) {
+    baseAnchor = age[0];
   }
 
-  // 10. Styling
-  const styling = dedupeAndResolveConflicts(buckets.styling);
-  if (styling.length > 0) parts.push(styling.slice(0, 2).join(', '));
+  // ── 2. Physical phrase: height/build ──
+  const height = dedupeAndResolveConflicts(buckets.height);
+  const build = dedupeAndResolveConflicts(buckets.build);
+  let physicalPhrase = '';
+  const physParts = [...height.slice(0, 1), ...build.slice(0, 2)];
+  if (physParts.length > 0) {
+    physicalPhrase = physParts.join(' with a ').replace(' with a ', physParts.length > 1 ? ' with ' : '');
+    if (physParts.length === 1) {
+      physicalPhrase = physParts[0];
+    } else {
+      physicalPhrase = physParts[0] + ' with ' + physParts.slice(1).join(' ');
+    }
+  }
 
-  return parts.filter(p => p.trim().length > 0).join(', ');
+  // ── 3. Feature phrase: face + hair + eyes + skin ──
+  const face = dedupeAndResolveConflicts(buckets.face);
+  const hair = dedupeAndResolveConflicts(buckets.hair);
+  const eyes = dedupeAndResolveConflicts(buckets.eyes);
+  const skin = dedupeAndResolveConflicts(buckets.skin);
+  const marks = dedupeAndResolveConflicts(buckets.scars_marks);
+
+  // Filter out any remaining floating adjectives that somehow survived
+  const isFloating = (s: string) => FLOATING_ADJECTIVES.has(s.toLowerCase().trim());
+
+  const featureParts: string[] = [];
+  for (const f of face.slice(0, 2)) { if (!isFloating(f)) featureParts.push(f); }
+  for (const h of hair.slice(0, 1)) { if (!isFloating(h)) featureParts.push(h); }
+  for (const e of eyes.slice(0, 1)) { if (!isFloating(e)) featureParts.push(e); }
+  for (const s of skin.slice(0, 1)) { if (!isFloating(s)) featureParts.push(s); }
+  for (const m of marks.slice(0, 1)) { if (!isFloating(m)) featureParts.push(m); }
+
+  let featurePhrase = '';
+  if (featureParts.length > 0) {
+    featurePhrase = featureParts.join(' and ');
+    if (featureParts.length > 2) {
+      featurePhrase = featureParts.slice(0, -1).join(', ') + ' and ' + featureParts[featureParts.length - 1];
+    }
+  }
+
+  // ── 4. Presence phrase ──
+  const presence = dedupeAndResolveConflicts(buckets.presence);
+  let presencePhrase = '';
+  if (presence.length > 0) {
+    const presenceTerms = presence.slice(0, 3).filter(p => !isFloating(p));
+    if (presenceTerms.length > 0) {
+      // Only add "presence" suffix if no term already implies it
+      const alreadyImpliesPresence = presenceTerms.some(t =>
+        /presence|authority|composure|intensity|warmth/i.test(t)
+      );
+      if (presenceTerms.length === 1 && !alreadyImpliesPresence) {
+        presencePhrase = presenceTerms[0] + ' presence';
+      } else {
+        presencePhrase = presenceTerms.join(' and ');
+        if (presenceTerms.length > 2) {
+          presencePhrase = presenceTerms.slice(0, -1).join(', ') + ' and ' + presenceTerms[presenceTerms.length - 1];
+        }
+      }
+    }
+  }
+
+  // ── 5. Styling phrase ──
+  const styling = dedupeAndResolveConflicts(buckets.styling);
+  const stylingPhrase = styling.length > 0 ? styling.slice(0, 2).join(', ') : '';
+
+  // ── Compose structured sentence ──
+  const segments: string[] = [];
+  if (baseAnchor) segments.push(baseAnchor);
+  if (physicalPhrase) segments.push(physicalPhrase);
+  if (featurePhrase) segments.push(featurePhrase);
+  if (presencePhrase) segments.push(presencePhrase);
+  if (stylingPhrase) segments.push(stylingPhrase);
+
+  // Join with structured connectors
+  if (segments.length === 0) return '';
+
+  let result = segments[0];
+  for (let i = 1; i < segments.length; i++) {
+    // Use "with" to bind physical traits to base anchor
+    if (i === 1 && physicalPhrase && segments[i] === physicalPhrase) {
+      result += ', ' + segments[i];
+    } else {
+      result += ', ' + segments[i];
+    }
+  }
+
+  // Enforce max length
+  if (result.length > 220) {
+    result = result.substring(0, 217) + '...';
+  }
+
+  return result;
 }
 
 /**
