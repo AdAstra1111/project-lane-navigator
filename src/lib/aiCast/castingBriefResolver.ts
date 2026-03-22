@@ -1,5 +1,5 @@
 /**
- * castingBriefResolver — Phase 17.3: Document-Aware Casting Brief Enrichment.
+ * castingBriefResolver — Phase 17.4: Actor Identity Composer.
  *
  * Strictly separates character canon (story truth) from casting brief (visual performer requirements).
  * Actor creation, recommendations, and matching must consume the casting brief only.
@@ -9,10 +9,21 @@
  * - Unknown predicates NEVER populate actor criteria.
  * - Regex sanitization is a DEFENSIVE LAYER, not the primary classifier.
  * - Primary classifier is the VISUAL_PREDICATE_ALLOWLIST.
+ * - Phase 17.4: Extracted signals are classified into explicit identity buckets,
+ *   then deterministically composed into generation-ready actor descriptions.
  *
  * DETERMINISTIC. READ-ONLY. No LLM enrichment.
  *
  * Sources (priority order):
+ * 1. canon_facts
+ * 2. Document-enriched appearance signals (character_bible, character_profile)
+ * 3. character_visual_dna
+ * 4. canon_json.characters (story context only)
+ * 5. Document support signals (treatment, story_outline, scripts)
+ * 6. World bible styling cues
+ * 7. project_images character descriptors
+ * 8. minimal fallback
+ */
  * 1. canon_facts
  * 2. Document-enriched appearance signals (character_bible, character_profile)
  * 3. character_visual_dna
