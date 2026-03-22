@@ -700,7 +700,7 @@ export default function ProjectCasting() {
             <p className="text-xs text-muted-foreground">No scene integrity data available.</p>
           )}
         </div>
-      )
+      )}
 
       {identityMap && Object.keys(identityMap).length > 0 && (
         <div className="border-t border-border/30 pt-4 space-y-2">
