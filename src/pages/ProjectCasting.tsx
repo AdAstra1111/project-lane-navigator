@@ -1131,8 +1131,13 @@ export default function ProjectCasting() {
           invalidateAll();
           toast.success(`Actor created and bound to ${characterKey}`);
         }}
-        onCreatedPending={(characterKey) => {
+        onCreatedPending={async (characterKey, actorId) => {
           setShowCreateActor(null);
+          if (actorId && projectId) {
+            try {
+              await createPendingActorBindContext(actorId, projectId, characterKey);
+            } catch { /* best effort */ }
+          }
           invalidateAll();
           toast.info(`Actor created for ${characterKey} — bind when roster-ready`);
         }}
