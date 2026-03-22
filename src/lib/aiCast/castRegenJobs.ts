@@ -150,48 +150,27 @@ export async function processCastRegenJobs(
 // ── Retry a failed job ─────────────────────────────────────────────────────
 
 export async function retryCastRegenJob(jobId: string): Promise<{ created: boolean; skipped: boolean }> {
-  // 1. Fetch the failed job
-  const { data: failedJob, error: fetchErr } = await (supabase as any)
-    .from('cast_regen_jobs')
-    .select('*')
-    .eq('id', jobId)
-    .eq('status', 'failed')
-    .maybeSingle();
+  const token = await getSessionToken();
 
-  if (fetchErr) throw fetchErr;
-  if (!failedJob) throw new Error('Job not found or not in failed status');
+  const resp = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-cast-regen`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ jobId }),
+    },
+  );
 
-  // 2. Check dedup — skip if queued/running duplicate already exists
-  const { data: existing } = await (supabase as any)
-    .from('cast_regen_jobs')
-    .select('id')
-    .eq('project_id', failedJob.project_id)
-    .eq('character_key', failedJob.character_key)
-    .eq('output_id', failedJob.output_id)
-    .eq('reason', failedJob.reason)
-    .in('status', ['queued', 'running'])
-    .limit(1);
-
-  if (existing && existing.length > 0) {
-    return { created: false, skipped: true };
+  if (!resp.ok) {
+    const text = await resp.text();
+    let msg = 'Retry failed';
+    try { msg = JSON.parse(text).error || msg; } catch {}
+    throw new Error(msg);
   }
 
-  // 3. Get current user
-  const { data: { session } } = await supabase.auth.getSession();
-
-  // 4. Insert new queued job
-  const { error: insertErr } = await (supabase as any)
-    .from('cast_regen_jobs')
-    .insert({
-      project_id: failedJob.project_id,
-      character_key: failedJob.character_key,
-      output_id: failedJob.output_id,
-      output_type: failedJob.output_type,
-      reason: failedJob.reason,
-      status: 'queued',
-      requested_by: session?.user?.id || null,
-    });
-
-  if (insertErr) throw insertErr;
-  return { created: true, skipped: false };
+  const result = await resp.json();
+  return { created: !!result.created, skipped: !!result.skipped };
 }
