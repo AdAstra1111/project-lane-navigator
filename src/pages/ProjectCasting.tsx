@@ -747,7 +747,11 @@ export default function ProjectCasting() {
           {regenPolicyLoading ? (
             <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
           ) : regenPolicyData ? (
-            <RegenPolicyPanel data={regenPolicyData} />
+            <RegenPolicyPanel
+              data={regenPolicyData}
+              onRepair={(priorities) => autoRepairMutation.mutate(priorities)}
+              isRepairing={autoRepairMutation.isPending}
+            />
           ) : (
             <p className="text-xs text-muted-foreground">No policy data available.</p>
           )}
