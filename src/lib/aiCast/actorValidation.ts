@@ -191,9 +191,8 @@ export function useLatestValidationRun(actorId: string | undefined) {
     enabled: !!actorId,
     refetchInterval: (query) => {
       const run = query.state.data as ValidationRun | null;
-      // Poll while run is active
-      if (run && ['pending', 'generating', 'scoring'].includes(run.status)) return 5000;
-      // Also poll for pack_generated in case Phase 3 scoring kicks in automatically
+      // Poll while run is active (including scoring and pack_generated for auto-trigger)
+      if (run && ['pending', 'generating', 'scoring', 'pack_generated'].includes(run.status)) return 5000;
       return false;
     },
   });

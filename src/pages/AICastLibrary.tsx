@@ -1,13 +1,14 @@
 /**
  * AI Actors Agency — Global actor registry with search, filter, identity strength, usage tracking.
  * Includes: create from project images, actor detail, version management, anchor validation badges.
+ * Phase 3: Scoring results display, auto-trigger scoring, hard fail visibility.
  */
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
   AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert,
-  FlaskConical, Clock, XCircle
+  FlaskConical, Clock, XCircle, TrendingUp, Zap, BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,9 +35,12 @@ import {
   type AnchorCoverageStatus, type AnchorCoherenceStatus,
 } from '@/lib/aiCast/anchorValidation';
 import {
-  useLatestValidationRun, useValidationImages, useStartValidation,
-  VALIDATION_SLOTS, type ValidationRun, type ValidationImage,
+  useLatestValidationRun, useValidationImages, useValidationResult, useStartValidation,
+  VALIDATION_SLOTS, type ValidationRun, type ValidationImage, type ValidationResult,
 } from '@/lib/aiCast/actorValidation';
+import {
+  useTriggerScoring, getScoreBandColor, getConfidenceColor,
+} from '@/lib/aiCast/validationScoring';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -591,6 +595,9 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const startValidation = useStartValidation();
   const { data: latestRun } = useLatestValidationRun(actorId);
   const { data: validationImages } = useValidationImages(latestRun?.id);
+  const { data: validationResult } = useValidationResult(latestRun?.id);
+  const triggerScoring = useTriggerScoring();
+  const queryClient = useQueryClient();
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
@@ -604,6 +611,18 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
       setEditNeg(actor.negative_prompt);
     }
   }, [actor?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-trigger scoring when pack_generated is detected
+  useEffect(() => {
+    if (latestRun?.status === 'pack_generated' && !triggerScoring.isPending) {
+      triggerScoring.mutate(latestRun.id, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['actor-validation-run', actorId] });
+          queryClient.invalidateQueries({ queryKey: ['actor-validation-result', latestRun.id] });
+        },
+      });
+    }
+  }, [latestRun?.status, latestRun?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = () => {
     updateActor.mutate({ actorId, name: editName, description: editDesc, negative_prompt: editNeg });
@@ -695,13 +714,13 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
             variant="outline"
             className="h-7 text-xs gap-1"
             onClick={() => startValidation.mutate({ actorId })}
-            disabled={startValidation.isPending || (latestRun?.status === 'generating') || (latestRun?.status === 'pending')}
+            disabled={startValidation.isPending || (latestRun?.status === 'generating') || (latestRun?.status === 'pending') || (latestRun?.status === 'scoring')}
           >
-            {(startValidation.isPending || latestRun?.status === 'generating' || latestRun?.status === 'pending')
+            {(startValidation.isPending || latestRun?.status === 'generating' || latestRun?.status === 'pending' || latestRun?.status === 'scoring')
               ? <Loader2 className="h-3 w-3 animate-spin" />
               : <FlaskConical className="h-3 w-3" />
             }
-            {latestRun?.status === 'generating' ? 'Generating…' : latestRun?.status === 'pending' ? 'Queued…' : 'Run Validation'}
+            {latestRun?.status === 'generating' ? 'Generating…' : latestRun?.status === 'pending' ? 'Queued…' : latestRun?.status === 'scoring' ? 'Scoring…' : 'Run Validation'}
           </Button>
         </div>
 
@@ -724,6 +743,11 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
               )}
             </div>
 
+            {/* Scoring Results */}
+            {validationResult && validationResult.overall_score != null && (
+              <ValidationScorePanel result={validationResult} />
+            )}
+
             {/* Validation Images Grid */}
             {validationImages && validationImages.length > 0 && (
               <div className="space-y-2">
@@ -736,10 +760,14 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
                     const isPending = slotImages.some((i: ValidationImage) => i.status === 'pending' || i.status === 'generating');
                     const isFailed = slotImages.length > 0 && slotImages.every((i: ValidationImage) => i.status === 'failed');
 
+                    // Get per-slot stability score if available
+                    const intraDetail = (validationResult?.axis_scores as any)?.intra_slot_detail;
+                    const slotScore = intraDetail?.[slot.key];
+
                     return (
                       <div key={slot.key} className="space-y-0.5">
                         <div className={cn(
-                          'aspect-square rounded-md overflow-hidden border',
+                          'aspect-square rounded-md overflow-hidden border relative',
                           hasComplete ? 'border-border/50' : isPending ? 'border-primary/30' : isFailed ? 'border-destructive/30' : 'border-border/20'
                         )}>
                           {primaryImage?.public_url ? (
@@ -755,6 +783,16 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
                           ) : (
                             <div className="flex items-center justify-center h-full bg-muted/5">
                               <Image className="h-3 w-3 text-muted-foreground/20" />
+                            </div>
+                          )}
+                          {slotScore != null && (
+                            <div className={cn(
+                              'absolute bottom-0 right-0 text-[7px] font-bold px-1 py-0.5 rounded-tl',
+                              slotScore >= 7 ? 'bg-emerald-500/80 text-white' :
+                              slotScore >= 5 ? 'bg-amber-500/80 text-white' :
+                              'bg-destructive/80 text-white'
+                            )}>
+                              {slotScore.toFixed(0)}
                             </div>
                           )}
                         </div>
@@ -782,6 +820,108 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
           </Button>
         </div>
         {versions.map(ver => <VersionCard key={ver.id} ver={ver} actorId={actorId} />)}
+      </div>
+    </div>
+  );
+}
+
+// ── Validation Score Panel ──────────────────────────────────────────────────
+
+function ValidationScorePanel({ result }: { result: ValidationResult }) {
+  const axes = result.axis_scores as any;
+  const hardFails = result.hard_fail_codes || [];
+  const advisories = result.advisory_penalty_codes || [];
+
+  return (
+    <div className="border border-border/30 rounded-lg p-3 space-y-3 bg-card/20">
+      {/* Top row: score + band + confidence */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className={cn(
+          'rounded-lg px-3 py-1.5 border font-bold text-lg tabular-nums',
+          getScoreBandColor(result.score_band)
+        )}>
+          {result.overall_score}
+        </div>
+        <div>
+          <Badge variant="outline" className={cn('text-[9px] h-5 uppercase tracking-wider', getScoreBandColor(result.score_band))}>
+            {result.score_band}
+          </Badge>
+          <p className={cn('text-[9px] mt-0.5', getConfidenceColor(result.confidence))}>
+            {result.confidence} confidence
+          </p>
+        </div>
+
+        {hardFails.length > 0 && (
+          <div className="flex gap-1 ml-auto">
+            {hardFails.map(code => (
+              <Badge key={code} variant="destructive" className="text-[8px] h-5 gap-0.5">
+                <ShieldAlert className="h-2.5 w-2.5" /> {code}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Axis scores */}
+      <div className="grid grid-cols-2 gap-2">
+        <AxisScoreRow label="Intra-Slot Stability" value={axes?.intra_slot_stability} icon={<Zap className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Cross-Slot Persistence" value={axes?.cross_slot_persistence} icon={<TrendingUp className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Regen Stability" value={axes?.regeneration_stability} icon={<BarChart3 className="h-2.5 w-2.5" />} />
+        <AxisScoreRow label="Pack Coverage" value={axes?.pack_coverage_score} icon={<Image className="h-2.5 w-2.5" />} />
+      </div>
+
+      {/* Hard fail explanations */}
+      {hardFails.length > 0 && (
+        <div className="space-y-1">
+          {hardFails.includes('HF-08') && (
+            <p className="text-[9px] text-destructive flex items-start gap-1">
+              <ShieldAlert className="h-2.5 w-2.5 mt-0.5 shrink-0" />
+              HF-08 Regeneration Drift — identity is unstable across regenerations. Score capped at 59.
+            </p>
+          )}
+          {hardFails.includes('HF-COV') && (
+            <p className="text-[9px] text-destructive flex items-start gap-1">
+              <ShieldAlert className="h-2.5 w-2.5 mt-0.5 shrink-0" />
+              HF-COV Insufficient Coverage — fewer than 8 of 11 validation slots completed.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Advisory penalties */}
+      {advisories.length > 0 && (
+        <div className="flex gap-1 flex-wrap">
+          {advisories.map(code => (
+            <Badge key={code} variant="outline" className="text-[8px] h-4 text-amber-400 border-amber-400/30">
+              {code}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AxisScoreRow({ label, value, icon }: { label: string; value: number | undefined; icon: React.ReactNode }) {
+  if (value == null) return null;
+  const pct = (value / 10) * 100;
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] text-muted-foreground flex items-center gap-1">{icon} {label}</span>
+        <span className={cn(
+          'text-[9px] font-semibold tabular-nums',
+          value >= 7 ? 'text-emerald-400' : value >= 5 ? 'text-amber-400' : 'text-destructive'
+        )}>{value.toFixed(1)}/10</span>
+      </div>
+      <div className="h-1 rounded-full bg-muted/30 overflow-hidden">
+        <div
+          className={cn(
+            'h-full rounded-full transition-all',
+            value >= 7 ? 'bg-emerald-500' : value >= 5 ? 'bg-amber-500' : 'bg-destructive'
+          )}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );
