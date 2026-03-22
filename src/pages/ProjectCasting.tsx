@@ -216,6 +216,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showRecommendations,
   });
 
+  // Pending actor bind contexts (Phase 17.1 — always loaded)
+  const { data: pendingBinds, refetch: refetchPendingBinds } = useQuery({
+    queryKey: ['pending-actor-binds', projectId],
+    queryFn: () => getPendingActorBindContextsForProject(projectId!),
+    enabled: !!projectId,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
