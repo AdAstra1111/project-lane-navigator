@@ -5,7 +5,7 @@
  * Phase 16: Marketplace listing controls.
  */
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
@@ -64,6 +64,7 @@ type FilterStatus = 'all' | 'active' | 'draft' | 'roster';
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AICastLibrary() {
+  const navigate = useNavigate();
   const { data, isLoading } = useAIActors();
   const actors: AIActor[] = data?.actors || [];
   const { data: usageData } = useActorUsage();
@@ -121,6 +122,15 @@ export default function AICastLibrary() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Navigation */}
+      <div className="flex items-center gap-2 text-xs">
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground" onClick={() => navigate('/dashboard')}>
+          <ArrowLeft className="h-3 w-3" /> Dashboard
+        </Button>
+        <span className="text-muted-foreground">/</span>
+        <span className="text-foreground font-medium">AI Actors Agency</span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
