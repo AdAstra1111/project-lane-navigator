@@ -363,8 +363,9 @@ function CastCharacterRow({ characterKey, actors, resolvedIdentity, onCast }: {
         <div className="flex items-center gap-2">
           <Select onValueChange={(val) => {
             const actor = actors.find((a: any) => a.id === val);
-            const approvedVer = actor?.ai_actor_versions?.find((v: any) => v.is_approved);
-            onCast(val, approvedVer?.id);
+            // Use Phase 4 canonical approved_version_id, not legacy is_approved
+            const approvedVersionId = (actor as any)?.approved_version_id || null;
+            onCast(val, approvedVersionId);
             setSelecting(false);
           }}>
             <SelectTrigger className="h-7 text-xs w-[180px]"><SelectValue placeholder="Select actor..." /></SelectTrigger>
