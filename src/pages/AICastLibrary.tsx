@@ -258,7 +258,7 @@ function ValidationStatusChip({ status }: { status: string }) {
     pending: { label: 'Queued', className: 'bg-muted text-muted-foreground', icon: Clock },
     generating: { label: 'Generating…', className: 'bg-primary/15 text-primary border-primary/30', icon: Loader2 },
     scoring: { label: 'Scoring…', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: FlaskConical },
-    complete: { label: 'Validated', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icon: CheckCircle2 },
+    complete: { label: 'Pack Generated · Awaiting Scoring', className: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: Clock },
     failed: { label: 'Failed', className: 'bg-destructive/15 text-destructive border-destructive/30', icon: XCircle },
   };
   const cfg = config[status] || config.pending;
