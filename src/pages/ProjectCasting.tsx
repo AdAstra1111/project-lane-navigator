@@ -414,7 +414,7 @@ export default function ProjectCasting() {
           {healthLoading ? (
             <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
           ) : healthData ? (
-            <CastHealthPanel data={healthData} actors={actors} onRebind={(charKey, actorId) =>
+            <CastHealthPanel data={healthData} actors={actors} projectId={projectId!} onRebind={(charKey, actorId) =>
               rebindMutation.mutate({ characterKey: charKey, nextActorId: actorId, reason: 'Governance rebind' })
             } />
           ) : (
@@ -730,9 +730,10 @@ const RECOMMENDATION_LABELS: Record<GovernanceRecommendation, string> = {
   investigate_missing_binding: 'Investigate missing binding',
 };
 
-function CastHealthPanel({ data, actors, onRebind }: {
+function CastHealthPanel({ data, actors, projectId, onRebind }: {
   data: CastGovernanceResult;
   actors: any[];
+  projectId: string;
   onRebind: (charKey: string, actorId: string) => void;
 }) {
   const OverallIcon = SEVERITY_CONFIG[data.overall_health].icon;
@@ -761,6 +762,7 @@ function CastHealthPanel({ data, actors, onRebind }: {
             key={char.character_key}
             state={char}
             actors={actors}
+            projectId={projectId}
             onRebind={onRebind}
           />
         ))}
@@ -772,46 +774,41 @@ function CastHealthPanel({ data, actors, onRebind }: {
   );
 }
 
-function CastHealthRow({ state, actors, onRebind }: {
+function CastHealthRow({ state, actors, projectId, onRebind }: {
   state: CharacterGovernanceState;
   actors: any[];
+  projectId: string;
   onRebind: (charKey: string, actorId: string) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
+  const [showOutputs, setShowOutputs] = useState(false);
   const sevConfig = SEVERITY_CONFIG[state.severity];
   const SevIcon = sevConfig.icon;
   const actor = actors.find((a: any) => a.id === state.bound_actor_id);
 
+  const { data: impactedOutputs, isLoading: outputsLoading } = useQuery({
+    queryKey: ['impacted-outputs', projectId, state.character_key],
+    queryFn: () => getImpactedOutputs(projectId, state.character_key),
+    enabled: showOutputs,
+  });
+
   return (
     <div className="p-3 space-y-2">
       <div className="flex items-center gap-3">
-        {/* Severity dot */}
         <span className={cn('h-2 w-2 rounded-full shrink-0', sevConfig.dotClass)} />
-
-        {/* Character name */}
         <span className="text-xs font-medium text-foreground w-28 truncate">{state.character_key}</span>
-
-        {/* Actor name */}
         <span className="text-[11px] text-muted-foreground truncate w-24">
           {actor?.name || (state.bound_actor_id ? state.bound_actor_id.slice(0, 8) : '—')}
         </span>
-
-        {/* Freshness badge */}
         <FreshnessBadge freshness={state.freshness} />
-
-        {/* Severity badge */}
         <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium inline-flex items-center gap-0.5', sevConfig.badgeClass)}>
           <SevIcon className="h-2.5 w-2.5" /> {sevConfig.label}
         </span>
-
-        {/* Impact count */}
         {state.impact_out_of_sync > 0 && (
           <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700">
             {state.impact_out_of_sync} out of sync
           </Badge>
         )}
-
-        {/* Actions */}
         <div className="ml-auto flex items-center gap-1">
           {state.recommendations.includes('update_to_latest_version') && state.bound_actor_id && (
             <Button
@@ -820,6 +817,15 @@ function CastHealthRow({ state, actors, onRebind }: {
               onClick={() => onRebind(state.character_key, state.bound_actor_id!)}
             >
               <RefreshCw className="h-2.5 w-2.5" /> Update
+            </Button>
+          )}
+          {state.impact_total > 0 && (
+            <Button
+              size="sm" variant="ghost"
+              className="h-6 text-[10px] gap-1"
+              onClick={() => setShowOutputs(!showOutputs)}
+            >
+              <Activity className="h-2.5 w-2.5" /> {showOutputs ? 'Hide' : 'View'} Outputs
             </Button>
           )}
           <Button
@@ -832,12 +838,10 @@ function CastHealthRow({ state, actors, onRebind }: {
         </div>
       </div>
 
-      {/* Detail expansion */}
+      {/* Recommendations detail */}
       {showDetails && (
         <div className="ml-5 pl-3 border-l-2 border-border/30 space-y-1">
-          <p className="text-[10px] text-muted-foreground">
-            <strong>Recommendations:</strong>
-          </p>
+          <p className="text-[10px] text-muted-foreground"><strong>Recommendations:</strong></p>
           <ul className="list-disc list-inside text-[10px] text-muted-foreground space-y-0.5">
             {state.recommendations.map((rec) => (
               <li key={rec}>{RECOMMENDATION_LABELS[rec]}</li>
@@ -847,6 +851,60 @@ function CastHealthRow({ state, actors, onRebind }: {
             <p className="text-[10px] text-muted-foreground">
               {state.impact_total} tracked output{state.impact_total !== 1 ? 's' : ''}, {state.impact_out_of_sync} out of sync
             </p>
+          )}
+        </div>
+      )}
+
+      {/* Impacted outputs drill-down */}
+      {showOutputs && (
+        <div className="ml-5 pl-3 border-l-2 border-border/30 space-y-2">
+          {outputsLoading ? (
+            <div className="flex items-center gap-2 py-1">
+              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground">Loading impacted outputs…</span>
+            </div>
+          ) : impactedOutputs ? (
+            <>
+              {impactedOutputs.out_of_sync.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] font-medium text-amber-700">
+                    Out of Sync ({impactedOutputs.out_of_sync.length})
+                  </p>
+                  <div className="space-y-0.5">
+                    {impactedOutputs.out_of_sync.map((entry) => (
+                      <div key={entry.output_id} className="text-[9px] text-muted-foreground flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                        <span className="font-mono">{entry.output_id.slice(0, 12)}…</span>
+                        <span className="text-muted-foreground/60">
+                          pinned: {entry.stored_actor_version_id?.slice(0, 8) || '—'} → current: {entry.current_actor_version_id?.slice(0, 8) || '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {impactedOutputs.unbound.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[10px] font-medium text-destructive">
+                    Unbound ({impactedOutputs.unbound.length})
+                  </p>
+                  <div className="space-y-0.5">
+                    {impactedOutputs.unbound.map((entry) => (
+                      <div key={entry.output_id} className="text-[9px] text-muted-foreground flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
+                        <span className="font-mono">{entry.output_id.slice(0, 12)}…</span>
+                        <span className="text-muted-foreground/60">no active binding</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {impactedOutputs.out_of_sync.length === 0 && impactedOutputs.unbound.length === 0 && (
+                <p className="text-[10px] text-muted-foreground">No impacted outputs.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">Unable to load impact data.</p>
           )}
         </div>
       )}
