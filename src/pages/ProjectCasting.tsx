@@ -76,6 +76,13 @@ import {
 import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import { buildCharacterActorPrefill, type CharacterActorPrefill } from '@/lib/aiCast/characterToActorPrefill';
+import {
+  createPendingActorBindContext,
+  getPendingActorBindContextsForProject,
+  resolvePendingActorBindContext,
+  abandonPendingActorBindContext,
+  type PendingActorBindContext,
+} from '@/lib/aiCast/pendingBindRecovery';
 
 interface CastMapping {
   id: string;
@@ -209,6 +216,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showRecommendations,
   });
 
+  // Pending actor bind contexts (Phase 17.1 — always loaded)
+  const { data: pendingBinds, refetch: refetchPendingBinds } = useQuery({
+    queryKey: ['pending-actor-binds', projectId],
+    queryFn: () => getPendingActorBindContextsForProject(projectId!),
+    enabled: !!projectId,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
@@ -288,6 +302,7 @@ export default function ProjectCasting() {
     qc.invalidateQueries({ queryKey: ['cast-regen-jobs', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-consistency', projectId] });
     qc.invalidateQueries({ queryKey: ['scene-integrity', projectId] });
+    qc.invalidateQueries({ queryKey: ['pending-actor-binds', projectId] });
   };
 
   const addMapping = useMutation({
@@ -637,7 +652,137 @@ export default function ProjectCasting() {
         </div>
       )}
 
-      {/* Manual add */}
+      {/* Pending Created Actors — Phase 17.1 Recovery */}
+      {(pendingBinds || []).length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+            Pending Created Actors ({(pendingBinds || []).length})
+          </h3>
+          <div className="space-y-2">
+            {(pendingBinds || []).map((pb) => {
+              const actor = actors.find((a: any) => a.id === pb.actor_id);
+              const isBindable = actor?.roster_ready && actor?.approved_version_id;
+              const alreadyBound = (mappings || []).some(
+                (m) => normalizeCharacterKey(m.character_key) === normalizeCharacterKey(pb.character_key),
+              );
+
+              return (
+                <div
+                  key={pb.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/5"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">{pb.character_key}</span>
+                      <span className="text-muted-foreground text-[10px]">→</span>
+                      <span className="text-xs text-primary font-medium">
+                        {actor?.name || pb.actor_id.slice(0, 8)}
+                      </span>
+                      {isBindable ? (
+                        <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/40 text-emerald-700 bg-emerald-500/10">
+                          Ready to Bind
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[9px] h-4 border-amber-500/40 text-amber-700 bg-amber-500/10">
+                          Pending Validation
+                        </Badge>
+                      )}
+                      {alreadyBound && (
+                        <Badge variant="outline" className="text-[9px] h-4 border-muted-foreground/30 text-muted-foreground">
+                          Character Already Bound
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Created {new Date(pb.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isBindable && !alreadyBound && (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-7 text-[10px] gap-1"
+                        onClick={async () => {
+                          try {
+                            await bindActorToProjectCharacter(
+                              {
+                                projectId: projectId!,
+                                characterKey: pb.character_key,
+                                actorId: pb.actor_id,
+                                actorVersionId: actor.approved_version_id,
+                              },
+                              actors,
+                            );
+                            await resolvePendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
+                            invalidateAll();
+                            toast.success(`Bound ${actor?.name || 'actor'} to ${pb.character_key}`);
+                          } catch (err: any) {
+                            toast.error(err.message || 'Bind failed');
+                          }
+                        }}
+                      >
+                        <Link2 className="h-3 w-3" /> Bind Now
+                      </Button>
+                    )}
+                    {isBindable && alreadyBound && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[10px] gap-1"
+                        onClick={async () => {
+                          try {
+                            await bindActorToProjectCharacter(
+                              {
+                                projectId: projectId!,
+                                characterKey: pb.character_key,
+                                actorId: pb.actor_id,
+                                actorVersionId: actor.approved_version_id,
+                              },
+                              actors,
+                            );
+                            await resolvePendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
+                            invalidateAll();
+                            toast.success(`Replaced binding for ${pb.character_key}`);
+                          } catch (err: any) {
+                            toast.error(err.message || 'Replace failed');
+                          }
+                        }}
+                      >
+                        <RefreshCw className="h-3 w-3" /> Replace
+                      </Button>
+                    )}
+                    <Link to="/ai-cast">
+                      <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1">
+                        <Eye className="h-3 w-3" /> Review
+                      </Button>
+                    </Link>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-[10px] gap-1 text-muted-foreground"
+                      onClick={async () => {
+                        try {
+                          await abandonPendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
+                          refetchPendingBinds();
+                          toast.info('Pending bind dismissed');
+                        } catch (err: any) {
+                          toast.error(err.message || 'Dismiss failed');
+                        }
+                      }}
+                    >
+                      <XCircle className="h-3 w-3" /> Dismiss
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+
       <div className="border-t border-border/30 pt-4 space-y-2">
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Add Character Manually</h3>
         <div className="flex gap-2">
@@ -1116,8 +1261,13 @@ export default function ProjectCasting() {
           invalidateAll();
           toast.success(`Actor created and bound to ${characterKey}`);
         }}
-        onCreatedPending={(characterKey) => {
+        onCreatedPending={async (characterKey, actorId) => {
           setShowCreateActor(null);
+          if (actorId && projectId) {
+            try {
+              await createPendingActorBindContext(actorId, projectId, characterKey);
+            } catch { /* best effort */ }
+          }
           invalidateAll();
           toast.info(`Actor created for ${characterKey} — bind when roster-ready`);
         }}
@@ -2156,7 +2306,7 @@ function InlineCreateActorDialog({
   characterKey: string | null;
   onClose: () => void;
   onCreatedAndBound: (characterKey: string) => void;
-  onCreatedPending: (characterKey: string) => void;
+  onCreatedPending: (characterKey: string, actorId: string) => void;
   actors: any[];
 }) {
   const [prefill, setPrefill] = useState<CharacterActorPrefill | null>(null);
@@ -2218,7 +2368,7 @@ function InlineCreateActorDialog({
         onCreatedAndBound(characterKey);
       } else {
         // Actor created but not yet roster-ready — user must validate/promote first
-        onCreatedPending(characterKey);
+        onCreatedPending(characterKey, actorId);
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to create actor');
