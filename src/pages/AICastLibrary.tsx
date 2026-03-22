@@ -129,6 +129,9 @@ export default function AICastLibrary() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" asChild>
+            <a href="/actor-marketplace"><Store className="h-3.5 w-3.5" /> Marketplace</a>
+          </Button>
           <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateFromImages(true)}>
             <Image className="h-3.5 w-3.5" /> From Images
           </Button>
