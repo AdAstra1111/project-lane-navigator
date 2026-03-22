@@ -1,5 +1,5 @@
 /**
- * castingBriefResolver — Phase 17.4 Actor Identity Composer Tests.
+ * castingBriefResolver — Phase 17.5 Identity Completion Layer Tests.
  *
  * Tests prove that:
  * - actor criteria never contain plot/story leakage
@@ -8,6 +8,11 @@
  * - composed descriptions are structured, not tag soup
  * - contradictions are resolved deterministically
  * - tags are clean and reusable
+ * - Phase 17.5: identity completion fills sparse cues
+ * - Phase 17.5: floating adjectives are anchored
+ * - Phase 17.5: presence markers are expanded
+ * - Phase 17.5: minimum quality gate works
+ * - Phase 17.5: role weighting enriches leads
  */
 import { describe, it, expect } from 'vitest';
 import { _testHelpers, sanitizePlotLanguage } from '../castingBriefResolver';
@@ -24,6 +29,12 @@ const {
   composeActorDescriptionFromBuckets,
   composeActorTagsFromBuckets,
   dedupeAndResolveConflicts,
+  completeActorIdentityBuckets,
+  countIdentityDimensions,
+  meetsMinimumIdentityQuality,
+  expandPresenceMarker,
+  anchorFloatingAdjective,
+  FLOATING_ADJECTIVES,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
@@ -258,7 +269,6 @@ describe('composeActorDescriptionFromBuckets', () => {
 
     const result = composeActorDescriptionFromBuckets(b);
 
-    // Must be structured, not raw tags
     expect(result).toContain('woman');
     expect(result).toContain('early twenties');
     expect(result).toContain('slender');
@@ -266,8 +276,6 @@ describe('composeActorDescriptionFromBuckets', () => {
     expect(result).toContain('dark hair');
     expect(result).toContain('poised');
     expect(result).toContain('period-appropriate');
-
-    // Must be comma-separated phrases, not raw words
     expect(result.split(',').length).toBeGreaterThan(3);
   });
 
@@ -370,5 +378,209 @@ describe('composeActorTagsFromBuckets', () => {
     }
     const tags = composeActorTagsFromBuckets(b, null);
     expect(tags.length).toBeLessThanOrEqual(15);
+  });
+});
+
+// ── J. Phase 17.5: Identity Completion ───────────────────────────────────
+
+describe('expandPresenceMarker', () => {
+  it('expands "fierce" to casting-grade phrasing', () => {
+    expect(expandPresenceMarker('fierce')).toBe('controlled intensity');
+  });
+
+  it('expands "quiet" to casting-grade phrasing', () => {
+    expect(expandPresenceMarker('quiet')).toBe('quiet authority');
+  });
+
+  it('passes through already-good markers unchanged', () => {
+    expect(expandPresenceMarker('poised')).toBe('poised');
+    expect(expandPresenceMarker('elegant')).toBe('elegant');
+  });
+});
+
+describe('anchorFloatingAdjective', () => {
+  it('anchors "dark" to hair when hair bucket is empty', () => {
+    const b = createEmptyBuckets();
+    const result = anchorFloatingAdjective('dark', b);
+    expect(result).toBe('dark hair');
+  });
+
+  it('anchors "dark" to eyes when hair is filled', () => {
+    const b = createEmptyBuckets();
+    b.hair.push('dark hair');
+    const result = anchorFloatingAdjective('dark', b);
+    expect(result).toBe('dark eyes');
+  });
+
+  it('anchors "dark" to complexion when hair+eyes filled', () => {
+    const b = createEmptyBuckets();
+    b.hair.push('dark hair');
+    b.eyes.push('dark eyes');
+    const result = anchorFloatingAdjective('dark', b);
+    expect(result).toBe('dark complexion');
+  });
+
+  it('returns null for non-floating adjectives', () => {
+    const b = createEmptyBuckets();
+    expect(anchorFloatingAdjective('elegant', b)).toBeNull();
+  });
+});
+
+describe('completeActorIdentityBuckets', () => {
+  it('anchors floating "dark" from archetype into hair bucket', () => {
+    const b = createEmptyBuckets();
+    b.archetype.push('dark');
+    const completed = completeActorIdentityBuckets(b, null, []);
+    expect(completed.hair.some(h => h.includes('dark'))).toBe(true);
+    expect(completed.archetype).not.toContain('dark');
+  });
+
+  it('expands terse presence markers', () => {
+    const b = createEmptyBuckets();
+    b.presence.push('fierce');
+    b.presence.push('quiet');
+    const completed = completeActorIdentityBuckets(b, null, []);
+    expect(completed.presence).toContain('controlled intensity');
+    expect(completed.presence).toContain('quiet authority');
+    expect(completed.presence).not.toContain('fierce');
+    expect(completed.presence).not.toContain('quiet');
+  });
+
+  it('adds world styling when styling bucket is empty', () => {
+    const b = createEmptyBuckets();
+    const completed = completeActorIdentityBuckets(b, null, ['Victorian']);
+    expect(completed.styling.some(s => s.includes('victorian'))).toBe(true);
+  });
+
+  it('does not add styling when no world cues exist', () => {
+    const b = createEmptyBuckets();
+    const completed = completeActorIdentityBuckets(b, null, []);
+    expect(completed.styling.length).toBe(0);
+  });
+
+  it('promotes performer-safe archetype to presence for leads', () => {
+    const b = createEmptyBuckets();
+    b.archetype.push('elegant');
+    const completed = completeActorIdentityBuckets(b, 'protagonist', []);
+    expect(completed.presence.length).toBeGreaterThan(0);
+  });
+
+  it('does not invent data — empty input stays mostly empty', () => {
+    const b = createEmptyBuckets();
+    const completed = completeActorIdentityBuckets(b, null, []);
+    expect(completed.age.length).toBe(0);
+    expect(completed.gender.length).toBe(0);
+    expect(completed.ethnicity.length).toBe(0);
+    expect(completed.hair.length).toBe(0);
+  });
+});
+
+describe('countIdentityDimensions', () => {
+  it('counts 0 for empty buckets', () => {
+    expect(countIdentityDimensions(createEmptyBuckets())).toBe(0);
+  });
+
+  it('counts gender as base anchor', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    expect(countIdentityDimensions(b)).toBe(1);
+  });
+
+  it('counts multiple dimensions correctly', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.hair.push('dark hair');
+    b.presence.push('poised');
+    b.styling.push('period');
+    expect(countIdentityDimensions(b)).toBe(5);
+  });
+
+  it('groups build and height as one dimension', () => {
+    const b = createEmptyBuckets();
+    b.build.push('slender');
+    b.height.push('tall');
+    expect(countIdentityDimensions(b)).toBe(1);
+  });
+});
+
+describe('meetsMinimumIdentityQuality', () => {
+  it('returns false for empty buckets', () => {
+    expect(meetsMinimumIdentityQuality(createEmptyBuckets())).toBe(false);
+  });
+
+  it('returns false for 2 dimensions', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    expect(meetsMinimumIdentityQuality(b)).toBe(false);
+  });
+
+  it('returns true for 3+ dimensions', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.hair.push('dark hair');
+    expect(meetsMinimumIdentityQuality(b)).toBe(true);
+  });
+});
+
+// ── K. Phase 17.5: End-to-end sparse completion ─────────────────────────
+
+describe('Phase 17.5 — sparse input produces casting-grade output', () => {
+  it('transforms "tall, sharp, fierce, quiet" into anchored identity', () => {
+    const b = createEmptyBuckets();
+    b.height.push('tall');
+    b.archetype.push('sharp');
+    b.presence.push('fierce');
+    b.presence.push('quiet');
+
+    const completed = completeActorIdentityBuckets(b, null, []);
+    const desc = composeActorDescriptionFromBuckets(completed);
+
+    // Must not be raw tag soup
+    expect(desc).not.toBe('tall, sharp, fierce, quiet');
+    // fierce/quiet should be expanded
+    expect(desc).not.toContain('fierce');
+    expect(desc).not.toContain(', quiet,');
+    // Should contain anchored or expanded forms
+    expect(desc.length).toBeGreaterThan(15);
+  });
+
+  it('lead character gets richer output than non-lead', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.archetype.push('elegant');
+    b.archetype.push('refined');
+
+    const leadCompleted = completeActorIdentityBuckets(b, 'protagonist', []);
+    const nonLeadCompleted = completeActorIdentityBuckets(b, 'minor guard', []);
+
+    // Lead should have presence promoted from archetype
+    expect(leadCompleted.presence.length).toBeGreaterThanOrEqual(nonLeadCompleted.presence.length);
+  });
+
+  it('no plot contamination regression', () => {
+    const plotTerms = ['revenge', 'betrayal', 'secret', 'duty', 'guilt', 'conflict'];
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.hair.push('dark hair');
+    b.presence.push('poised');
+
+    const completed = completeActorIdentityBuckets(b, 'protagonist torn between duty and love', []);
+    const desc = composeActorDescriptionFromBuckets(completed);
+
+    for (const term of plotTerms) {
+      expect(desc.toLowerCase()).not.toContain(term);
+    }
+  });
+
+  it('no ethnicity hallucination from name alone', () => {
+    // Empty ethnicity should stay empty — no invention
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    const completed = completeActorIdentityBuckets(b, null, []);
+    expect(completed.ethnicity.length).toBe(0);
   });
 });
