@@ -897,14 +897,24 @@ describe('inferGenderFromPassages', () => {
     expect(inferGenderFromPassages(passages)).toBe('woman');
   });
 
-  it('infers male from short passage with clear pronouns (2+ with 2x dominance)', () => {
+  it('infers male from short passage with zero female pronouns', () => {
     const passages = ['He stood alone. His sword gleamed.'];
     expect(inferGenderFromPassages(passages)).toBe('man');
   });
 
-  it('infers female from short passage with clear pronouns (2+ with 2x dominance)', () => {
+  it('infers female from short passage with zero male pronouns', () => {
     const passages = ['She walked gracefully. Her kimono flowed.'];
     expect(inferGenderFromPassages(passages)).toBe('woman');
+  });
+
+  it('returns null when 2 dominant + 1 opposite (insufficient dominance)', () => {
+    const passages = ['He drew his blade. She watched from the gate.'];
+    expect(inferGenderFromPassages(passages)).toBeNull();
+  });
+
+  it('infers male from 3+ with strong ratio despite minor opposition', () => {
+    const passages = ['He walked forward. He drew his sword. His eyes narrowed. He struck. She gasped.'];
+    expect(inferGenderFromPassages(passages)).toBe('man');
   });
 
   it('returns null when pronouns are mixed/ambiguous', () => {
@@ -974,9 +984,19 @@ describe('inferAgeFromPassages', () => {
     expect(inferAgeFromPassages(passages)).toBe('late sixties');
   });
 
-  it('infers late fifties from "battle-worn" descriptor', () => {
+  it('returns null from "battle-worn" (removed as speculative)', () => {
     const passages = ['A battle-worn soldier with scars across his face.'];
-    expect(inferAgeFromPassages(passages)).toBe('late fifties');
+    expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null from "retired" (removed as speculative)', () => {
+    const passages = ['A retired general reflecting on past glory.'];
+    expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null from "veteran" without reinforcement', () => {
+    const passages = ['A veteran of many campaigns.'];
+    expect(inferAgeFromPassages(passages)).toBeNull();
   });
 
   it('returns null when no age-adjacent descriptors', () => {

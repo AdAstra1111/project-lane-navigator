@@ -421,18 +421,23 @@ function escapeRegex(s: string): string {
 /**
  * Infer gender from pronoun usage in character passages.
  * Deterministic: counts he/him/his vs she/her/hers occurrences.
- * Only returns a result if one pronoun set dominates by ≥3x ratio.
+ *
+ * Policy:
+ *   - infer if ≥2 dominant pronouns AND zero opposite pronouns
+ *   - OR if ≥3 dominant pronouns AND ≥2x ratio over opposite
+ *   - otherwise return null (mixed / insufficient evidence)
  */
 function inferGenderFromPassages(passages: string[]): string | null {
   const text = passages.join(' ').toLowerCase();
-  // Exclude possessive "her" when followed by a noun (ambiguous with "her dress" etc.)
-  // but keep standalone "her" as object pronoun
   const maleCount = (text.match(/\b(he|him|his|himself)\b/g) || []).length;
   const femaleCount = (text.match(/\b(she|her|hers|herself)\b/g) || []).length;
 
-  // Threshold: require at least 2 pronouns with 2x dominance (relaxed from 3/3x for short passages)
-  if (maleCount >= 2 && maleCount >= femaleCount * 2) return 'man';
-  if (femaleCount >= 2 && femaleCount >= maleCount * 2) return 'woman';
+  // Short-passage path: 2+ with zero opposition
+  if (maleCount >= 2 && femaleCount === 0) return 'man';
+  if (femaleCount >= 2 && maleCount === 0) return 'woman';
+  // Longer-passage path: 3+ with strong dominance
+  if (maleCount >= 3 && maleCount >= femaleCount * 2) return 'man';
+  if (femaleCount >= 3 && femaleCount >= maleCount * 2) return 'woman';
   return null;
 }
 
@@ -442,8 +447,9 @@ function inferGenderFromPassages(passages: string[]): string | null {
  */
 function inferGenderFromRoleText(role: string | null, description: string | null): string | null {
   const combined = `${role || ''} ${description || ''}`.toLowerCase();
-  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|waitress|actress|nun|geisha|courtesan|bride|mistress|duchess|countess|baroness|governess|handmaiden|maiden|sorceress|witch)\b/.test(combined)) return 'woman';
-  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord|groom|duke|count|baron|knight|squire|sorcerer|wizard)\b/.test(combined)) return 'man';
+  // Strictly gendered kinship / social / title terms only — no fantasy-class or profession guessing
+  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|bride|duchess|countess|baroness|governess|handmaiden|maiden|nun|geisha|courtesan)\b/.test(combined)) return 'woman';
+  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord|groom|duke|count|baron)\b/.test(combined)) return 'man';
   return null;
 }
 
@@ -459,9 +465,8 @@ const AGE_ADJACENT_MAP: Array<{ pattern: RegExp; ageHint: string }> = [
   { pattern: /\b(?:young (?:man|woman|person|adult)|youthful|in (?:her|his|their) youth)\b/i, ageHint: 'early twenties' },
   { pattern: /\b(?:early (?:middle[\s-]*age|maturity))\b/i, ageHint: 'early thirties' },
   { pattern: /\b(?:middle[\s-]*aged|midlife)\b/i, ageHint: 'mid forties' },
-  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran|battle[\s-]*worn)\b/i, ageHint: 'late fifties' },
+  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned)\b/i, ageHint: 'late fifties' },
   { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened|grey[\s-]*haired elder)\b/i, ageHint: 'late sixties' },
-  { pattern: /\b(?:retired|former)\b/i, ageHint: 'late fifties' },
 ];
 
 /**
