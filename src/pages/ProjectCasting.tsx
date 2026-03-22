@@ -39,6 +39,12 @@ import {
   processCastRegenJobs, retryCastRegenJob,
   type CastRegenJob,
 } from '@/lib/aiCast/castRegenJobs';
+import {
+  evaluateProjectCastConsistency,
+  type CastConsistencySummary,
+  type OutputConsistencyResult,
+  type CastConsistencyStatus,
+} from '@/lib/aiCast/castConsistency';
 
 interface CastMapping {
   id: string;
@@ -59,6 +65,7 @@ export default function ProjectCasting() {
   const [showImpact, setShowImpact] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
   const [showRegenJobs, setShowRegenJobs] = useState(false);
+  const [showConsistency, setShowConsistency] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -127,6 +134,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showRegenJobs,
   });
 
+  // Cast consistency verification (lazy)
+  const { data: consistencyData, isLoading: consistencyLoading, refetch: refetchConsistency } = useQuery({
+    queryKey: ['cast-consistency', projectId],
+    queryFn: () => evaluateProjectCastConsistency(projectId!),
+    enabled: !!projectId && showConsistency,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
@@ -188,6 +202,7 @@ export default function ProjectCasting() {
     qc.invalidateQueries({ queryKey: ['cast-impact', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-health', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-regen-jobs', projectId] });
+    qc.invalidateQueries({ queryKey: ['cast-consistency', projectId] });
   };
 
   const addMapping = useMutation({
@@ -298,7 +313,13 @@ export default function ProjectCasting() {
             Map project characters to your AI actors for consistent identity across all pipelines
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowConsistency(!showConsistency); if (!showConsistency) refetchConsistency(); }}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> {showConsistency ? 'Hide' : ''} Consistency
+          </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowRegenJobs(!showRegenJobs); if (!showRegenJobs) refetchRegenJobs(); }}
@@ -589,6 +610,22 @@ export default function ProjectCasting() {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground text-center py-4">No regen jobs yet.</p>
+          )}
+        </div>
+      )}
+
+      {/* Cast Consistency Panel */}
+      {showConsistency && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Cast Consistency Verification
+          </h3>
+          {consistencyLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : consistencyData ? (
+            <CastConsistencyPanel data={consistencyData} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No consistency data available.</p>
           )}
         </div>
       )}
@@ -1114,5 +1151,132 @@ function RegenJobStatusBadge({ status, errorMessage }: { status: string; errorMe
     <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', config.className)}>
       {label}
     </span>
+  );
+}
+
+// ── Cast Consistency Panel ──────────────────────────────────────────────────
+
+const CONSISTENCY_STATUS_CONFIG: Record<CastConsistencyStatus, { label: string; dotClass: string; textClass: string }> = {
+  aligned: { label: 'Aligned', dotClass: 'bg-emerald-500', textClass: 'text-emerald-700' },
+  misaligned: { label: 'Misaligned', dotClass: 'bg-amber-500', textClass: 'text-amber-700' },
+  unbound: { label: 'Unbound', dotClass: 'bg-destructive', textClass: 'text-destructive' },
+  unknown: { label: 'Unknown', dotClass: 'bg-muted-foreground', textClass: 'text-muted-foreground' },
+};
+
+const OVERALL_CONFIG: Record<string, { label: string; icon: typeof CheckCircle2; className: string }> = {
+  aligned: { label: 'Fully Aligned', icon: CheckCircle2, className: 'text-emerald-600' },
+  partial: { label: 'Partially Aligned', icon: AlertTriangle, className: 'text-amber-600' },
+  broken: { label: 'Not Aligned', icon: AlertCircle, className: 'text-destructive' },
+};
+
+function CastConsistencyPanel({ data }: { data: CastConsistencySummary }) {
+  const [expandedChar, setExpandedChar] = useState<string | null>(null);
+  const overall = OVERALL_CONFIG[data.overall_status] || OVERALL_CONFIG.aligned;
+  const OverallIcon = overall.icon;
+
+  if (data.total_results === 0) {
+    return <p className="text-xs text-muted-foreground">No outputs with cast provenance found.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 p-3 rounded-lg border border-border/50 bg-card/30">
+        <div className="flex items-center gap-2">
+          <OverallIcon className={cn('h-5 w-5', overall.className)} />
+          <span className="text-sm font-medium text-foreground">{overall.label}</span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground ml-auto">
+          <span className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> {data.aligned_count} aligned
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-amber-500" /> {data.misaligned_count} misaligned
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full bg-destructive" /> {data.unbound_count} unbound
+          </span>
+          {data.unknown_count > 0 && (
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-muted-foreground" /> {data.unknown_count} unknown
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Per-character rows */}
+      <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
+        {Object.entries(data.by_character).map(([charKey, results]) => {
+          const alignedCount = results.filter(r => r.status === 'aligned').length;
+          const misalignedCount = results.filter(r => r.status === 'misaligned').length;
+          const unboundCount = results.filter(r => r.status === 'unbound').length;
+          const allAligned = misalignedCount === 0 && unboundCount === 0;
+          const isExpanded = expandedChar === charKey;
+
+          return (
+            <div key={charKey} className="p-3 space-y-2">
+              <div
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={() => setExpandedChar(isExpanded ? null : charKey)}
+              >
+                <span className={cn('h-2 w-2 rounded-full shrink-0', allAligned ? 'bg-emerald-500' : 'bg-amber-500')} />
+                <span className="text-xs font-medium text-foreground w-28 truncate">
+                  {charKey || '(unknown)'}
+                </span>
+                <span className="text-[11px] text-muted-foreground">{results.length} outputs</span>
+                {allAligned ? (
+                  <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/30 text-emerald-700">
+                    All aligned
+                  </Badge>
+                ) : (
+                  <div className="flex gap-1">
+                    {misalignedCount > 0 && (
+                      <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700">
+                        {misalignedCount} misaligned
+                      </Badge>
+                    )}
+                    {unboundCount > 0 && (
+                      <Badge variant="outline" className="text-[9px] h-4 border-destructive/30 text-destructive">
+                        {unboundCount} unbound
+                      </Badge>
+                    )}
+                  </div>
+                )}
+                {!allAligned && (
+                  <span className="ml-auto text-[9px] text-muted-foreground/60">
+                    Use Regen Jobs to refresh these outputs
+                  </span>
+                )}
+                <Eye className="h-3 w-3 text-muted-foreground ml-auto shrink-0" />
+              </div>
+
+              {/* Drill-down */}
+              {isExpanded && (
+                <div className="ml-5 pl-3 border-l-2 border-border/30 space-y-0.5">
+                  {results.map((r) => {
+                    const sc = CONSISTENCY_STATUS_CONFIG[r.status];
+                    return (
+                      <div key={`${r.output_id}-${r.character_key}`} className="flex items-center gap-2 text-[9px] text-muted-foreground">
+                        <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', sc.dotClass)} />
+                        <span className="font-mono">{r.output_id.slice(0, 12)}…</span>
+                        <span className={cn('font-medium', sc.textClass)}>{sc.label}</span>
+                        {r.status === 'misaligned' && (
+                          <span className="text-muted-foreground/60">
+                            stored: {r.actual_actor_version_id?.slice(0, 8) || '—'} → expected: {r.expected_actor_version_id?.slice(0, 8) || '—'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {Object.keys(data.by_character).length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-4">No characters with provenance data.</p>
+        )}
+      </div>
+    </div>
   );
 }
