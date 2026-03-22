@@ -6,6 +6,7 @@
  * current project_ai_cast bindings.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeCharacterKey } from './normalizeCharacterKey';
 
 export interface ImpactEntry {
   output_id: string;
