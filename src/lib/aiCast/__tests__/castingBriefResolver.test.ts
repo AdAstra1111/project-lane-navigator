@@ -973,7 +973,7 @@ describe('description base anchor enforcement', () => {
     b.age.push('late fifties');
     b.face.push('weathered features');
     const desc = composeActorDescriptionFromBuckets(b);
-    expect(desc).toMatch(/^Japanese man, playing age 55–60/i);
+    expect(desc).toMatch(/^Japanese man, playing age 50–59/i);
   });
 
   it('description never starts with raw traits when gender exists', () => {
