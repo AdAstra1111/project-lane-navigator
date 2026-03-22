@@ -36,6 +36,7 @@ import {
 } from '@/lib/aiCast/castGovernance';
 import {
   queueCastRegenJobs, listCastRegenJobs, cancelCastRegenJob,
+  processCastRegenJobs, retryCastRegenJob,
   type CastRegenJob,
 } from '@/lib/aiCast/castRegenJobs';
 
