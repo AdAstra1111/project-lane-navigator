@@ -1410,12 +1410,44 @@ function AxisScoreRow({ label, value, icon, subtitle }: { label: string; value: 
 
 // ── Version Card ────────────────────────────────────────────────────────────
 
+type AnchorSlot = 'reference_headshot' | 'reference_full_body' | 'reference_profile';
+
+const ANCHOR_SLOTS: { key: AnchorSlot; label: string; metaShotType: string }[] = [
+  { key: 'reference_headshot', label: 'Headshot', metaShotType: 'headshot' },
+  { key: 'reference_full_body', label: 'Full Body', metaShotType: 'full_body' },
+  { key: 'reference_profile', label: 'Profile', metaShotType: 'profile' },
+];
+
 function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string }) {
   const { approveVersion, generateScreenTest } = useAICastMutations();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadSlot, setUploadSlot] = useState<AnchorSlot | 'reference_image'>('reference_image');
   const [deleteTarget, setDeleteTarget] = useState<AIActorAsset | null>(null);
+
+  const assets = ver.ai_actor_assets || [];
+
+  // Determine which anchor slots are already filled
+  const filledSlots = useMemo(() => {
+    const filled = new Set<string>();
+    for (const a of assets) {
+      const at = (a.asset_type || '').toLowerCase();
+      const mt = ((a.meta_json as any)?.shot_type || '').toLowerCase();
+      if (at === 'reference_headshot' || mt === 'headshot' || mt === 'identity_headshot') filled.add('reference_headshot');
+      if (at === 'reference_full_body' || mt === 'full_body' || mt === 'identity_full_body') filled.add('reference_full_body');
+      if (at === 'reference_profile' || mt === 'profile' || mt === 'identity_profile') filled.add('reference_profile');
+    }
+    return filled;
+  }, [assets]);
+
+  const anchorsFilled = filledSlots.size;
+  const anchorsNeeded = 3;
+
+  const triggerUpload = (slot: AnchorSlot | 'reference_image') => {
+    setUploadSlot(slot);
+    setTimeout(() => fileInputRef.current?.click(), 0);
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -1433,11 +1465,20 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
         const { error: uploadErr } = await supabase.storage.from('ai-media').upload(storagePath, file, { contentType: file.type, upsert: false });
         if (uploadErr) { toast.error(`Upload failed: ${uploadErr.message}`); continue; }
         const { data: urlData } = supabase.storage.from('ai-media').getPublicUrl(storagePath);
+
+        // Determine the shot_type metadata from the selected slot
+        const slotDef = ANCHOR_SLOTS.find(s => s.key === uploadSlot);
+        const metaShotType = slotDef?.metaShotType || 'reference';
+
         await aiCastApi.addAsset(ver.id, {
-          asset_type: 'reference_image',
+          asset_type: uploadSlot,
           storage_path: storagePath,
           public_url: urlData.publicUrl,
-          meta_json: { filename: file.name, size: file.size, content_type: file.type, uploaded_at: new Date().toISOString() },
+          meta_json: {
+            filename: file.name, size: file.size, content_type: file.type,
+            shot_type: metaShotType,
+            uploaded_at: new Date().toISOString(),
+          },
         });
         successCount++;
       } catch (err: any) { toast.error(`Failed: ${err.message}`); }
@@ -1445,6 +1486,18 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
     if (successCount > 0) {
       toast.success(`Uploaded ${successCount} image${successCount > 1 ? 's' : ''}`);
       queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
+
+      // Re-evaluate and persist anchor coverage
+      try {
+        const coverage = await evaluateAnchorCoverage(actorId);
+        const coherence = coverage.coverageStatus === 'insufficient'
+          ? 'unknown' as AnchorCoherenceStatus
+          : (await import('@/lib/aiCast/anchorValidation').then(m => m.evaluateAnchorCoherence(actorId, coverage))).coherenceStatus;
+        await persistAnchorStatus(actorId, coverage.coverageStatus, coherence);
+        queryClient.invalidateQueries({ queryKey: ['ai-actors'] });
+      } catch (err) {
+        console.warn('[VersionCard] Anchor re-evaluation failed:', err);
+      }
     }
     setUploading(false);
   };
@@ -1466,10 +1519,6 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
           <span className="text-xs font-medium">Version {ver.version_number}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload
-          </Button>
-          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleUpload} />
           <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
             onClick={() => generateScreenTest.mutate({ actorId, versionId: ver.id, count: 4 })} disabled={generateScreenTest.isPending}>
             {generateScreenTest.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Screen Test
@@ -1477,28 +1526,117 @@ function VersionCard({ ver, actorId }: { ver: AIActorVersion; actorId: string })
         </div>
       </div>
 
-      {ver.ai_actor_assets && ver.ai_actor_assets.length > 0 ? (
-        <div className="grid grid-cols-4 gap-2">
-          {ver.ai_actor_assets.map((asset: AIActorAsset) => (
-            <div key={asset.id} className="relative group rounded-lg overflow-hidden border border-border/30 aspect-square bg-muted/10">
-              {asset.public_url ? (
-                <img src={asset.public_url} alt={asset.asset_type} className="w-full h-full object-cover" />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground"><ImagePlus className="h-5 w-5" /></div>
-              )}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1">
-                <span className="text-[9px] text-white/80">{asset.asset_type.replace(/_/g, ' ')}</span>
-              </div>
-              <button onClick={() => setDeleteTarget(asset)}
-                className="absolute top-1 right-1 p-1 rounded bg-background/70 text-destructive opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background">
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+      {/* Anchor coverage progress */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            Anchor References ({anchorsFilled}/{anchorsNeeded})
+          </span>
+          {anchorsFilled >= anchorsNeeded && (
+            <Badge variant="outline" className="h-5 text-[10px] gap-1 border-primary/30 text-primary">
+              <CheckCircle2 className="h-2.5 w-2.5" /> Coverage met
+            </Badge>
+          )}
         </div>
-      ) : (
-        <p className="text-[11px] text-muted-foreground">No assets yet. Upload reference images or run a screen test.</p>
+
+        {/* Anchor slot cards */}
+        <div className="grid grid-cols-3 gap-2">
+          {ANCHOR_SLOTS.map(slot => {
+            const isFilled = filledSlots.has(slot.key);
+            const slotAsset = assets.find(a => {
+              const at = (a.asset_type || '').toLowerCase();
+              const mt = ((a.meta_json as any)?.shot_type || '').toLowerCase();
+              if (slot.key === 'reference_headshot') return at === 'reference_headshot' || mt === 'headshot' || mt === 'identity_headshot';
+              if (slot.key === 'reference_full_body') return at === 'reference_full_body' || mt === 'full_body' || mt === 'identity_full_body';
+              if (slot.key === 'reference_profile') return at === 'reference_profile' || mt === 'profile' || mt === 'identity_profile';
+              return false;
+            });
+
+            return (
+              <div
+                key={slot.key}
+                onClick={() => !isFilled && !uploading && triggerUpload(slot.key)}
+                className={cn(
+                  "relative aspect-[3/4] rounded-lg border-2 border-dashed flex flex-col items-center justify-center gap-1 transition-colors",
+                  isFilled
+                    ? "border-primary/30 bg-primary/5 cursor-default"
+                    : "border-border/50 hover:border-primary/40 hover:bg-primary/5 cursor-pointer"
+                )}
+              >
+                {isFilled && slotAsset?.public_url ? (
+                  <>
+                    <img src={slotAsset.public_url} alt={slot.label} className="w-full h-full object-cover rounded-md" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1.5 rounded-b-md">
+                      <div className="flex items-center gap-1">
+                        <CheckCircle2 className="h-2.5 w-2.5 text-primary" />
+                        <span className="text-[9px] font-medium text-primary">{slot.label}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(slotAsset); }}
+                      className="absolute top-1 right-1 p-1 rounded bg-background/70 text-destructive opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {uploading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <Upload className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <span className="text-[10px] text-muted-foreground font-medium">{slot.label}</span>
+                    <span className="text-[9px] text-muted-foreground/60">Tap to upload</span>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleUpload} />
+
+      {/* Additional reference images */}
+      {assets.filter(a => {
+        const at = (a.asset_type || '').toLowerCase();
+        const mt = ((a.meta_json as any)?.shot_type || '').toLowerCase();
+        return !['reference_headshot', 'reference_full_body', 'reference_profile'].includes(at)
+          && !['headshot', 'full_body', 'profile', 'identity_headshot', 'identity_full_body', 'identity_profile'].includes(mt);
+      }).length > 0 && (
+        <div className="space-y-1.5">
+          <span className="text-[11px] text-muted-foreground">Additional References</span>
+          <div className="grid grid-cols-4 gap-2">
+            {assets.filter(a => {
+              const at = (a.asset_type || '').toLowerCase();
+              const mt = ((a.meta_json as any)?.shot_type || '').toLowerCase();
+              return !['reference_headshot', 'reference_full_body', 'reference_profile'].includes(at)
+                && !['headshot', 'full_body', 'profile', 'identity_headshot', 'identity_full_body', 'identity_profile'].includes(mt);
+            }).map((asset: AIActorAsset) => (
+              <div key={asset.id} className="relative group rounded-lg overflow-hidden border border-border/30 aspect-square bg-muted/10">
+                {asset.public_url ? (
+                  <img src={asset.public_url} alt={asset.asset_type} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground"><ImagePlus className="h-5 w-5" /></div>
+                )}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background/80 to-transparent p-1">
+                  <span className="text-[9px] text-white/80">{asset.asset_type.replace(/_/g, ' ')}</span>
+                </div>
+                <button onClick={() => setDeleteTarget(asset)}
+                  className="absolute top-1 right-1 p-1 rounded bg-background/70 text-destructive opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
+
+      {/* Upload more references button */}
+      <Button size="sm" variant="outline" className="h-7 text-xs gap-1 w-full" onClick={() => triggerUpload('reference_image')} disabled={uploading}>
+        {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload Additional Reference
+      </Button>
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <DialogContent className="max-w-sm">
