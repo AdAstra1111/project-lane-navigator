@@ -198,7 +198,8 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
   const thumbnail = getActorThumbnail(actor.ai_actor_versions);
   const identity = getIdentityStrength(actor.ai_actor_versions);
   const coverageStatus = (actor as any).anchor_coverage_status as AnchorCoverageStatus | undefined;
-  const coherenceStatus = (actor as any).anchor_coherence_status as AnchorCoherenceStatus | undefined;
+  const rosterReady = (actor as any).roster_ready as boolean | undefined;
+  const promotionStatus = (actor as any).promotion_status as string | undefined;
 
   return (
     <button onClick={onClick} className="text-left rounded-lg border border-border/50 bg-card/50 hover:bg-muted/20 transition-colors overflow-hidden group">
@@ -209,6 +210,7 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
           <div className="flex items-center justify-center h-full"><Users className="h-8 w-8 text-muted-foreground/30" /></div>
         )}
         <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+          {rosterReady && <RosterBadge />}
           <IdentityBadge strength={identity.strength} size="sm" />
           {coverageStatus && coverageStatus !== 'insufficient' && (
             <AnchorCoverageBadge status={coverageStatus} />
@@ -223,8 +225,13 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
         <p className="text-[11px] text-muted-foreground line-clamp-2">{actor.description || 'No description'}</p>
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant={actor.status === 'active' ? 'default' : 'secondary'} className="text-[10px] h-5">{actor.status}</Badge>
-          {actor.ai_actor_versions?.some(v => v.is_approved) && (
-            <Badge variant="outline" className="text-[10px] h-5 gap-0.5"><CheckCircle2 className="h-2.5 w-2.5" /> Approved</Badge>
+          {rosterReady && (
+            <Badge variant="outline" className="text-[10px] h-5 gap-0.5 text-amber-300 border-amber-300/30">
+              <Crown className="h-2.5 w-2.5" /> Roster
+            </Badge>
+          )}
+          {!rosterReady && promotionStatus && promotionStatus !== 'none' && (
+            <PromotionStatusChip status={promotionStatus} />
           )}
           <span className="text-[10px] text-muted-foreground">{actor.ai_actor_versions?.length || 0} ver.</span>
           {usageCount > 0 && (
@@ -243,6 +250,31 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
       </div>
     </button>
   );
+}
+
+// ── Roster Badge ────────────────────────────────────────────────────────────
+
+function RosterBadge() {
+  return (
+    <span className="rounded-full text-[8px] px-1.5 py-0.5 font-medium bg-amber-500/90 text-white inline-flex items-center gap-0.5">
+      <Crown className="h-2 w-2" /> Roster
+    </span>
+  );
+}
+
+// ── Promotion Status Chip ───────────────────────────────────────────────────
+
+function PromotionStatusChip({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string }> = {
+    approved: { label: 'Approved', className: 'text-emerald-400 border-emerald-400/30' },
+    override_approved: { label: 'Override ✓', className: 'text-amber-400 border-amber-400/30' },
+    rejected: { label: 'Rejected', className: 'text-destructive border-destructive/30' },
+    override_rejected: { label: 'Override ✗', className: 'text-destructive border-destructive/30' },
+    revoked: { label: 'Revoked', className: 'text-muted-foreground border-border' },
+    pending_review: { label: 'Review', className: 'text-amber-400 border-amber-400/30' },
+  };
+  const cfg = config[status] || { label: status, className: 'text-muted-foreground border-border' };
+  return <Badge variant="outline" className={cn('text-[9px] h-5', cfg.className)}>{cfg.label}</Badge>;
 }
 
 // ── Anchor Coverage Badge ───────────────────────────────────────────────────
