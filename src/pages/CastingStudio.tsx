@@ -7,7 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import {
   Users, Sparkles, Star, StarOff, X, Check, Loader2, Eye, ArrowLeft,
   ChevronRight, RefreshCw, Crown, Maximize2, XCircle, Filter, LayoutGrid,
-  UserPlus, Columns, Trash2
+  UserPlus, Columns, Trash2, ShieldCheck, ShieldAlert, AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +26,10 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import {
+  runAnchorPrecheck, persistAnchorStatus,
+  type AnchorPrecheckResult,
+} from '@/lib/aiCast/anchorValidation';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
