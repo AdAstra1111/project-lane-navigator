@@ -220,7 +220,8 @@ export function pickBackgroundImage(
 
 export function selectPosterHero(
   allImages: ProjectImage[],
-): { url: string; id: string; score: number } | null {
+  selectionCtx?: SelectionScoringContext | null,
+): { url: string; id: string; score: number; selectionScore?: LookbookSelectionScore } | null {
   const candidates = allImages.filter(img => img.signedUrl);
   if (candidates.length === 0) return null;
 
@@ -247,10 +248,13 @@ export function selectPosterHero(
         prompt.includes('kiln') || prompt.includes('craftsman')) {
       score -= 30;
     }
-    return { img, score };
+
+    // Phase 16.6: composition-aware augmentation for poster hero
+    const { total, selectionScore } = computeAugmentedScore(img, 'cover', score, selectionCtx || null);
+    return { img, score: total, selectionScore };
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
 
   const top3 = scored.slice(0, 3).map(s => ({
     id: s.img.id.slice(0, 8),
@@ -262,7 +266,7 @@ export function selectPosterHero(
   console.log(`[LookBook:posterHero] election: top3=${JSON.stringify(top3)} pool=${candidates.length}`);
 
   const winner = scored[0];
-  return { url: winner.img.signedUrl!, id: winner.img.id, score: winner.score };
+  return { url: winner.img.signedUrl!, id: winner.img.id, score: winner.score, selectionScore: winner.selectionScore };
 }
 
 // ── Image Role Assignment ────────────────────────────────────────────────────
