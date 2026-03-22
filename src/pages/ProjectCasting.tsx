@@ -496,7 +496,7 @@ function RebindButton({ characterKey, currentActorId, actors, onRebind, disabled
   characterKey: string;
   currentActorId: string;
   actors: any[];
-  onRebind: (actorId: string, versionId?: string) => void;
+  onRebind: (actorId: string) => void;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
