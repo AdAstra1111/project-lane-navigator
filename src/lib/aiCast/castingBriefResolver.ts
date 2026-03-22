@@ -418,11 +418,66 @@ function escapeRegex(s: string): string {
  * Extract appearance-safe visual signals from character-relevant passages.
  * Returns only signals that pass through visual allowlists and plot sanitization.
  */
+/**
+ * Infer gender from pronoun usage in character passages.
+ * Deterministic: counts he/him/his vs she/her/hers occurrences.
+ * Only returns a result if one pronoun set dominates by ≥3x ratio.
+ */
+function inferGenderFromPassages(passages: string[]): string | null {
+  const text = passages.join(' ').toLowerCase();
+  const maleCount = (text.match(/\b(he|him|his|himself)\b/g) || []).length;
+  const femaleCount = (text.match(/\b(she|her|hers|herself)\b/g) || []).length;
+
+  if (maleCount >= 3 && maleCount >= femaleCount * 3) return 'man';
+  if (femaleCount >= 3 && femaleCount >= maleCount * 3) return 'woman';
+  return null;
+}
+
+/**
+ * Infer gender from role title or description text.
+ * Only triggers on strongly gendered role titles.
+ */
+function inferGenderFromRoleText(role: string | null, description: string | null): string | null {
+  const combined = `${role || ''} ${description || ''}`.toLowerCase();
+  if (/\b(heroine|mother|daughter|wife|queen|princess|empress|priestess|matriarch|noblewoman|lady|waitress|actress|nun|geisha|courtesan)\b/.test(combined)) return 'woman';
+  if (/\b(hero|father|son|husband|king|prince|emperor|priest|patriarch|nobleman|lord|samurai|ronin|monk|shogun|warlord)\b/.test(combined)) return 'man';
+  return null;
+}
+
+/**
+ * AGE-ADJACENT DESCRIPTOR MAP
+ * Maps contextual age descriptors to standard casting age hints.
+ * Only used when no explicit age is found from other sources.
+ */
+const AGE_ADJACENT_MAP: Array<{ pattern: RegExp; ageHint: string }> = [
+  { pattern: /\b(?:child|childhood|young child)\b/i, ageHint: 'child' },
+  { pattern: /\b(?:adolescen\w*|teenage\w*|teen\b)/i, ageHint: 'late teens' },
+  { pattern: /\b(?:barely out of adolescence|just come of age)\b/i, ageHint: 'late teens' },
+  { pattern: /\b(?:young (?:man|woman|person|adult)|youthful)\b/i, ageHint: 'early twenties' },
+  { pattern: /\b(?:middle[\s-]*aged|midlife)\b/i, ageHint: 'mid forties' },
+  { pattern: /\b(?:aging|ageing|weathered|grizzled|seasoned|veteran)\b/i, ageHint: 'late fifties' },
+  { pattern: /\b(?:elderly|old (?:man|woman)|ancient|decrepit|wizened)\b/i, ageHint: 'late sixties' },
+  { pattern: /\b(?:retired|former)\b/i, ageHint: 'late fifties' },
+];
+
+/**
+ * Infer age from contextual descriptors in character passages.
+ */
+function inferAgeFromPassages(passages: string[]): string | null {
+  const combined = passages.join(' ');
+  for (const { pattern, ageHint } of AGE_ADJACENT_MAP) {
+    if (pattern.test(combined)) return ageHint;
+  }
+  return null;
+}
+
 function extractAppearanceSignalsFromPassages(passages: string[]): {
   visualMarkers: string[];
   ageSignals: string[];
   stylingSignals: string[];
   presenceSignals: string[];
+  inferredGender: string | null;
+  inferredAge: string | null;
 } {
   const visualMarkers: string[] = [];
   const ageSignals: string[] = [];
@@ -458,7 +513,13 @@ function extractAppearanceSignalsFromPassages(passages: string[]): {
     }
   }
 
-  return { visualMarkers, ageSignals, stylingSignals, presenceSignals };
+  // Infer gender from pronoun usage (deterministic, high-confidence only)
+  const inferredGender = inferGenderFromPassages(passages);
+
+  // Infer age from contextual descriptors (only if no explicit age pattern matched)
+  const inferredAge = ageSignals.length === 0 ? inferAgeFromPassages(passages) : null;
+
+  return { visualMarkers, ageSignals, stylingSignals, presenceSignals, inferredGender, inferredAge };
 }
 
 /**
@@ -1404,6 +1465,15 @@ export async function buildCharacterCastingBrief(
         ageHint = signals.ageSignals[0];
         tags.push(signals.ageSignals[0].toLowerCase());
       }
+      // Age: infer from contextual descriptors if still missing
+      if (!ageHint && signals.inferredAge) {
+        ageHint = signals.inferredAge;
+      }
+
+      // Gender: infer from pronoun usage if not already resolved
+      if (!genderPresentation && signals.inferredGender) {
+        genderPresentation = signals.inferredGender;
+      }
 
       // Visual markers: add unique values
       for (const vm of signals.visualMarkers) {
@@ -1444,6 +1514,7 @@ export async function buildCharacterCastingBrief(
   // ── 2. canon_json.characters ────────────────────────────────────────────
   // ALL canon_json.characters fields go to STORY CONTEXT ONLY.
   // They are narrative descriptions, not visual performer criteria.
+  // EXCEPT: role title is used for safe gender inference if not already resolved.
 
   const { data: canonRow } = await (supabase as any)
     .from('project_canon')
@@ -1455,6 +1526,7 @@ export async function buildCharacterCastingBrief(
     const canonChars = canonRow.canon_json.characters as Array<{
       name?: string;
       role?: string;
+      description?: string;
       traits?: string;
       goals?: string;
       secrets?: string;
@@ -1475,6 +1547,12 @@ export async function buildCharacterCastingBrief(
       if (matched.goals) storyNotes.push(`Goals: ${matched.goals}`);
       if (matched.secrets) storyNotes.push(`Secrets: ${matched.secrets}`);
       if (matched.relationships) storyNotes.push(`Relationships: ${matched.relationships}`);
+
+      // Gender inference from role title (deterministic, no plot bleed)
+      if (!genderPresentation) {
+        const inferredFromRole = inferGenderFromRoleText(matched.role || null, matched.description || null);
+        if (inferredFromRole) genderPresentation = inferredFromRole;
+      }
     }
   }
 
@@ -1680,4 +1758,7 @@ export const _testHelpers = {
   generateSyntheticActorName,
   composeActorRosterName,
   allocateNextRosterNumber,
+  inferGenderFromPassages,
+  inferGenderFromRoleText,
+  inferAgeFromPassages,
 };

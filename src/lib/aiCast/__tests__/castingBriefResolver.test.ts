@@ -40,6 +40,9 @@ const {
   formatActorRosterNumber,
   generateSyntheticActorName,
   composeActorRosterName,
+  inferGenderFromPassages,
+  inferGenderFromRoleText,
+  inferAgeFromPassages,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
@@ -869,6 +872,119 @@ describe('composeActorRosterName — full format', () => {
     const result = composeActorRosterName(1, 'Japanese', 'woman');
     // Should be a synthetic name, not a character name like "Hana"
     expect(result).toMatch(/^\d{4} — /);
+  });
+});
+
+// ── Gender inference from pronouns ─────────────────────────────────────────
+
+describe('inferGenderFromPassages', () => {
+  it('infers male from dominant he/him/his pronouns', () => {
+    const passages = [
+      'Hiroshi was once a respected samurai. He carries the weight of his perceived dishonor.',
+      'He has deliberately suppressed his martial skills. He avoids conflict at all costs.',
+      'His internal world is dominated by guilt. He rarely speaks his mind.',
+    ];
+    expect(inferGenderFromPassages(passages)).toBe('man');
+  });
+
+  it('infers female from dominant she/her/hers pronouns', () => {
+    const passages = [
+      'Hana was born into an aristocratic family. She carries herself with quiet dignity.',
+      'Her father arranged her marriage. She refused, choosing her own path.',
+      'She is poised and graceful. Her presence commands attention.',
+    ];
+    expect(inferGenderFromPassages(passages)).toBe('woman');
+  });
+
+  it('returns null when pronouns are mixed/ambiguous', () => {
+    const passages = [
+      'He met her at the temple. She told him about his father.',
+      'They walked together. He showed her the way.',
+    ];
+    expect(inferGenderFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null with insufficient pronoun count', () => {
+    const passages = ['The warrior stood alone.'];
+    expect(inferGenderFromPassages(passages)).toBeNull();
+  });
+});
+
+// ── Gender inference from role text ──────────────────────────────────────────
+
+describe('inferGenderFromRoleText', () => {
+  it('infers man from samurai/ronin role', () => {
+    expect(inferGenderFromRoleText('Retired Ronin/Protagonist', null)).toBe('man');
+  });
+
+  it('infers woman from queen/princess role', () => {
+    expect(inferGenderFromRoleText('Princess', null)).toBe('woman');
+  });
+
+  it('infers from description when role is neutral', () => {
+    expect(inferGenderFromRoleText('Antagonist', 'A ruthless warlord')).toBe('man');
+  });
+
+  it('returns null when no gendered terms', () => {
+    expect(inferGenderFromRoleText('Protagonist', 'A conflicted leader')).toBeNull();
+  });
+});
+
+// ── Age inference from passages ──────────────────────────────────────────────
+
+describe('inferAgeFromPassages', () => {
+  it('infers late fifties from "aging" descriptor', () => {
+    const passages = ['Hiroshi is an aging ronin who has seen many battles.'];
+    expect(inferAgeFromPassages(passages)).toBe('late fifties');
+  });
+
+  it('infers late teens from "barely out of adolescence"', () => {
+    const passages = ['Kenji, barely out of adolescence, dreams of becoming a warrior.'];
+    expect(inferAgeFromPassages(passages)).toBe('late teens');
+  });
+
+  it('infers early twenties from "young man"', () => {
+    const passages = ['A young man with fire in his eyes.'];
+    expect(inferAgeFromPassages(passages)).toBe('early twenties');
+  });
+
+  it('returns null when no age-adjacent descriptors', () => {
+    const passages = ['The warrior stood at the gate.'];
+    expect(inferAgeFromPassages(passages)).toBeNull();
+  });
+});
+
+// ── Base anchor in description includes gender + playing age ─────────────────
+
+describe('description base anchor enforcement', () => {
+  it('includes gender and playing age when both available', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('man');
+    b.age.push('late fifties');
+    b.face.push('weathered features');
+    const desc = composeActorDescriptionFromBuckets(b);
+    expect(desc).toMatch(/^man, playing age 50–59/i);
+  });
+
+  it('includes ethnicity + gender + playing age', () => {
+    const b = createEmptyBuckets();
+    b.ethnicity.push('Japanese');
+    b.gender.push('man');
+    b.age.push('late fifties');
+    b.face.push('weathered features');
+    const desc = composeActorDescriptionFromBuckets(b);
+    expect(desc).toMatch(/^Japanese man, playing age 50–59/i);
+  });
+
+  it('description never starts with raw traits when gender exists', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.height.push('tall');
+    b.hair.push('dark hair');
+    const desc = composeActorDescriptionFromBuckets(b);
+    expect(desc).toMatch(/^woman/i);
+    expect(desc).not.toMatch(/^tall/i);
   });
 });
 });
