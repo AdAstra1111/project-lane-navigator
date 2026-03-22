@@ -81,7 +81,8 @@ export default function AICastLibrary() {
   }, [intelligenceData]);
 
   const [search, setSearch] = useState('');
-  const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedActorId, setSelectedActorId] = useState<string | null>(searchParams.get('actor'));
   const [showCreate, setShowCreate] = useState(false);
   const [showCreateFromImages, setShowCreateFromImages] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('recent');
