@@ -1106,6 +1106,23 @@ export default function ProjectCasting() {
           }
         }}
       />
+      {/* Inline Create Actor Dialog — Phase 17 */}
+      <InlineCreateActorDialog
+        projectId={projectId!}
+        characterKey={showCreateActor}
+        onClose={() => setShowCreateActor(null)}
+        onCreatedAndBound={(characterKey) => {
+          setShowCreateActor(null);
+          invalidateAll();
+          toast.success(`Actor created and bound to ${characterKey}`);
+        }}
+        onCreatedPending={(characterKey) => {
+          setShowCreateActor(null);
+          invalidateAll();
+          toast.info(`Actor created for ${characterKey} — bind when roster-ready`);
+        }}
+        actors={actors}
+      />
     </div>
   );
 }
