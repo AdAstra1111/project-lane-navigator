@@ -58,6 +58,9 @@ export interface ValidationResult {
   axis_scores: Record<string, any>;
   hard_fail_codes: string[];
   advisory_penalty_codes: string[];
+  promotable: boolean;
+  failure_reasons: string[];
+  scoring_model: string | null;
   created_at: string;
 }
 
