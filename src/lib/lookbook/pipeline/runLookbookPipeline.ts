@@ -607,7 +607,17 @@ export async function runLookbookPipeline(options: PipelineOptions): Promise<Pip
     updateStage(PipelineStage.ELECTION, startStage);
     reportProgress(PipelineStage.ELECTION, 'Electing winners...', 70);
 
-    const electionResult = runElectionStage(inventory.sectionPools, inventory.allUniqueImages, narrativeEvidence, identityBindings);
+    // Resolve project style lock for Phase 16.5 augmented scoring
+    let styleLockForElection: import('../styleLock').StyleLock | null = null;
+    try {
+      const { resolveProjectStyleLock } = await import('../styleLock');
+      styleLockForElection = await resolveProjectStyleLock(options.projectId);
+      log(`Style lock resolved: ${JSON.stringify(styleLockForElection)}`);
+    } catch (e) {
+      log(`Style lock resolution failed (non-blocking): ${(e as Error).message}`);
+    }
+
+    const electionResult = runElectionStage(inventory.sectionPools, inventory.allUniqueImages, narrativeEvidence, identityBindings, styleLockForElection);
 
     log(`Election: poster=${electionResult.posterHero ? 'yes' : 'none'}, slides=${electionResult.slideElections.size}`);
     updateStage(PipelineStage.ELECTION, s => completeStage(s, `${electionResult.slideElections.size} slides elected`));

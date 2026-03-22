@@ -1,16 +1,20 @@
 /**
  * electionStage — Deterministic image election for LookBook slides.
  *
- * Uses the CANONICAL scorer only (lookbookScorer.scoreImageForSlide).
- * No alternative scoring logic.
+ * Uses the CANONICAL scorer (lookbookScorer.scoreImageForSlide) as base,
+ * augmented by the multi-factor lookbookSelectionScoring layer (Phase 16.5)
+ * for style cohesion, shot intent, and cross-image cohesion.
  *
- * INPUT: section pools, slide definitions, optional narrative intelligence
+ * INPUT: section pools, slide definitions, optional narrative intelligence, optional style lock
  * OUTPUT: ElectionResult (per-slide winners + poster hero)
  * SIDE EFFECTS: none (pure functions)
  */
 import type { ProjectImage } from '@/lib/images/types';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
 import { scoreImageForSlide, getImageFingerprint, type ScoringContext, type SlotIntentContext } from './lookbookScorer';
+import { scoreLookbookCandidate, type SelectionScoringContext, type LookbookSelectionScore } from '../lookbookSelectionScoring';
+import type { StyleLock } from '../styleLock';
+import { hashStyleLock } from '../styleLock';
 import { SLIDE_SECTION_AFFINITY, SLIDE_TO_POOL, type PoolKey } from './lookbookSlotRegistry';
 import { getSlotIntent } from './lookbookSlotIntent';
 import type { NarrativeEvidence } from './narrativeEvidence';
@@ -71,6 +75,25 @@ function getScoringContext(ctx: ElectionContext, slideType: string, boundPrincip
   };
 }
 
+/**
+ * Compute augmented score: base scorer + Phase 16.5 selection scoring.
+ * The selection score (0–100) is scaled to a ±15 modifier on the base score,
+ * centered at 50 (neutral). This preserves base scorer primacy while
+ * rewarding style/intent/cohesion alignment.
+ */
+function computeAugmentedScore(
+  img: ProjectImage,
+  slideType: string,
+  baseScore: number,
+  selectionCtx: SelectionScoringContext | null,
+): { total: number; selectionScore?: LookbookSelectionScore } {
+  if (!selectionCtx) return { total: baseScore };
+  const sel = scoreLookbookCandidate(img, selectionCtx);
+  // Map 0–100 → -15 to +15 (50 is neutral = 0 modifier)
+  const modifier = ((sel.total_score - 50) / 50) * 15;
+  return { total: baseScore + modifier, selectionScore: sel };
+}
+
 
 // ── Foreground election ──────────────────────────────────────────────────────
 
@@ -82,13 +105,18 @@ export function pickForegroundImages(
   excludeUrls: string[] = [],
   boundPrincipalIds?: Set<string>,
   hasSceneEvidence?: boolean,
+  selectionCtx?: SelectionScoringContext | null,
 ): string[] {
   const seen = new Set(excludeUrls);
   const scoringCtx = getScoringContext(ctx, slideType, boundPrincipalIds, hasSceneEvidence);
   const scored = pool
     .filter(img => img.signedUrl && !seen.has(img.signedUrl!))
-    .map(img => ({ img, score: scoreImageForSlide(img, slideType, true, scoringCtx) }))
-    .sort((a, b) => b.score - a.score);
+    .map(img => {
+      const base = scoreImageForSlide(img, slideType, true, scoringCtx);
+      const { total, selectionScore } = computeAugmentedScore(img, slideType, base, selectionCtx || null);
+      return { img, score: total, selectionScore };
+    })
+    .sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
 
   const result: string[] = [];
   const winners: Array<{ id: string; score: number; primary: boolean; age: string }> = [];
@@ -125,6 +153,7 @@ export function pickBackgroundImage(
   fallbackPool: ProjectImage[] = [],
   boundPrincipalIds?: Set<string>,
   hasSceneEvidence?: boolean,
+  selectionCtx?: SelectionScoringContext | null,
 ): string | undefined {
   const excludeUrls = ctx.usedBackgroundUrls;
   const isExcluded = (img: ProjectImage) => !img.signedUrl || excludeUrls.includes(img.signedUrl!);
@@ -145,11 +174,12 @@ export function pickBackgroundImage(
     if (!combinedPrimary.includes(img)) combinedPrimary.push(img);
   }
 
-  const scored = combinedPrimary.map(img => ({
-    img,
-    score: scoreImageForSlide(img, slideType, true, scoringCtx),
-  }));
-  scored.sort((a, b) => b.score - a.score);
+  const scored = combinedPrimary.map(img => {
+    const base = scoreImageForSlide(img, slideType, true, scoringCtx);
+    const { total } = computeAugmentedScore(img, slideType, base, selectionCtx || null);
+    return { img, score: total };
+  });
+  scored.sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
 
   if (scored.length > 0) {
     const top3 = scored.slice(0, 3).map(s => ({
@@ -290,12 +320,15 @@ const SLIDE_ELECTION_SPECS: SlideElectionSpec[] = [
 /**
  * runElectionStage — Produces a complete ElectionResult.
  * All image selection happens HERE. Assembly consumes results only.
+ *
+ * Phase 16.5: accepts optional styleLock for augmented scoring.
  */
 export function runElectionStage(
   sectionPools: Record<PoolKey, ProjectImage[]>,
   allUniqueImages: ProjectImage[],
   narrativeEvidence?: NarrativeEvidence,
   identityBindings?: IdentityBindings,
+  styleLock?: StyleLock | null,
 ): ElectionResult {
   const ctx = createElectionContext(sectionPools);
 
@@ -310,7 +343,20 @@ export function runElectionStage(
   }
   const hasSceneEvidence = (narrativeEvidence?.sceneEvidence?.length || 0) > 0;
 
-  console.log(`[Election:intel] boundPrincipals=${boundPrincipalIds.size} (${[...boundPrincipalIds].map(id => id.slice(0,8)).join(',')}) hasSceneEvidence=${hasSceneEvidence} sceneCount=${narrativeEvidence?.sceneEvidence?.length || 0}`);
+  console.log(`[Election:intel] boundPrincipals=${boundPrincipalIds.size} (${[...boundPrincipalIds].map(id => id.slice(0,8)).join(',')}) hasSceneEvidence=${hasSceneEvidence} sceneCount=${narrativeEvidence?.sceneEvidence?.length || 0} styleLock=${styleLock ? 'active' : 'none'}`);
+
+  // Build the Phase 16.5 selection scoring context (shared across all slides)
+  const styleLockHash = styleLock ? hashStyleLock(styleLock) : null;
+  // Track selected images progressively for cohesion scoring
+  const selectedImages: ProjectImage[] = [];
+
+  /** Build a per-slide selection context */
+  const makeSelectionCtx = (slideType: string): SelectionScoringContext => ({
+    styleLock: styleLock || null,
+    styleLockHash,
+    slideType,
+    selectedImages: [...selectedImages],
+  });
 
   // 1. Poster hero — global election
   const posterHero = selectPosterHero(allUniqueImages);
@@ -328,12 +374,16 @@ export function runElectionStage(
       }
     }
 
+    const selCtx = styleLock ? makeSelectionCtx(spec.slideType) : null;
+
     // Special handling for cover/closing — use poster hero
     if (spec.slideType === 'cover' || spec.slideType === 'closing') {
-      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence);
+      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence, selCtx);
       if (bgUrl) {
         ctx.usedBackgroundUrls.push(bgUrl);
         trackSelection(ctx, bgUrl, spec.slideType);
+        const bgImg = ctx.urlToImage.get(bgUrl);
+        if (bgImg) selectedImages.push(bgImg);
       }
       slideElections.set(spec.slideId, {
         slideType: spec.slideType,
@@ -348,10 +398,12 @@ export function runElectionStage(
     // Background
     let bgUrl: string | undefined;
     if (spec.needsBackground) {
-      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence);
+      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence, selCtx);
       if (bgUrl) {
         ctx.usedBackgroundUrls.push(bgUrl);
         trackSelection(ctx, bgUrl, spec.slideType);
+        const bgImg = ctx.urlToImage.get(bgUrl);
+        if (bgImg) selectedImages.push(bgImg);
       }
     }
 
@@ -366,14 +418,18 @@ export function runElectionStage(
       if (spec.slideType === 'story_engine') {
         const kmPool = sectionPools.keyMoments || [];
         const sePool = kmPool.length > 2 ? kmPool.slice(2, 6) : (sectionPools.motifs || []);
-        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
+        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence, selCtx);
       } else if (spec.slideType === 'visual_language') {
         const vlPool = [...(sectionPools.texture || []), ...(sectionPools.motifs || [])];
-        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
+        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence, selCtx);
       } else {
-        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
+        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence, selCtx);
       }
-      fgUrls.forEach(u => trackSelection(ctx, u, spec.slideType));
+      fgUrls.forEach(u => {
+        trackSelection(ctx, u, spec.slideType);
+        const fgImg = ctx.urlToImage.get(u);
+        if (fgImg) selectedImages.push(fgImg);
+      });
     }
 
     slideElections.set(spec.slideId, {

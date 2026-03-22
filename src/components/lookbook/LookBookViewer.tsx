@@ -449,6 +449,28 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
               slide={currentSlideData}
               onOverride={handleOverride}
             />
+
+            {/* ── Selection Score Diagnostics (Phase 16.5) ── */}
+            {currentSlideData.roledImages && currentSlideData.roledImages.length > 0 && (
+              <Collapsible className="mt-3">
+                <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
+                  <Info className="h-3 w-3" />
+                  Selection Scores
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-1.5 space-y-1">
+                  {currentSlideData.roledImages.map((ri, idx) => (
+                    <div key={idx} className="rounded bg-muted/30 px-2 py-1">
+                      <div className="flex items-center justify-between">
+                        <Badge variant="outline" className="text-[9px] h-3.5 px-1">
+                          {ri.role}
+                        </Badge>
+                        <span className="text-[10px] font-mono text-foreground">{ri.score}</span>
+                      </div>
+                    </div>
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
           </div>
         )}
       </div>
