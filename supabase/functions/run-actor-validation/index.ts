@@ -86,21 +86,20 @@ async function resolveActorAnchors(supabase: any, actorId: string): Promise<Anch
   return { headshot, profile, fullBody, anchorCount, versionId };
 }
 
-// ── PG Gate Check ───────────────────────────────────────────────────────────
+// ── PG Gate Check (canonical semantics — must match client-side anchorValidation.ts) ─
 
-function checkPGGates(anchors: AnchorSet, actor: any): { blocked: boolean; reason: string | null } {
-  // PG-00: Coverage
-  if (anchors.anchorCount < 1) {
-    return { blocked: true, reason: "PG-00: No anchor images found. Upload headshot, profile, and full-body references first." };
-  }
-
-  // Check persisted gate status on actor record
+function checkPGGates(actor: any): { blocked: boolean; reason: string | null } {
+  // Use ONLY persisted canonical gate statuses — no independent anchor counting.
+  // These statuses are set by the shared anchorValidation service after evaluation.
   const coverageStatus = actor.anchor_coverage_status || "insufficient";
   const coherenceStatus = actor.anchor_coherence_status || "unknown";
 
+  // PG-00: Anchor Coverage Gate
   if (coverageStatus === "insufficient") {
-    return { blocked: true, reason: "PG-00: Insufficient anchor coverage. Requires at minimum headshot and full-body references." };
+    return { blocked: true, reason: "PG-00: Insufficient anchor coverage. Requires headshot, profile, and full-body references." };
   }
+
+  // PG-01: Anchor Coherence Gate
   if (coherenceStatus === "incoherent") {
     return { blocked: true, reason: "PG-01: Anchor set is incoherent — identity references contradict each other." };
   }
