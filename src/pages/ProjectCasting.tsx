@@ -1618,7 +1618,15 @@ const POLICY_PRIORITY_CONFIG: Record<string, { label: string; dotClass: string; 
   low: { label: 'Low', dotClass: 'bg-muted-foreground', textClass: 'text-muted-foreground' },
 };
 
-function RegenPolicyPanel({ data }: { data: RegenPolicySummary }) {
+function RegenPolicyPanel({
+  data,
+  onRepair,
+  isRepairing,
+}: {
+  data: RegenPolicySummary;
+  onRepair: (priorities: ('high' | 'medium' | 'low')[]) => void;
+  isRepairing: boolean;
+}) {
   if (data.total_items === 0) {
     return <p className="text-xs text-muted-foreground">No regeneration recommendations — all outputs are healthy.</p>;
   }
@@ -1647,6 +1655,44 @@ function RegenPolicyPanel({ data }: { data: RegenPolicySummary }) {
         <span className="text-muted-foreground">
           Low: <strong>{data.low_priority}</strong>
         </span>
+      </div>
+
+      {/* Auto-repair actions */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {data.high_priority > 0 && (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-7 text-[11px]"
+            onClick={() => onRepair(['high'])}
+            disabled={isRepairing}
+          >
+            {isRepairing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
+            Fix High Priority
+          </Button>
+        )}
+        {(data.high_priority > 0 || data.medium_priority > 0) && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-[11px]"
+            onClick={() => onRepair(['high', 'medium'])}
+            disabled={isRepairing}
+          >
+            Fix High + Medium
+          </Button>
+        )}
+        {data.total_items > 0 && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-[11px]"
+            onClick={() => onRepair(['high', 'medium', 'low'])}
+            disabled={isRepairing}
+          >
+            Fix All
+          </Button>
+        )}
       </div>
 
       {/* Grouped by output */}
