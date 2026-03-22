@@ -42,6 +42,10 @@ import {
 import {
   getScoreBandColor, getConfidenceColor,
 } from '@/lib/aiCast/validationScoring';
+import {
+  usePromotionEligibility, usePromotionDecisions, useActorPromotionState, useApplyPromotionDecision,
+} from '@/lib/aiCast/usePromotion';
+import type { PromotionDecision, FinalDecisionStatus } from '@/lib/aiCast/promotionPolicy';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
