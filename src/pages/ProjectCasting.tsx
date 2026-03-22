@@ -713,3 +713,143 @@ function IdentityStatusDot({ strength }: { strength: IdentityStrength }) {
     </span>
   );
 }
+
+// ── Cast Health Panel ───────────────────────────────────────────────────────
+
+const SEVERITY_CONFIG: Record<GovernanceSeverity, { label: string; icon: typeof ShieldCheck; badgeClass: string; dotClass: string }> = {
+  healthy: { label: 'Healthy', icon: ShieldCheck, badgeClass: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', dotClass: 'bg-emerald-500' },
+  warning: { label: 'Warning', icon: Shield, badgeClass: 'bg-amber-500/15 text-amber-700 border-amber-500/30', dotClass: 'bg-amber-500' },
+  critical: { label: 'Critical', icon: ShieldAlert, badgeClass: 'bg-destructive/15 text-destructive border-destructive/30', dotClass: 'bg-destructive' },
+};
+
+const RECOMMENDATION_LABELS: Record<GovernanceRecommendation, string> = {
+  no_action: 'No action needed',
+  update_to_latest_version: 'Update to latest approved version',
+  rebind_required: 'Rebind to a roster-ready actor',
+  regenerate_outputs: 'Regenerate affected outputs',
+  investigate_missing_binding: 'Investigate missing binding',
+};
+
+function CastHealthPanel({ data, actors, onRebind }: {
+  data: CastGovernanceResult;
+  actors: any[];
+  onRebind: (charKey: string, actorId: string) => void;
+}) {
+  const OverallIcon = SEVERITY_CONFIG[data.overall_health].icon;
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 p-3 rounded-lg border border-border/50 bg-card/30">
+        <div className="flex items-center gap-2">
+          <OverallIcon className={cn('h-5 w-5', data.overall_health === 'healthy' ? 'text-emerald-600' : data.overall_health === 'warning' ? 'text-amber-600' : 'text-destructive')} />
+          <span className="text-sm font-medium text-foreground">
+            {data.overall_health === 'healthy' ? 'All Clear' : data.overall_health === 'warning' ? 'Needs Attention' : 'Action Required'}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground ml-auto">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> {data.severity_counts.healthy} healthy</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> {data.severity_counts.warning} warning</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-destructive" /> {data.severity_counts.critical} critical</span>
+        </div>
+      </div>
+
+      {/* Per-character rows */}
+      <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
+        {Object.values(data.characters).map((char) => (
+          <CastHealthRow
+            key={char.character_key}
+            state={char}
+            actors={actors}
+            onRebind={onRebind}
+          />
+        ))}
+        {Object.keys(data.characters).length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-4">No characters to evaluate.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CastHealthRow({ state, actors, onRebind }: {
+  state: CharacterGovernanceState;
+  actors: any[];
+  onRebind: (charKey: string, actorId: string) => void;
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+  const sevConfig = SEVERITY_CONFIG[state.severity];
+  const SevIcon = sevConfig.icon;
+  const actor = actors.find((a: any) => a.id === state.bound_actor_id);
+
+  return (
+    <div className="p-3 space-y-2">
+      <div className="flex items-center gap-3">
+        {/* Severity dot */}
+        <span className={cn('h-2 w-2 rounded-full shrink-0', sevConfig.dotClass)} />
+
+        {/* Character name */}
+        <span className="text-xs font-medium text-foreground w-28 truncate">{state.character_key}</span>
+
+        {/* Actor name */}
+        <span className="text-[11px] text-muted-foreground truncate w-24">
+          {actor?.name || (state.bound_actor_id ? state.bound_actor_id.slice(0, 8) : '—')}
+        </span>
+
+        {/* Freshness badge */}
+        <FreshnessBadge freshness={state.freshness} />
+
+        {/* Severity badge */}
+        <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium inline-flex items-center gap-0.5', sevConfig.badgeClass)}>
+          <SevIcon className="h-2.5 w-2.5" /> {sevConfig.label}
+        </span>
+
+        {/* Impact count */}
+        {state.impact_out_of_sync > 0 && (
+          <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-700">
+            {state.impact_out_of_sync} out of sync
+          </Badge>
+        )}
+
+        {/* Actions */}
+        <div className="ml-auto flex items-center gap-1">
+          {state.recommendations.includes('update_to_latest_version') && state.bound_actor_id && (
+            <Button
+              size="sm" variant="outline"
+              className="h-6 text-[10px] gap-1 border-amber-500/30 text-amber-700 hover:bg-amber-500/10"
+              onClick={() => onRebind(state.character_key, state.bound_actor_id!)}
+            >
+              <RefreshCw className="h-2.5 w-2.5" /> Update
+            </Button>
+          )}
+          <Button
+            size="icon" variant="ghost" className="h-6 w-6"
+            onClick={() => setShowDetails(!showDetails)}
+            title="View details"
+          >
+            <Eye className="h-3 w-3 text-muted-foreground" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Detail expansion */}
+      {showDetails && (
+        <div className="ml-5 pl-3 border-l-2 border-border/30 space-y-1">
+          <p className="text-[10px] text-muted-foreground">
+            <strong>Recommendations:</strong>
+          </p>
+          <ul className="list-disc list-inside text-[10px] text-muted-foreground space-y-0.5">
+            {state.recommendations.map((rec) => (
+              <li key={rec}>{RECOMMENDATION_LABELS[rec]}</li>
+            ))}
+          </ul>
+          {state.impact_total > 0 && (
+            <p className="text-[10px] text-muted-foreground">
+              {state.impact_total} tracked output{state.impact_total !== 1 ? 's' : ''}, {state.impact_out_of_sync} out of sync
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
