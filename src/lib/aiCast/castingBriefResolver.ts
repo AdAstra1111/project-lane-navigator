@@ -1762,6 +1762,3 @@ export const _testHelpers = {
   inferGenderFromRoleText,
   inferAgeFromPassages,
 };
-  composeActorRosterName,
-  allocateNextRosterNumber,
-};
