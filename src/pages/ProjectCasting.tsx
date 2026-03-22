@@ -62,6 +62,7 @@ import {
   type RegenPolicyItem,
 } from '@/lib/aiCast/regenPolicyEngine';
 import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
+import { buildProjectCastRecommendations, type ProjectCastRecommendationResult, type CharacterRecommendationResult, type ActorRecommendation } from '@/lib/aiCast/castRecommendationEngine';
 import { getRosterActorsForCasting, type ActorIntelligenceProfile } from '@/lib/aiCast/actorIntelligence';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
