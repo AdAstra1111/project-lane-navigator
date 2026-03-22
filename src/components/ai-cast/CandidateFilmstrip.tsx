@@ -66,10 +66,11 @@ function CandidateThumbnail({ candidate, onRetry }: { candidate: CandidateItem; 
     );
   }
 
-  if (!candidate.thumbnailUrl) {
+  if (candidate.status === 'empty' || !candidate.thumbnailUrl) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-muted/5">
-        <ImageIcon className="h-5 w-5 text-muted-foreground/20" />
+      <div className="w-full h-full flex flex-col items-center justify-center bg-muted/5 gap-1">
+        <ImageIcon className="h-5 w-5 text-muted-foreground/30" />
+        <span className="text-[8px] text-muted-foreground/70">No image yet</span>
       </div>
     );
   }
