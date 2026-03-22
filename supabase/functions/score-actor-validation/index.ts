@@ -36,13 +36,14 @@ const HFCOV_MIN_SLOTS = 8;
 const SCORE_CAP_ON_HARD_FAIL = 59;
 const REFERENCE_SLOT = "neutral_headshot";
 const PROMOTABLE_MIN_SCORE = 75;
-const SCORING_MODEL_VERSION = "phase3-hardened-v1";
+const SCORING_MODEL_VERSION = "phase3-canonical-v1";
 
-const AXIS_WEIGHTS = {
-  intra_slot_stability: 25,
-  cross_slot_persistence: 25,
-  regeneration_stability: 20,
-  pack_coverage_score: 30,
+// Quality score weights — coverage is NOT included (affects confidence/eligibility only)
+const QUALITY_AXIS_WEIGHTS = {
+  identity_consistency: 35,    // maps from: intra_slot_stability
+  structural_consistency: 35,  // maps from: cross_slot_persistence
+  variation_integrity: 30,     // maps from: regeneration_stability rollup
+  // Total: 100
 };
 
 // ── Similarity via vision model — NO SILENT FALLBACKS ───────────────────────
