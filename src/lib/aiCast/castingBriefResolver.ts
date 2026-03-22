@@ -1029,34 +1029,48 @@ export async function buildCharacterCastingBrief(
     canon_notes: [...new Set(storyNotes)].slice(0, 10),
   };
 
-  // ── Build casting brief ────────────────────────────────────────────────
+  // ── Phase 17.4: Classify signals into identity buckets ──────────────────
+  const buckets = createEmptyBuckets();
 
-  // Visual archetype: derived from presence markers (performer-safe only)
-  const visualArchetype = presenceMarkers.length > 0
-    ? presenceMarkers.slice(0, 3).join(', ')
+  // Seed buckets from structured hints (highest trust: canon_facts)
+  if (genderPresentation) buckets.gender.push(genderPresentation);
+  if (ageHint) buckets.age.push(ageHint);
+  if (ethnicityHint) buckets.ethnicity.push(ethnicityHint);
+
+  // Classify all visual markers into buckets
+  for (const vm of visualMarkers) {
+    classifyIntoBucket(vm, buckets);
+  }
+
+  // Presence markers (already performer-safe filtered)
+  for (const pm of presenceMarkers) {
+    if (isPerformerSafePresence(pm)) {
+      buckets.presence.push(pm);
+    }
+  }
+
+  // Styling cues
+  for (const sc of stylingCues) {
+    buckets.styling.push(sc);
+  }
+
+  // ── Compose actor identity from buckets ────────────────────────────────
+  const composedDescription = composeActorDescriptionFromBuckets(buckets);
+
+  // Final defensive sanitization
+  const actorDescription = sanitizePlotLanguage(composedDescription) || composedDescription;
+
+  // Visual archetype from presence (performer-safe only)
+  const dedupedPresence = dedupeAndResolveConflicts(buckets.presence);
+  const visualArchetype = dedupedPresence.length > 0
+    ? dedupedPresence.slice(0, 3).join(', ')
     : null;
 
-  // Build actor description from VISUAL data only
-  const descParts: string[] = [];
-  if (genderPresentation) descParts.push(genderPresentation);
-  if (ageHint) descParts.push(ageHint);
-  if (ethnicityHint) descParts.push(ethnicityHint);
-  if (visualMarkers.length > 0) descParts.push(...visualMarkers.slice(0, 5));
-  if (presenceMarkers.length > 0) descParts.push(...presenceMarkers.slice(0, 3));
-  if (stylingCues.length > 0) descParts.push(...stylingCues.slice(0, 2));
+  // Tags from buckets
+  const actorTags = composeActorTagsFromBuckets(buckets, genderPresentation);
 
-  // Final defensive sanitization on assembled description
-  const actorDescription = sanitizePlotLanguage(
-    [...new Set(descParts)].filter(Boolean).join(', ')
-  );
-
-  // Build negative exclusions from project world/style (NOT character story)
-  const negativeExclusions = buildNegativeExclusions(canonRow?.canon_json);
-
-  // Deduplicate tags — only tags that entered through visual allowlist paths
-  const uniqueTags = [...new Set(
-    tags.map(t => t.toLowerCase().trim()).filter(t => t.length > 2 && t.length < 30)
-  )];
+  // Negative exclusions from project world/style
+  const negativeExclusions = composeNegativePrompt(canonRow?.canon_json);
 
   const brief: CastingBrief = {
     age_hint: ageHint,
@@ -1065,47 +1079,14 @@ export async function buildCharacterCastingBrief(
     appearance_markers: [...new Set(visualMarkers)].slice(0, 8),
     visual_archetype: visualArchetype,
     styling_cues: [...new Set(stylingCues)].slice(0, 5),
-    performance_vibe: [...new Set(presenceMarkers)].slice(0, 5),
+    performance_vibe: dedupedPresence.slice(0, 5),
     negative_exclusions: negativeExclusions,
     suggested_actor_name: displayName,
     actor_description: actorDescription,
-    actor_tags: uniqueTags.slice(0, 15),
+    actor_tags: actorTags,
   };
 
   return { context, brief };
-}
-
-// ── Negative exclusion derivation ────────────────────────────────────────────
-// Derived from PROJECT world/style only — never from character story facts.
-
-function buildNegativeExclusions(canonJson: any): string[] {
-  const exclusions: string[] = [
-    'celebrity likeness',
-    'real person',
-    'cartoon',
-    'anime',
-  ];
-
-  if (!canonJson) return exclusions;
-
-  // Period drama detection from project world rules
-  const toneStyle = typeof canonJson.tone_style === 'string' ? canonJson.tone_style.toLowerCase() : '';
-  const worldRules = typeof canonJson.world_rules === 'string' ? canonJson.world_rules.toLowerCase() : '';
-  const combined = toneStyle + ' ' + worldRules;
-
-  if (/period|histori|19th|18th|medieval|victorian|edo|meiji|taisho|regency/i.test(combined)) {
-    exclusions.push('modern fashion', 'contemporary clothing', 'modern accessories');
-  }
-
-  if (/sci-?fi|futuris|cyberpunk|space/i.test(combined)) {
-    exclusions.push('period costume', 'historical clothing');
-  }
-
-  if (/realis|grounded|naturalis/i.test(combined)) {
-    exclusions.push('fantasy elements', 'stylized', 'exaggerated features');
-  }
-
-  return [...new Set(exclusions)];
 }
 
 // ── Exported helpers for testing ─────────────────────────────────────────────
@@ -1113,9 +1094,13 @@ function buildNegativeExclusions(canonJson: any): string[] {
 export const _testHelpers = {
   classifyPredicate,
   isPerformerSafePresence,
-  sanitizePlotLanguage,
   VISUAL_PREDICATE_ALLOWLIST,
   STORY_PREDICATE_DENYLIST,
   PERFORMER_PRESENCE_ALLOWLIST,
   PERSONALITY_DENYLIST,
+  classifyIntoBucket,
+  createEmptyBuckets,
+  composeActorDescriptionFromBuckets,
+  composeActorTagsFromBuckets,
+  dedupeAndResolveConflicts,
 };
