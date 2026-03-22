@@ -685,6 +685,23 @@ export async function buildCharacterCastingBrief(
   // Only used for display name resolution (already handled in identity resolver)
   // No additional actor criteria derived from project_images
 
+  // ── 5. World bible styling enrichment (styling_cues + negative_exclusions only) ──
+  {
+    const worldDocs = await loadCharacterDocumentCandidates(
+      projectId,
+      DOC_TYPE_STYLING_ONLY,
+    );
+
+    for (const doc of worldDocs) {
+      const signals = extractStylingSignalsFromText(doc.plaintext);
+      for (const s of signals) {
+        if (!stylingCues.includes(s)) {
+          stylingCues.push(s);
+        }
+      }
+    }
+  }
+
   // ── Build context summary ──────────────────────────────────────────────
 
   const storySummary = roleInStory
