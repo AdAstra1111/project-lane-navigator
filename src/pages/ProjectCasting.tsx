@@ -64,6 +64,11 @@ import {
 import { executeAutoRepair, type AutoRepairResult } from '@/lib/aiCast/autoRepairEngine';
 import { buildProjectCastRecommendations, type ProjectCastRecommendationResult, type CharacterRecommendationResult, type ActorRecommendation } from '@/lib/aiCast/castRecommendationEngine';
 import { getRosterActorsForCasting, type ActorIntelligenceProfile } from '@/lib/aiCast/actorIntelligence';
+import { bindActorToProjectCharacter } from '@/lib/aiCast/projectCastBindings';
+import {
+  buildProjectCastPack, applyProjectCastPack,
+  type ProjectCastPack, type CastPackCharacterChoice, type ApplyCastPackResult,
+} from '@/lib/aiCast/castPackEngine';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
