@@ -82,7 +82,7 @@ export async function resolveProjectCastContext(params: {
       .eq('project_id', projectId);
 
     const match = (bindingNorm || []).find(
-      (b: any) => (b.character_key || '').toLowerCase().trim() === normalizedKey
+      (b: any) => normalizeCharacterKey(b.character_key || '') === normalizedKey
     );
 
     if (!match || !match.ai_actor_version_id) {
