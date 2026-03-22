@@ -1455,3 +1455,101 @@ function ContinuityPanel({ data }: { data: ProjectContinuitySummary }) {
     </div>
   );
 }
+
+// ── Scene Integrity Panel ───────────────────────────────────────────────────
+
+const SCENE_STATUS_CONFIG: Record<string, { label: string; dotClass: string; textClass: string }> = {
+  aligned: { label: 'Aligned', dotClass: 'bg-emerald-500', textClass: 'text-emerald-700' },
+  partial: { label: 'Partial', dotClass: 'bg-amber-500', textClass: 'text-amber-700' },
+  broken: { label: 'Broken', dotClass: 'bg-destructive', textClass: 'text-destructive' },
+};
+
+const SCENE_CHAR_STATUS_CONFIG: Record<string, { label: string; dotClass: string }> = {
+  aligned: { label: 'Aligned', dotClass: 'bg-emerald-500' },
+  misaligned: { label: 'Misaligned', dotClass: 'bg-amber-500' },
+  unbound: { label: 'Unbound', dotClass: 'bg-destructive' },
+  unknown: { label: 'Unknown', dotClass: 'bg-muted-foreground' },
+};
+
+function SceneIntegrityPanel({ data }: { data: ProjectSceneConsistencySummary }) {
+  const [expandedOutput, setExpandedOutput] = useState<string | null>(null);
+
+  if (data.total_outputs === 0) {
+    return <p className="text-xs text-muted-foreground">No generation outputs found.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 text-[11px] flex-wrap">
+        <span className="text-muted-foreground">
+          Total outputs: <strong className="text-foreground">{data.total_outputs}</strong>
+        </span>
+        <span className="text-emerald-700">
+          Aligned: <strong>{data.aligned_count}</strong>
+        </span>
+        <span className={data.partial_count > 0 ? 'text-amber-700' : 'text-muted-foreground'}>
+          Partial: <strong>{data.partial_count}</strong>
+        </span>
+        <span className={data.broken_count > 0 ? 'text-destructive' : 'text-muted-foreground'}>
+          Broken: <strong>{data.broken_count}</strong>
+        </span>
+      </div>
+
+      {/* Per-output rows */}
+      <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20 max-h-[400px] overflow-y-auto">
+        {data.outputs.map((output) => {
+          const sc = SCENE_STATUS_CONFIG[output.overall_status] || SCENE_STATUS_CONFIG.broken;
+          const isExpanded = expandedOutput === output.output_id;
+
+          return (
+            <div key={output.output_id}>
+              <button
+                className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-muted/10 transition-colors"
+                onClick={() => setExpandedOutput(isExpanded ? null : output.output_id)}
+              >
+                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', sc.dotClass)} />
+                <span className="text-[10px] font-mono text-muted-foreground flex-1 truncate">
+                  {output.output_id.slice(0, 16)}…
+                </span>
+                <Badge variant="outline" className={cn('text-[9px] h-4', sc.textClass)}>
+                  {sc.label}
+                </Badge>
+                <span className="text-[9px] text-muted-foreground">
+                  {output.characters.length} char{output.characters.length !== 1 ? 's' : ''}
+                </span>
+              </button>
+
+              {isExpanded && (
+                <div className="px-6 pb-2 space-y-1">
+                  {output.characters.map((ch, idx) => {
+                    const csc = SCENE_CHAR_STATUS_CONFIG[ch.status] || SCENE_CHAR_STATUS_CONFIG.unknown;
+                    return (
+                      <div key={`${ch.character_key}-${idx}`} className="flex items-center gap-2 text-[10px]">
+                        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', csc.dotClass)} />
+                        <span className="font-medium text-foreground w-24 truncate">
+                          {ch.character_key || '(unknown)'}
+                        </span>
+                        <Badge variant="outline" className="text-[8px] h-3.5">{csc.label}</Badge>
+                        {ch.status === 'misaligned' && ch.actual_actor_version_id && ch.expected_actor_version_id && (
+                          <span className="text-[9px] text-muted-foreground font-mono">
+                            {ch.actual_actor_version_id.slice(0, 8)}… → {ch.expected_actor_version_id.slice(0, 8)}…
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {(output.overall_status === 'partial' || output.overall_status === 'broken') && (
+                    <p className="text-[9px] text-muted-foreground/70 italic pt-1">
+                      Use Regen Jobs to repair this output
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
