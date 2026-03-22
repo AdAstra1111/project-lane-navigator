@@ -11,6 +11,7 @@
  * - If no binding exists → explicit null result (no silent fallback)
  */
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeCharacterKey } from './normalizeCharacterKey';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

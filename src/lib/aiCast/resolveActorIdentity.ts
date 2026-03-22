@@ -11,6 +11,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { resolveFullProjectCast, type CastResolverResult } from './castResolver';
+import { normalizeCharacterKey } from './normalizeCharacterKey';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
