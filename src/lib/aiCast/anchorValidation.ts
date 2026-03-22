@@ -332,6 +332,162 @@ export async function runAnchorPrecheck(actorId: string): Promise<AnchorPrecheck
   };
 }
 
+// ── Candidate-Level Pre-checks (Pre-Promotion) ─────────────────────────────
+
+export interface CandidateAnchorPackage {
+  headshot_url: string | null;
+  full_body_url: string | null;
+  additional_refs: string[];
+}
+
+/**
+ * Evaluate anchor coverage directly from candidate data — no actor needed.
+ * This is the canonical pre-promotion gate for Casting Studio.
+ */
+export function evaluateCandidateAnchorCoverage(candidate: CandidateAnchorPackage): AnchorCoverageResult {
+  const headshot = candidate.headshot_url || null;
+  const fullBody = candidate.full_body_url || null;
+  // Profile detection: check additional_refs for any URL tagged or positioned as profile
+  // In casting candidates, profile is typically the 1st additional ref if present
+  const profile = (candidate.additional_refs || [])[0] || null;
+
+  const present = {
+    headshot: !!headshot,
+    profile: !!profile,
+    fullBody: !!fullBody,
+  };
+  const count = [present.headshot, present.profile, present.fullBody].filter(Boolean).length;
+
+  let coverageStatus: AnchorCoverageStatus;
+  if (count === 3) coverageStatus = 'complete';
+  else if (count === 2) coverageStatus = 'partial';
+  else coverageStatus = 'insufficient';
+
+  return {
+    coverageStatus,
+    presentAnchors: present,
+    anchorCount: count,
+    anchorUrls: { headshot, profile, fullBody },
+  };
+}
+
+/**
+ * Evaluate anchor coherence directly from candidate anchor URLs.
+ * Uses evaluate-visual-similarity edge function.
+ */
+export async function evaluateCandidateAnchorCoherence(
+  candidate: CandidateAnchorPackage,
+  coverage?: AnchorCoverageResult,
+): Promise<AnchorCoherenceResult> {
+  const cov = coverage || evaluateCandidateAnchorCoverage(candidate);
+  const anchors = cov.anchorUrls;
+
+  const available = [
+    anchors.headshot ? 'headshot' : null,
+    anchors.profile ? 'profile' : null,
+    anchors.fullBody ? 'fullBody' : null,
+  ].filter(Boolean) as string[];
+
+  if (available.length < 2) {
+    return {
+      coherenceStatus: 'unknown',
+      scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null },
+      failCount: 0,
+    };
+  }
+
+  const pairs: Array<{ key: 'headshot_profile' | 'headshot_fullBody' | 'profile_fullBody'; a: string; b: string }> = [];
+  if (anchors.headshot && anchors.profile) pairs.push({ key: 'headshot_profile', a: anchors.headshot, b: anchors.profile });
+  if (anchors.headshot && anchors.fullBody) pairs.push({ key: 'headshot_fullBody', a: anchors.headshot, b: anchors.fullBody });
+  if (anchors.profile && anchors.fullBody) pairs.push({ key: 'profile_fullBody', a: anchors.profile, b: anchors.fullBody });
+
+  const scores: Record<string, number | null> = { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null };
+  let failCount = 0;
+
+  for (const pair of pairs) {
+    try {
+      const { data, error } = await supabase.functions.invoke('evaluate-visual-similarity', {
+        body: { anchorUrl: pair.a, candidateUrl: pair.b, evaluationType: 'anchor_coherence' },
+      });
+      if (error || !data) { scores[pair.key] = null; continue; }
+      const rawScore = data.overall_score ?? data.similarity_score ?? 5;
+      const normalizedScore = Math.min(10, Math.max(0, rawScore));
+      scores[pair.key] = normalizedScore;
+      if (normalizedScore < COHERENCE_FAIL_THRESHOLD) failCount++;
+    } catch (e) {
+      console.warn(`[CandidateCoherence] Exception evaluating ${pair.key}:`, (e as Error).message);
+      scores[pair.key] = null;
+    }
+  }
+
+  const evaluated = Object.values(scores).filter(s => s !== null).length;
+  if (evaluated === 0) {
+    return { coherenceStatus: 'unknown', scores: scores as any, failCount: 0 };
+  }
+
+  let coherenceStatus: AnchorCoherenceStatus;
+  if (failCount === 0) coherenceStatus = 'coherent';
+  else if (failCount === 1) coherenceStatus = 'marginal';
+  else coherenceStatus = 'incoherent';
+
+  return { coherenceStatus, scores: scores as any, failCount };
+}
+
+/**
+ * Run full candidate-level anchor pre-check (PG-00 + PG-01) BEFORE actor creation.
+ * This is the canonical pre-promotion gate.
+ */
+export async function runCandidateAnchorPrecheck(candidate: CandidateAnchorPackage): Promise<AnchorPrecheckResult> {
+  const coverage = evaluateCandidateAnchorCoverage(candidate);
+  const reasons: string[] = [];
+  let blocked = false;
+  let cap: number | null = null;
+
+  // PG-00: Coverage gate
+  if (coverage.coverageStatus === 'insufficient') {
+    blocked = true;
+    const missing: string[] = [];
+    if (!coverage.presentAnchors.headshot) missing.push('headshot');
+    if (!coverage.presentAnchors.profile) missing.push('profile');
+    if (!coverage.presentAnchors.fullBody) missing.push('full body');
+    reasons.push(`Insufficient anchor coverage: missing ${missing.join(', ')}`);
+  } else if (coverage.coverageStatus === 'partial') {
+    cap = 79;
+    const missing: string[] = [];
+    if (!coverage.presentAnchors.headshot) missing.push('headshot');
+    if (!coverage.presentAnchors.profile) missing.push('profile');
+    if (!coverage.presentAnchors.fullBody) missing.push('full body');
+    reasons.push(`Partial anchor coverage: missing ${missing.join(', ')} (score capped at 79)`);
+  }
+
+  // PG-01: Coherence gate (only if not already blocked)
+  let coherence: AnchorCoherenceResult;
+  if (!blocked) {
+    coherence = await evaluateCandidateAnchorCoherence(candidate, coverage);
+    if (coherence.coherenceStatus === 'incoherent') {
+      blocked = true;
+      reasons.push(`Anchor set is incoherent: ${coherence.failCount} pairwise comparison(s) failed (similarity < ${COHERENCE_FAIL_THRESHOLD}/10)`);
+    } else if (coherence.coherenceStatus === 'marginal') {
+      cap = cap !== null ? Math.min(cap, 79) : 79;
+      reasons.push(`Anchor coherence is marginal: 1 pairwise comparison failed (score capped at 79)`);
+    }
+  } else {
+    coherence = { coherenceStatus: 'unknown', scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null }, failCount: 0 };
+  }
+
+  console.log(`[CandidatePrecheck] coverage=${coverage.coverageStatus} coherence=${coherence.coherenceStatus} blocked=${blocked} cap=${cap}`, { reasons });
+
+  return {
+    coverageStatus: coverage.coverageStatus,
+    coherenceStatus: coherence.coherenceStatus,
+    coverage,
+    coherence,
+    blocked,
+    cap,
+    reasons,
+  };
+}
+
 /**
  * Persist anchor gate statuses back to the ai_actors row.
  */
