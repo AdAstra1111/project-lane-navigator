@@ -1530,4 +1530,5 @@ export const _testHelpers = {
   FLOATING_ADJECTIVES,
   expandIdentityBuckets,
   composeActorCriteriaHighlights,
+  inferEthnicityFromCanonContext,
 };
