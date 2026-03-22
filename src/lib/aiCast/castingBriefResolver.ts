@@ -549,10 +549,44 @@ function anchorFloatingAdjective(adj: string, buckets: ActorIdentityBuckets): st
   const norm = adj.toLowerCase().trim();
   if (!FLOATING_ADJECTIVES.has(norm)) return null;
 
-  if (norm === 'dark' || norm === 'light') {
+  if (norm === 'dark' || norm === 'light' || norm === 'fair') {
     if (buckets.hair.length === 0) return `${norm} hair`;
     if (buckets.eyes.length === 0) return `${norm} eyes`;
     if (buckets.skin.length === 0) return `${norm} complexion`;
+    return null; // all domains filled — drop
+  }
+  if (norm === 'sharp') {
+    return 'sharp features';
+  }
+  if (norm === 'soft' || norm === 'delicate') {
+    return `${norm} features`;
+  }
+  if (norm === 'strong') {
+    if (buckets.build.length === 0) return 'strong build';
+    return 'strong features';
+  }
+  if (norm === 'thin') {
+    if (buckets.build.length === 0) return 'thin frame';
+    return null;
+  }
+  if (norm === 'thick') {
+    if (buckets.hair.length === 0) return 'thick hair';
+    return null;
+  }
+  if (norm === 'fine') {
+    return 'fine features';
+  }
+  if (norm === 'rough' || norm === 'heavy') {
+    if (buckets.build.length === 0) return `${norm} build`;
+    return null;
+  }
+  if (norm === 'bright') {
+    if (buckets.eyes.length === 0) return 'bright eyes';
+    return null;
+  }
+  if (norm === 'smooth') {
+    if (buckets.skin.length === 0) return 'smooth skin';
+    return null;
   }
   return null;
 }
