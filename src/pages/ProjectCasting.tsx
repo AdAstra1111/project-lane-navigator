@@ -514,8 +514,7 @@ function RebindButton({ characterKey, currentActorId, actors, onRebind, disabled
   return (
     <div className="flex items-center gap-1">
       <Select onValueChange={(val) => {
-        const actor = actors.find((a: any) => a.id === val);
-        onRebind(val, (actor as any)?.approved_version_id);
+        onRebind(val);
         setOpen(false);
       }}>
         <SelectTrigger className="h-7 text-[10px] w-[150px]"><SelectValue placeholder="Select..." /></SelectTrigger>
