@@ -947,6 +947,7 @@ function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | nul
 // ── Playing age derivation ───────────────────────────────────────────────────
 
 const PLAYING_AGE_MAP: Record<string, string> = {
+  'child': '6–12',
   'teens': '13–19',
   'late teens': '16–19',
   'early twenties': '20–25',
@@ -973,10 +974,16 @@ const PLAYING_AGE_MAP: Record<string, string> = {
   'late 40s': '45–50',
   'forties': '40–49',
   '40s': '40–49',
+  'early fifties': '50–55',
   'fifties': '50–59',
   '50s': '50–59',
+  'late fifties': '55–60',
+  'early sixties': '60–65',
   'sixties': '60–69',
   '60s': '60–69',
+  'late sixties': '65–70',
+  'seventies': '70–79',
+  '70s': '70–79',
 };
 
 function derivePlayingAge(ageHints: string[]): string | null {
