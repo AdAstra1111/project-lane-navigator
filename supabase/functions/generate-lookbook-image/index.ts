@@ -1465,6 +1465,16 @@ FRAMING RULES:
         }
       }
 
+      // Step 8c: CINEMATIC STYLE LOCK — project-wide visual cohesion
+      if (cinematicStylePromptBlock && !isIdentityGeneration) {
+        prompt += `\n\n${cinematicStylePromptBlock}`;
+      }
+
+      // Step 8d: SHOT INTENT — slot-specific camera direction
+      if (shotIntentPromptBlock && !isIdentityGeneration && !promptOverrideUsed) {
+        prompt += `\n\n${shotIntentPromptBlock}`;
+      }
+
       // Step 9: CANONICAL VISUAL BINDING — character, location, world truth
       // Injected AFTER identity lock (which is character-specific) to layer project-wide binding
       if (!isIdentityGeneration) {
