@@ -382,18 +382,144 @@ async function loadCharacterDocumentCandidates(
   return candidates;
 }
 
+// ── Heading patterns for section-aware character extraction ──────────────────
+
+/** Headings that indicate performer-relevant content within a character section */
+const PERFORMER_SECTION_HEADINGS = /\b(physical\s*description|appearance|look|visual\s*description|costume|style|styling|age)\b/i;
+
+/** Headings that indicate story-only content within a character section */
+const STORY_SECTION_HEADINGS = /\b(backstory|arc|motivation|relationships?|goals?|secrets?|psychology|personality|conflict|desires?|fears?|history|background)\b/i;
+
 /**
- * Extract character-specific paragraphs/lines from document plaintext.
- * Returns only passages that mention the character name.
+ * Build an array of name-matching patterns for a character, including
+ * title-stripped and surname fallbacks for compound names.
+ */
+function buildCharacterNamePatterns(displayName: string, characterKey: string): RegExp[] {
+  const patterns: RegExp[] = [
+    new RegExp(`\\b${escapeRegex(displayName)}\\b`, 'i'),
+  ];
+  if (characterKey !== displayName.toLowerCase()) {
+    patterns.push(new RegExp(`\\b${escapeRegex(characterKey)}\\b`, 'i'));
+  }
+
+  // Title-stripped fallback for compound names like "Lord Kageyama" → "Kageyama"
+  const TITLE_PREFIXES = /^(lord|lady|sir|dame|king|queen|prince|princess|duke|duchess|count|countess|baron|baroness|dr|professor|captain|general|master|mistress|elder|saint)\s+/i;
+  const stripped = displayName.replace(TITLE_PREFIXES, '').trim();
+  if (stripped && stripped !== displayName && stripped.length >= 3) {
+    patterns.push(new RegExp(`\\b${escapeRegex(stripped)}\\b`, 'i'));
+  }
+
+  // Surname fallback: last token of multi-word name (if ≥3 chars)
+  const tokens = displayName.split(/\s+/);
+  if (tokens.length >= 2) {
+    const surname = tokens[tokens.length - 1];
+    if (surname.length >= 3 && surname.toLowerCase() !== stripped?.toLowerCase()) {
+      patterns.push(new RegExp(`\\b${escapeRegex(surname)}\\b`, 'i'));
+    }
+  }
+
+  return patterns;
+}
+
+/**
+ * Parse a document into heading-delimited sections.
+ * Returns array of { heading, level, body } objects.
+ */
+function parseDocumentSections(text: string): Array<{ heading: string; level: number; body: string }> {
+  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+  const sections: Array<{ heading: string; level: number; startIdx: number }> = [];
+
+  let match: RegExpExecArray | null;
+  while ((match = headingRegex.exec(text)) !== null) {
+    sections.push({
+      heading: match[2].trim(),
+      level: match[1].length,
+      startIdx: match.index + match[0].length,
+    });
+  }
+
+  if (sections.length === 0) return [];
+
+  return sections.map((sec, i) => {
+    const endIdx = i < sections.length - 1 ? sections[i + 1].startIdx - sections[i + 1].heading.length - sections[i + 1].level - 2 : text.length;
+    const body = text.slice(sec.startIdx, endIdx).trim();
+    return { heading: sec.heading, level: sec.level, body };
+  });
+}
+
+/**
+ * Find the character's top-level section from parsed sections.
+ * Returns the index range [start, end) of sections belonging to this character.
+ */
+function findCharacterSectionRange(
+  sections: Array<{ heading: string; level: number; body: string }>,
+  namePatterns: RegExp[],
+): { start: number; end: number } | null {
+  for (let i = 0; i < sections.length; i++) {
+    const headingMatchesName = namePatterns.some(p => p.test(sections[i].heading));
+    if (!headingMatchesName) continue;
+
+    const charLevel = sections[i].level;
+    // Find end: next section at same or higher level
+    let end = sections.length;
+    for (let j = i + 1; j < sections.length; j++) {
+      if (sections[j].level <= charLevel) {
+        end = j;
+        break;
+      }
+    }
+    return { start: i, end };
+  }
+  return null;
+}
+
+/**
+ * Extract character-specific passages from document plaintext.
+ *
+ * Strategy (in order):
+ * 1. Section-aware: find the character's heading section, then route
+ *    sub-headings into performer vs story buckets.
+ * 2. Fallback: line-level name matching (original behavior).
  */
 function extractCharacterPassages(text: string, displayName: string, characterKey: string): string[] {
-  const lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 15);
-  const namePatterns = [
-    new RegExp(`\\b${escapeRegex(displayName)}\\b`, 'i'),
-    new RegExp(`\\b${escapeRegex(characterKey)}\\b`, 'i'),
-  ];
+  const namePatterns = buildCharacterNamePatterns(displayName, characterKey);
 
-  // Find lines mentioning the character
+  // ── 1. Section-aware extraction ──
+  const sections = parseDocumentSections(text);
+  if (sections.length >= 2) {
+    const range = findCharacterSectionRange(sections, namePatterns);
+    if (range) {
+      const performerPassages: string[] = [];
+      const generalPassages: string[] = [];
+
+      for (let i = range.start; i < range.end; i++) {
+        const sec = sections[i];
+        const bodyLines = sec.body.split(/\n+/).map(l => l.trim()).filter(l => l.length > 15);
+        if (bodyLines.length === 0) continue;
+
+        if (PERFORMER_SECTION_HEADINGS.test(sec.heading)) {
+          // High-value performer content — include all lines
+          performerPassages.push(...bodyLines);
+        } else if (STORY_SECTION_HEADINGS.test(sec.heading)) {
+          // Story content — skip for performer extraction
+          // (will still be available via storyNotes pathway)
+          continue;
+        } else {
+          // Unclassified sub-section or the character's own heading body
+          generalPassages.push(...bodyLines);
+        }
+      }
+
+      const result = [...performerPassages, ...generalPassages];
+      if (result.length > 0) {
+        return result.slice(0, 20);
+      }
+    }
+  }
+
+  // ── 2. Fallback: line-level name matching ──
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 15);
+
   const matches = lines.filter(line =>
     namePatterns.some(pat => pat.test(line))
   );
@@ -405,7 +531,6 @@ function extractCharacterPassages(text: string, displayName: string, characterKe
     return idx >= 0 && idx < earlyThreshold;
   });
 
-  // Return early matches first, then rest, limited
   const ordered = [...earlyMatches, ...matches.filter(m => !earlyMatches.includes(m))];
   return ordered.slice(0, 15);
 }
@@ -1777,4 +1902,10 @@ export const _testHelpers = {
   inferGenderFromPassages,
   inferGenderFromRoleText,
   inferAgeFromPassages,
+  extractCharacterPassages,
+  buildCharacterNamePatterns,
+  parseDocumentSections,
+  findCharacterSectionRange,
+  PERFORMER_SECTION_HEADINGS,
+  STORY_SECTION_HEADINGS,
 };

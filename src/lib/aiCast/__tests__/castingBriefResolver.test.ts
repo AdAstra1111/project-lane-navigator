@@ -44,6 +44,12 @@ const {
   inferGenderFromRoleText,
   inferAgeFromPassages,
   derivePlayingAge,
+  extractCharacterPassages,
+  buildCharacterNamePatterns,
+  parseDocumentSections,
+  findCharacterSectionRange,
+  PERFORMER_SECTION_HEADINGS,
+  STORY_SECTION_HEADINGS,
 } = _testHelpers;
 
 // ── A. Plot-heavy predicates must NEVER classify as 'visual' ─────────────
@@ -1062,4 +1068,189 @@ describe('description base anchor enforcement', () => {
     expect(desc).not.toMatch(/^tall/i);
   });
 });
+});
+
+// ── Section-Aware Character Extraction ──────────────────────────────────────
+
+describe('extractCharacterPassages — section-aware extraction', () => {
+  const STRUCTURED_CHARACTER_BIBLE = `
+# Character Bible
+
+## Hana
+
+### Role
+Conflicted aristocratic daughter torn between duty and forbidden desire.
+
+### Physical Description
+Small in stature but with a quiet strength in her posture. Her dark hair falls past her shoulders in a simple braid. Her eyes are large and expressive, hinting at intelligence beyond her years. She carries herself with an unconscious grace that betrays her noble upbringing.
+
+### Backstory
+Born into a powerful family, she was betrothed at a young age. Her mother died when she was twelve.
+
+### Motivation
+She seeks freedom from the constraints of her social position.
+
+## Lord Kageyama
+
+### Physical Description
+Kageyama is a towering figure with a broad, powerful frame. His face bears deep-set lines from decades of warfare. A jagged scar runs from his left temple to his jaw. His hair is cropped short, streaked with grey.
+
+### Role
+The primary antagonist and regional warlord.
+
+### Backstory
+Rose to power through strategic marriages and ruthless military campaigns.
+`;
+
+  it('captures Hana physical description via section-aware extraction (pronoun-only content)', () => {
+    const passages = extractCharacterPassages(STRUCTURED_CHARACTER_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    expect(joined).toContain('dark hair');
+    expect(joined).toContain('expressive');
+    expect(joined).toContain('grace');
+  });
+
+  it('excludes Hana backstory/motivation sections from performer passages', () => {
+    const passages = extractCharacterPassages(STRUCTURED_CHARACTER_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    expect(joined).not.toContain('betrothed');
+    expect(joined).not.toContain('freedom from the constraints');
+  });
+
+  it('captures Lord Kageyama via title-stripped name matching', () => {
+    const passages = extractCharacterPassages(STRUCTURED_CHARACTER_BIBLE, 'Lord Kageyama', 'lord kageyama');
+    const joined = passages.join(' ');
+    expect(joined).toContain('towering figure');
+    expect(joined).toContain('jagged scar');
+    expect(joined).toContain('streaked with grey');
+  });
+
+  it('excludes Lord Kageyama backstory from performer passages', () => {
+    const passages = extractCharacterPassages(STRUCTURED_CHARACTER_BIBLE, 'Lord Kageyama', 'lord kageyama');
+    const joined = passages.join(' ');
+    expect(joined).not.toContain('ruthless military campaigns');
+    expect(joined).not.toContain('strategic marriages');
+  });
+
+  it('handles ## Name (age) format', () => {
+    const doc = `
+# Characters
+
+## Akemi (25)
+
+### Appearance
+Tall and slender with piercing green eyes. Her auburn hair is always pulled back.
+
+### Goals
+Wants to overthrow the regime.
+`;
+    const passages = extractCharacterPassages(doc, 'Akemi', 'akemi');
+    const joined = passages.join(' ');
+    expect(joined).toContain('piercing green eyes');
+    expect(joined).not.toContain('overthrow the regime');
+  });
+
+  it('handles #### Name format', () => {
+    const doc = `
+# World
+
+## Characters
+
+#### Kenji
+
+##### Physical Description
+Lean and wiry with calloused hands. Dark skin weathered by years in the sun.
+
+##### Secrets
+He murdered his brother.
+`;
+    const passages = extractCharacterPassages(doc, 'Kenji', 'kenji');
+    const joined = passages.join(' ');
+    expect(joined).toContain('calloused hands');
+    expect(joined).not.toContain('murdered');
+  });
+
+  it('falls back to line-level matching when no sections exist', () => {
+    const plainDoc = `
+Hana is a young woman with dark hair and sharp features.
+She betrayed her family to save the village.
+Hana walks with a graceful posture befitting her noble birth.
+`;
+    const passages = extractCharacterPassages(plainDoc, 'Hana', 'hana');
+    expect(passages.length).toBeGreaterThan(0);
+    const joined = passages.join(' ');
+    expect(joined).toContain('dark hair');
+  });
+
+  it('does not cross-contaminate between character sections', () => {
+    const passages = extractCharacterPassages(STRUCTURED_CHARACTER_BIBLE, 'Hana', 'hana');
+    const joined = passages.join(' ');
+    // Should not contain Lord Kageyama's physical description
+    expect(joined).not.toContain('towering figure');
+    expect(joined).not.toContain('jagged scar');
+  });
+});
+
+describe('buildCharacterNamePatterns — title stripping and surname fallback', () => {
+  it('creates patterns for simple name', () => {
+    const patterns = buildCharacterNamePatterns('Hana', 'hana');
+    expect(patterns.some(p => p.test('Hana is tall'))).toBe(true);
+  });
+
+  it('creates title-stripped pattern for Lord Kageyama', () => {
+    const patterns = buildCharacterNamePatterns('Lord Kageyama', 'lord kageyama');
+    expect(patterns.some(p => p.test('Kageyama stood tall'))).toBe(true);
+  });
+
+  it('creates title-stripped pattern for Lady Akemi', () => {
+    const patterns = buildCharacterNamePatterns('Lady Akemi', 'lady akemi');
+    expect(patterns.some(p => p.test('Akemi watched silently'))).toBe(true);
+  });
+
+  it('does not create overly short fallbacks', () => {
+    const patterns = buildCharacterNamePatterns('Dr Li', 'dr li');
+    // "Li" is only 2 chars, should not get a surname fallback
+    const surnamePattern = patterns.find(p => p.test('Li') && !p.test('Dr Li'));
+    // Li is exactly 2 chars so should be excluded
+    expect(patterns.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('parseDocumentSections — heading parsing', () => {
+  it('parses markdown headings into sections', () => {
+    const doc = `# Title\nIntro text\n## Section A\nBody A\n## Section B\nBody B`;
+    const sections = parseDocumentSections(doc);
+    expect(sections.length).toBe(3);
+    expect(sections[0].heading).toBe('Title');
+    expect(sections[1].heading).toBe('Section A');
+    expect(sections[2].heading).toBe('Section B');
+  });
+
+  it('returns empty for unstructured text', () => {
+    const doc = `Just some plain text without any headings at all.`;
+    const sections = parseDocumentSections(doc);
+    expect(sections.length).toBe(0);
+  });
+});
+
+describe('heading classification', () => {
+  it('classifies Physical Description as performer heading', () => {
+    expect(PERFORMER_SECTION_HEADINGS.test('Physical Description')).toBe(true);
+    expect(PERFORMER_SECTION_HEADINGS.test('Appearance')).toBe(true);
+    expect(PERFORMER_SECTION_HEADINGS.test('Costume')).toBe(true);
+    expect(PERFORMER_SECTION_HEADINGS.test('Visual Description')).toBe(true);
+  });
+
+  it('classifies Backstory/Arc/Motivation as story headings', () => {
+    expect(STORY_SECTION_HEADINGS.test('Backstory')).toBe(true);
+    expect(STORY_SECTION_HEADINGS.test('Motivation')).toBe(true);
+    expect(STORY_SECTION_HEADINGS.test('Relationships')).toBe(true);
+    expect(STORY_SECTION_HEADINGS.test('Goals')).toBe(true);
+    expect(STORY_SECTION_HEADINGS.test('Secrets')).toBe(true);
+  });
+
+  it('does not misclassify performer headings as story', () => {
+    expect(STORY_SECTION_HEADINGS.test('Physical Description')).toBe(false);
+    expect(STORY_SECTION_HEADINGS.test('Appearance')).toBe(false);
+  });
 });
