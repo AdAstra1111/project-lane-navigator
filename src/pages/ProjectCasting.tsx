@@ -51,6 +51,7 @@ export default function ProjectCasting() {
   const qc = useQueryClient();
   const [newCharKey, setNewCharKey] = useState('');
   const [showImpact, setShowImpact] = useState(false);
+  const [showHealth, setShowHealth] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
