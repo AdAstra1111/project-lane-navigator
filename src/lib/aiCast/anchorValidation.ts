@@ -6,6 +6,9 @@
  * 
  * This is the SINGLE SOURCE OF TRUTH for pre-validation gating.
  * No other module may duplicate this logic.
+ *
+ * Architecture: shared internal helpers ensure actor-level and candidate-level
+ * paths use identical classification, thresholds, and gating semantics.
  */
 import { supabase } from '@/integrations/supabase/client';
 
@@ -14,20 +17,23 @@ import { supabase } from '@/integrations/supabase/client';
 export type AnchorCoverageStatus = 'insufficient' | 'partial' | 'complete';
 export type AnchorCoherenceStatus = 'unknown' | 'coherent' | 'marginal' | 'incoherent';
 
+export interface AnchorUrls {
+  headshot: string | null;
+  profile: string | null;
+  fullBody: string | null;
+}
+
+export interface AnchorPresence {
+  headshot: boolean;
+  profile: boolean;
+  fullBody: boolean;
+}
+
 export interface AnchorCoverageResult {
   coverageStatus: AnchorCoverageStatus;
-  presentAnchors: {
-    headshot: boolean;
-    profile: boolean;
-    fullBody: boolean;
-  };
+  presentAnchors: AnchorPresence;
   anchorCount: number;
-  /** URLs of found anchors for downstream use */
-  anchorUrls: {
-    headshot: string | null;
-    profile: string | null;
-    fullBody: string | null;
-  };
+  anchorUrls: AnchorUrls;
 }
 
 export interface AnchorCoherenceResult {
@@ -45,27 +51,165 @@ export interface AnchorPrecheckResult {
   coherenceStatus: AnchorCoherenceStatus;
   coverage: AnchorCoverageResult;
   coherence: AnchorCoherenceResult;
-  /** Whether validation/promotion is blocked entirely */
   blocked: boolean;
-  /** Score cap imposed by partial/marginal gates (null = no cap) */
   cap: number | null;
-  /** Human-readable block/cap reasons */
   reasons: string[];
 }
 
-// ── Constants ────────────────────────────────────────────────────────────────
+export interface CandidateAnchorPackage {
+  headshot_url: string | null;
+  full_body_url: string | null;
+  additional_refs: string[];
+}
 
-const COHERENCE_FAIL_THRESHOLD = 4; // Score below this = fail
-const COHERENCE_STRONG_FAIL_THRESHOLD = 3; // Score below this = strong fail
+// ── Constants (single source) ────────────────────────────────────────────────
 
-// ── PG-00: Anchor Coverage ───────────────────────────────────────────────────
+const COHERENCE_FAIL_THRESHOLD = 4;
+const COHERENCE_STRONG_FAIL_THRESHOLD = 3;
+const PARTIAL_CAP = 79;
 
-/**
- * Evaluate anchor coverage for an actor's latest approved version.
- * Checks for presence of headshot, profile, and full-body reference assets.
- */
-export async function evaluateAnchorCoverage(actorId: string): Promise<AnchorCoverageResult> {
-  // Find latest approved version, fallback to latest version
+// ── Shared Internal Helpers ──────────────────────────────────────────────────
+
+/** Classify coverage status from anchor count. */
+function classifyCoverage(count: number): AnchorCoverageStatus {
+  if (count >= 3) return 'complete';
+  if (count === 2) return 'partial';
+  return 'insufficient';
+}
+
+/** Build coverage result from resolved anchor URLs. */
+function buildCoverageResult(urls: AnchorUrls): AnchorCoverageResult {
+  const present: AnchorPresence = {
+    headshot: !!urls.headshot,
+    profile: !!urls.profile,
+    fullBody: !!urls.fullBody,
+  };
+  const count = [present.headshot, present.profile, present.fullBody].filter(Boolean).length;
+  return {
+    coverageStatus: classifyCoverage(count),
+    presentAnchors: present,
+    anchorCount: count,
+    anchorUrls: urls,
+  };
+}
+
+type PairKey = 'headshot_profile' | 'headshot_fullBody' | 'profile_fullBody';
+
+/** Build pairwise comparison list from anchor URLs. */
+function buildPairs(urls: AnchorUrls): Array<{ key: PairKey; a: string; b: string }> {
+  const pairs: Array<{ key: PairKey; a: string; b: string }> = [];
+  if (urls.headshot && urls.profile) pairs.push({ key: 'headshot_profile', a: urls.headshot, b: urls.profile });
+  if (urls.headshot && urls.fullBody) pairs.push({ key: 'headshot_fullBody', a: urls.headshot, b: urls.fullBody });
+  if (urls.profile && urls.fullBody) pairs.push({ key: 'profile_fullBody', a: urls.profile, b: urls.fullBody });
+  return pairs;
+}
+
+/** Classify coherence status from fail count. */
+function classifyCoherence(failCount: number, evaluatedCount: number): AnchorCoherenceStatus {
+  if (evaluatedCount === 0) return 'unknown';
+  if (failCount === 0) return 'coherent';
+  if (failCount === 1) return 'marginal';
+  return 'incoherent';
+}
+
+/** Normalize a raw similarity score to 0–10. */
+function normalizeScore(data: any): number {
+  const raw = data?.overall_score ?? data?.similarity_score ?? 5;
+  return Math.min(10, Math.max(0, raw));
+}
+
+const EMPTY_SCORES = { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null } as const;
+
+/** Run pairwise coherence evaluation against anchor URLs. */
+async function evaluateCoherenceFromUrls(
+  urls: AnchorUrls,
+  logPrefix: string,
+): Promise<AnchorCoherenceResult> {
+  const availableCount = [urls.headshot, urls.profile, urls.fullBody].filter(Boolean).length;
+  if (availableCount < 2) {
+    return { coherenceStatus: 'unknown', scores: { ...EMPTY_SCORES }, failCount: 0 };
+  }
+
+  const pairs = buildPairs(urls);
+  const scores: Record<string, number | null> = { ...EMPTY_SCORES };
+  let failCount = 0;
+
+  for (const pair of pairs) {
+    try {
+      const { data, error } = await supabase.functions.invoke('evaluate-visual-similarity', {
+        body: { anchorUrl: pair.a, candidateUrl: pair.b, evaluationType: 'anchor_coherence' },
+      });
+      if (error || !data) {
+        console.warn(`[${logPrefix}] Failed to evaluate ${pair.key}:`, error);
+        scores[pair.key] = null;
+        continue;
+      }
+      const normalized = normalizeScore(data);
+      scores[pair.key] = normalized;
+      if (normalized < COHERENCE_FAIL_THRESHOLD) failCount++;
+    } catch (e) {
+      console.warn(`[${logPrefix}] Exception evaluating ${pair.key}:`, (e as Error).message);
+      scores[pair.key] = null;
+    }
+  }
+
+  const evaluated = Object.values(scores).filter(s => s !== null).length;
+  return {
+    coherenceStatus: classifyCoherence(failCount, evaluated),
+    scores: scores as AnchorCoherenceResult['scores'],
+    failCount,
+  };
+}
+
+/** Build missing-anchor list from presence flags. */
+function missingAnchors(present: AnchorPresence): string[] {
+  const missing: string[] = [];
+  if (!present.headshot) missing.push('headshot');
+  if (!present.profile) missing.push('profile');
+  if (!present.fullBody) missing.push('full body');
+  return missing;
+}
+
+/** Shared gating logic — takes coverage + coherence, returns precheck result. */
+function buildPrecheckResult(
+  coverage: AnchorCoverageResult,
+  coherence: AnchorCoherenceResult,
+): Omit<AnchorPrecheckResult, 'coverage' | 'coherence'> {
+  const reasons: string[] = [];
+  let blocked = false;
+  let cap: number | null = null;
+
+  if (coverage.coverageStatus === 'insufficient') {
+    blocked = true;
+    reasons.push(`Insufficient anchor coverage: missing ${missingAnchors(coverage.presentAnchors).join(', ')}`);
+  } else if (coverage.coverageStatus === 'partial') {
+    cap = PARTIAL_CAP;
+    reasons.push(`Partial anchor coverage: missing ${missingAnchors(coverage.presentAnchors).join(', ')} (score capped at ${PARTIAL_CAP})`);
+  }
+
+  if (!blocked) {
+    if (coherence.coherenceStatus === 'incoherent') {
+      blocked = true;
+      reasons.push(`Anchor set is incoherent: ${coherence.failCount} pairwise comparison(s) failed (similarity < ${COHERENCE_FAIL_THRESHOLD}/10)`);
+    } else if (coherence.coherenceStatus === 'marginal') {
+      cap = cap !== null ? Math.min(cap, PARTIAL_CAP) : PARTIAL_CAP;
+      reasons.push(`Anchor coherence is marginal: 1 pairwise comparison failed (score capped at ${PARTIAL_CAP})`);
+    }
+  }
+
+  return { coverageStatus: coverage.coverageStatus, coherenceStatus: coherence.coherenceStatus, blocked, cap, reasons };
+}
+
+const SKIPPED_COHERENCE: AnchorCoherenceResult = {
+  coherenceStatus: 'unknown',
+  scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null },
+  failCount: 0,
+};
+
+// ── Actor-Level Functions (post-creation) ────────────────────────────────────
+
+/** Resolve anchor URLs from an actor's latest approved version assets. */
+async function resolveActorAnchorUrls(actorId: string): Promise<AnchorUrls> {
   const { data: versions } = await (supabase as any)
     .from('ai_actor_versions')
     .select('id')
@@ -86,411 +230,95 @@ export async function evaluateAnchorCoverage(actorId: string): Promise<AnchorCov
     versionId = anyVersions?.[0]?.id;
   }
 
-  if (!versionId) {
-    return {
-      coverageStatus: 'insufficient',
-      presentAnchors: { headshot: false, profile: false, fullBody: false },
-      anchorCount: 0,
-      anchorUrls: { headshot: null, profile: null, fullBody: null },
-    };
-  }
+  if (!versionId) return { headshot: null, profile: null, fullBody: null };
 
   const { data: assets } = await (supabase as any)
     .from('ai_actor_assets')
     .select('asset_type, public_url, storage_path, meta_json')
     .eq('actor_version_id', versionId);
 
-  const assetList = (assets || []) as Array<{
-    asset_type: string;
-    public_url: string;
-    storage_path: string;
-    meta_json: Record<string, unknown>;
-  }>;
-
   let headshot: string | null = null;
   let profile: string | null = null;
   let fullBody: string | null = null;
 
-  for (const asset of assetList) {
+  for (const asset of (assets || []) as Array<{ asset_type: string; public_url: string; storage_path: string; meta_json: Record<string, unknown> }>) {
     const assetType = (asset.asset_type || '').toLowerCase();
     const metaShotType = ((asset.meta_json as any)?.shot_type || '').toLowerCase();
     const url = asset.public_url || asset.storage_path;
     if (!url) continue;
 
-    // Headshot detection
-    if (
-      assetType === 'reference_headshot' ||
-      metaShotType === 'identity_headshot' ||
-      metaShotType === 'headshot'
-    ) {
-      if (!headshot) headshot = url;
+    if (!headshot && (assetType === 'reference_headshot' || metaShotType === 'identity_headshot' || metaShotType === 'headshot')) {
+      headshot = url;
     }
-
-    // Profile detection
-    if (
-      metaShotType === 'profile' ||
-      metaShotType === 'identity_profile' ||
-      (assetType === 'reference_image' && metaShotType === 'profile')
-    ) {
-      if (!profile) profile = url;
+    if (!profile && (metaShotType === 'profile' || metaShotType === 'identity_profile' || (assetType === 'reference_image' && metaShotType === 'profile'))) {
+      profile = url;
     }
-
-    // Full body detection
-    if (
-      assetType === 'reference_full_body' ||
-      metaShotType === 'identity_full_body' ||
-      metaShotType === 'full_body'
-    ) {
-      if (!fullBody) fullBody = url;
+    if (!fullBody && (assetType === 'reference_full_body' || metaShotType === 'identity_full_body' || metaShotType === 'full_body')) {
+      fullBody = url;
     }
   }
 
-  const present = {
-    headshot: !!headshot,
-    profile: !!profile,
-    fullBody: !!fullBody,
-  };
-  const count = [present.headshot, present.profile, present.fullBody].filter(Boolean).length;
-
-  let coverageStatus: AnchorCoverageStatus;
-  if (count === 3) coverageStatus = 'complete';
-  else if (count === 2) coverageStatus = 'partial';
-  else coverageStatus = 'insufficient';
-
-  return {
-    coverageStatus,
-    presentAnchors: present,
-    anchorCount: count,
-    anchorUrls: { headshot, profile, fullBody },
-  };
+  return { headshot, profile, fullBody };
 }
 
-// ── PG-01: Anchor Coherence ──────────────────────────────────────────────────
+export async function evaluateAnchorCoverage(actorId: string): Promise<AnchorCoverageResult> {
+  const urls = await resolveActorAnchorUrls(actorId);
+  return buildCoverageResult(urls);
+}
 
-/**
- * Evaluate anchor coherence — pairwise similarity between available anchors.
- * Uses evaluate-visual-similarity edge function if available, otherwise
- * returns 'unknown' status (does not block).
- */
 export async function evaluateAnchorCoherence(
   actorId: string,
   coverage?: AnchorCoverageResult,
 ): Promise<AnchorCoherenceResult> {
-  // Get coverage if not provided
   const cov = coverage || await evaluateAnchorCoverage(actorId);
-
-  // Need at least 2 anchors to compare
-  const anchors = cov.anchorUrls;
-  const available = [
-    anchors.headshot ? 'headshot' : null,
-    anchors.profile ? 'profile' : null,
-    anchors.fullBody ? 'fullBody' : null,
-  ].filter(Boolean) as string[];
-
-  if (available.length < 2) {
-    return {
-      coherenceStatus: 'unknown',
-      scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null },
-      failCount: 0,
-    };
-  }
-
-  // Build pairwise comparisons
-  const pairs: Array<{ key: 'headshot_profile' | 'headshot_fullBody' | 'profile_fullBody'; a: string; b: string }> = [];
-  if (anchors.headshot && anchors.profile) {
-    pairs.push({ key: 'headshot_profile', a: anchors.headshot, b: anchors.profile });
-  }
-  if (anchors.headshot && anchors.fullBody) {
-    pairs.push({ key: 'headshot_fullBody', a: anchors.headshot, b: anchors.fullBody });
-  }
-  if (anchors.profile && anchors.fullBody) {
-    pairs.push({ key: 'profile_fullBody', a: anchors.profile, b: anchors.fullBody });
-  }
-
-  const scores: Record<string, number | null> = {
-    headshot_profile: null,
-    headshot_fullBody: null,
-    profile_fullBody: null,
-  };
-
-  let failCount = 0;
-
-  for (const pair of pairs) {
-    try {
-      const { data, error } = await supabase.functions.invoke('evaluate-visual-similarity', {
-        body: {
-          anchorUrl: pair.a,
-          candidateUrl: pair.b,
-          evaluationType: 'anchor_coherence',
-        },
-      });
-
-      if (error || !data) {
-        console.warn(`[AnchorCoherence] Failed to evaluate ${pair.key}:`, error);
-        scores[pair.key] = null;
-        continue;
-      }
-
-      // Normalize score to 0-10 scale
-      const rawScore = data.overall_score ?? data.similarity_score ?? 5;
-      const normalizedScore = Math.min(10, Math.max(0, rawScore));
-      scores[pair.key] = normalizedScore;
-
-      if (normalizedScore < COHERENCE_FAIL_THRESHOLD) {
-        failCount++;
-      }
-    } catch (e) {
-      console.warn(`[AnchorCoherence] Exception evaluating ${pair.key}:`, (e as Error).message);
-      scores[pair.key] = null;
-    }
-  }
-
-  // If no pairs could be evaluated, return unknown
-  const evaluated = Object.values(scores).filter(s => s !== null).length;
-  if (evaluated === 0) {
-    return {
-      coherenceStatus: 'unknown',
-      scores: scores as any,
-      failCount: 0,
-    };
-  }
-
-  let coherenceStatus: AnchorCoherenceStatus;
-  if (failCount === 0) coherenceStatus = 'coherent';
-  else if (failCount === 1) coherenceStatus = 'marginal';
-  else coherenceStatus = 'incoherent';
-
-  return {
-    coherenceStatus,
-    scores: scores as any,
-    failCount,
-  };
+  return evaluateCoherenceFromUrls(cov.anchorUrls, 'AnchorCoherence');
 }
 
-// ── Combined Pre-check ───────────────────────────────────────────────────────
-
-/**
- * Run full anchor pre-check (PG-00 + PG-01).
- * Returns deterministic gating decision.
- */
 export async function runAnchorPrecheck(actorId: string): Promise<AnchorPrecheckResult> {
   const coverage = await evaluateAnchorCoverage(actorId);
-  const reasons: string[] = [];
-  let blocked = false;
-  let cap: number | null = null;
+  const coherence = coverage.coverageStatus === 'insufficient'
+    ? SKIPPED_COHERENCE
+    : await evaluateAnchorCoherence(actorId, coverage);
 
-  // PG-00: Coverage gate
-  if (coverage.coverageStatus === 'insufficient') {
-    blocked = true;
-    const missing: string[] = [];
-    if (!coverage.presentAnchors.headshot) missing.push('headshot');
-    if (!coverage.presentAnchors.profile) missing.push('profile');
-    if (!coverage.presentAnchors.fullBody) missing.push('full body');
-    reasons.push(`Insufficient anchor coverage: missing ${missing.join(', ')}`);
-  } else if (coverage.coverageStatus === 'partial') {
-    cap = 79;
-    const missing: string[] = [];
-    if (!coverage.presentAnchors.headshot) missing.push('headshot');
-    if (!coverage.presentAnchors.profile) missing.push('profile');
-    if (!coverage.presentAnchors.fullBody) missing.push('full body');
-    reasons.push(`Partial anchor coverage: missing ${missing.join(', ')} (score capped at 79)`);
-  }
+  const gate = buildPrecheckResult(coverage, coherence);
+  console.log(`[AnchorPrecheck] actor=${actorId} coverage=${gate.coverageStatus} coherence=${gate.coherenceStatus} blocked=${gate.blocked} cap=${gate.cap}`, { reasons: gate.reasons });
 
-  // PG-01: Coherence gate (only if not already blocked by coverage)
-  let coherence: AnchorCoherenceResult;
-  if (!blocked) {
-    coherence = await evaluateAnchorCoherence(actorId, coverage);
-    if (coherence.coherenceStatus === 'incoherent') {
-      blocked = true;
-      reasons.push(`Anchor set is incoherent: ${coherence.failCount} pairwise comparison(s) failed (similarity < ${COHERENCE_FAIL_THRESHOLD}/10)`);
-    } else if (coherence.coherenceStatus === 'marginal') {
-      cap = cap !== null ? Math.min(cap, 79) : 79;
-      reasons.push(`Anchor coherence is marginal: 1 pairwise comparison failed (score capped at 79)`);
-    }
-  } else {
-    // Skip coherence evaluation if already blocked
-    coherence = {
-      coherenceStatus: 'unknown',
-      scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null },
-      failCount: 0,
-    };
-  }
-
-  console.log(
-    `[AnchorPrecheck] actor=${actorId} coverage=${coverage.coverageStatus} coherence=${coherence.coherenceStatus} blocked=${blocked} cap=${cap}`,
-    { reasons }
-  );
-
-  return {
-    coverageStatus: coverage.coverageStatus,
-    coherenceStatus: coherence.coherenceStatus,
-    coverage,
-    coherence,
-    blocked,
-    cap,
-    reasons,
-  };
+  return { ...gate, coverage, coherence };
 }
 
-// ── Candidate-Level Pre-checks (Pre-Promotion) ─────────────────────────────
+// ── Candidate-Level Functions (pre-promotion) ────────────────────────────────
 
-export interface CandidateAnchorPackage {
-  headshot_url: string | null;
-  full_body_url: string | null;
-  additional_refs: string[];
-}
-
-/**
- * Evaluate anchor coverage directly from candidate data — no actor needed.
- * This is the canonical pre-promotion gate for Casting Studio.
- */
 export function evaluateCandidateAnchorCoverage(candidate: CandidateAnchorPackage): AnchorCoverageResult {
-  const headshot = candidate.headshot_url || null;
-  const fullBody = candidate.full_body_url || null;
-  // Profile detection: check additional_refs for any URL tagged or positioned as profile
-  // In casting candidates, profile is typically the 1st additional ref if present
-  const profile = (candidate.additional_refs || [])[0] || null;
-
-  const present = {
-    headshot: !!headshot,
-    profile: !!profile,
-    fullBody: !!fullBody,
+  const urls: AnchorUrls = {
+    headshot: candidate.headshot_url || null,
+    fullBody: candidate.full_body_url || null,
+    profile: (candidate.additional_refs || [])[0] || null,
   };
-  const count = [present.headshot, present.profile, present.fullBody].filter(Boolean).length;
-
-  let coverageStatus: AnchorCoverageStatus;
-  if (count === 3) coverageStatus = 'complete';
-  else if (count === 2) coverageStatus = 'partial';
-  else coverageStatus = 'insufficient';
-
-  return {
-    coverageStatus,
-    presentAnchors: present,
-    anchorCount: count,
-    anchorUrls: { headshot, profile, fullBody },
-  };
+  return buildCoverageResult(urls);
 }
 
-/**
- * Evaluate anchor coherence directly from candidate anchor URLs.
- * Uses evaluate-visual-similarity edge function.
- */
 export async function evaluateCandidateAnchorCoherence(
   candidate: CandidateAnchorPackage,
   coverage?: AnchorCoverageResult,
 ): Promise<AnchorCoherenceResult> {
   const cov = coverage || evaluateCandidateAnchorCoverage(candidate);
-  const anchors = cov.anchorUrls;
-
-  const available = [
-    anchors.headshot ? 'headshot' : null,
-    anchors.profile ? 'profile' : null,
-    anchors.fullBody ? 'fullBody' : null,
-  ].filter(Boolean) as string[];
-
-  if (available.length < 2) {
-    return {
-      coherenceStatus: 'unknown',
-      scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null },
-      failCount: 0,
-    };
-  }
-
-  const pairs: Array<{ key: 'headshot_profile' | 'headshot_fullBody' | 'profile_fullBody'; a: string; b: string }> = [];
-  if (anchors.headshot && anchors.profile) pairs.push({ key: 'headshot_profile', a: anchors.headshot, b: anchors.profile });
-  if (anchors.headshot && anchors.fullBody) pairs.push({ key: 'headshot_fullBody', a: anchors.headshot, b: anchors.fullBody });
-  if (anchors.profile && anchors.fullBody) pairs.push({ key: 'profile_fullBody', a: anchors.profile, b: anchors.fullBody });
-
-  const scores: Record<string, number | null> = { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null };
-  let failCount = 0;
-
-  for (const pair of pairs) {
-    try {
-      const { data, error } = await supabase.functions.invoke('evaluate-visual-similarity', {
-        body: { anchorUrl: pair.a, candidateUrl: pair.b, evaluationType: 'anchor_coherence' },
-      });
-      if (error || !data) { scores[pair.key] = null; continue; }
-      const rawScore = data.overall_score ?? data.similarity_score ?? 5;
-      const normalizedScore = Math.min(10, Math.max(0, rawScore));
-      scores[pair.key] = normalizedScore;
-      if (normalizedScore < COHERENCE_FAIL_THRESHOLD) failCount++;
-    } catch (e) {
-      console.warn(`[CandidateCoherence] Exception evaluating ${pair.key}:`, (e as Error).message);
-      scores[pair.key] = null;
-    }
-  }
-
-  const evaluated = Object.values(scores).filter(s => s !== null).length;
-  if (evaluated === 0) {
-    return { coherenceStatus: 'unknown', scores: scores as any, failCount: 0 };
-  }
-
-  let coherenceStatus: AnchorCoherenceStatus;
-  if (failCount === 0) coherenceStatus = 'coherent';
-  else if (failCount === 1) coherenceStatus = 'marginal';
-  else coherenceStatus = 'incoherent';
-
-  return { coherenceStatus, scores: scores as any, failCount };
+  return evaluateCoherenceFromUrls(cov.anchorUrls, 'CandidateCoherence');
 }
 
-/**
- * Run full candidate-level anchor pre-check (PG-00 + PG-01) BEFORE actor creation.
- * This is the canonical pre-promotion gate.
- */
 export async function runCandidateAnchorPrecheck(candidate: CandidateAnchorPackage): Promise<AnchorPrecheckResult> {
   const coverage = evaluateCandidateAnchorCoverage(candidate);
-  const reasons: string[] = [];
-  let blocked = false;
-  let cap: number | null = null;
+  const coherence = coverage.coverageStatus === 'insufficient'
+    ? SKIPPED_COHERENCE
+    : await evaluateCandidateAnchorCoherence(candidate, coverage);
 
-  // PG-00: Coverage gate
-  if (coverage.coverageStatus === 'insufficient') {
-    blocked = true;
-    const missing: string[] = [];
-    if (!coverage.presentAnchors.headshot) missing.push('headshot');
-    if (!coverage.presentAnchors.profile) missing.push('profile');
-    if (!coverage.presentAnchors.fullBody) missing.push('full body');
-    reasons.push(`Insufficient anchor coverage: missing ${missing.join(', ')}`);
-  } else if (coverage.coverageStatus === 'partial') {
-    cap = 79;
-    const missing: string[] = [];
-    if (!coverage.presentAnchors.headshot) missing.push('headshot');
-    if (!coverage.presentAnchors.profile) missing.push('profile');
-    if (!coverage.presentAnchors.fullBody) missing.push('full body');
-    reasons.push(`Partial anchor coverage: missing ${missing.join(', ')} (score capped at 79)`);
-  }
+  const gate = buildPrecheckResult(coverage, coherence);
+  console.log(`[CandidatePrecheck] coverage=${gate.coverageStatus} coherence=${gate.coherenceStatus} blocked=${gate.blocked} cap=${gate.cap}`, { reasons: gate.reasons });
 
-  // PG-01: Coherence gate (only if not already blocked)
-  let coherence: AnchorCoherenceResult;
-  if (!blocked) {
-    coherence = await evaluateCandidateAnchorCoherence(candidate, coverage);
-    if (coherence.coherenceStatus === 'incoherent') {
-      blocked = true;
-      reasons.push(`Anchor set is incoherent: ${coherence.failCount} pairwise comparison(s) failed (similarity < ${COHERENCE_FAIL_THRESHOLD}/10)`);
-    } else if (coherence.coherenceStatus === 'marginal') {
-      cap = cap !== null ? Math.min(cap, 79) : 79;
-      reasons.push(`Anchor coherence is marginal: 1 pairwise comparison failed (score capped at 79)`);
-    }
-  } else {
-    coherence = { coherenceStatus: 'unknown', scores: { headshot_profile: null, headshot_fullBody: null, profile_fullBody: null }, failCount: 0 };
-  }
-
-  console.log(`[CandidatePrecheck] coverage=${coverage.coverageStatus} coherence=${coherence.coherenceStatus} blocked=${blocked} cap=${cap}`, { reasons });
-
-  return {
-    coverageStatus: coverage.coverageStatus,
-    coherenceStatus: coherence.coherenceStatus,
-    coverage,
-    coherence,
-    blocked,
-    cap,
-    reasons,
-  };
+  return { ...gate, coverage, coherence };
 }
 
-/**
- * Persist anchor gate statuses back to the ai_actors row.
- */
+// ── Persistence ──────────────────────────────────────────────────────────────
+
 export async function persistAnchorStatus(
   actorId: string,
   coverageStatus: AnchorCoverageStatus,
