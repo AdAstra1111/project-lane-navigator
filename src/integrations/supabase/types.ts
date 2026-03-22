@@ -26771,6 +26771,26 @@ export type Database = {
     }
     Functions: {
       accept_invite_link: { Args: { _token: string }; Returns: Json }
+      apply_promotion_decision: {
+        Args: {
+          p_actor_id: string
+          p_actor_version_id: string
+          p_block_reasons: string[]
+          p_decided_by: string
+          p_decision_mode: string
+          p_decision_note: string
+          p_eligible_for_promotion: boolean
+          p_final_decision_status: string
+          p_override_reason: string
+          p_policy_decision_status: string
+          p_policy_version: string
+          p_review_required: boolean
+          p_scoring_model: string
+          p_validation_result_id: string
+          p_validation_run_id: string
+        }
+        Returns: Json
+      }
       bootstrap_lookbook_sections: {
         Args: { p_project_id: string }
         Returns: Json

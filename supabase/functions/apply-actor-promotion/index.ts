@@ -2,16 +2,12 @@
  * Edge Function: apply-actor-promotion
  * 
  * Backend-authoritative promotion decision engine.
- * This is the SINGLE canonical path for all promotion state mutations.
+ * SINGLE canonical path for all promotion state mutations.
+ * 
+ * All writes are delegated to the apply_promotion_decision RPC
+ * which executes atomically within a single Postgres transaction.
  * 
  * Handles: approve, reject, override_approve, override_reject, revoke
- * 
- * Guarantees:
- * - Version-aware eligibility (validates version→run→result lineage)
- * - Atomic state transitions (single transaction boundary)
- * - Idempotent (guards against duplicate/concurrent actions)
- * - No silent fallbacks (missing truth = explicit block)
- * - Coherent actor current state (no contradictory field combos)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -73,7 +69,7 @@ async function evaluateEligibility(
 ): Promise<EligibilityResult> {
   const blockReasons: string[] = [];
 
-  // 1. Fetch actor — require PG gate statuses to exist
+  // 1. Fetch actor PG gate statuses — no silent fallbacks
   const { data: actor, error: actorErr } = await supabase
     .from("ai_actors")
     .select("anchor_coverage_status, anchor_coherence_status")
@@ -95,14 +91,10 @@ async function evaluateEligibility(
     };
   }
 
-  // Explicit — no defaulting missing statuses
-  const coverage = actor.anchor_coverage_status;
-  const coherence = actor.anchor_coherence_status;
-
-  if (!coverage || coverage === "insufficient") {
+  if (!actor.anchor_coverage_status || actor.anchor_coverage_status === "insufficient") {
     blockReasons.push("PG-00: Insufficient anchor coverage");
   }
-  if (!coherence || coherence === "incoherent") {
+  if (!actor.anchor_coherence_status || actor.anchor_coherence_status === "incoherent") {
     blockReasons.push("PG-01: Anchor set incoherent");
   }
 
@@ -133,7 +125,31 @@ async function evaluateEligibility(
     };
   }
 
-  // 3. Fetch latest SCORED validation run for THIS VERSION (strict lineage)
+  // 3. Validate version belongs to actor
+  const { data: versionCheck } = await supabase
+    .from("ai_actor_versions")
+    .select("id")
+    .eq("id", actorVersionId)
+    .eq("actor_id", actorId)
+    .single();
+
+  if (!versionCheck) {
+    blockReasons.push("version_actor_mismatch: Version does not belong to this actor");
+    return {
+      actor_id: actorId,
+      actor_version_id: actorVersionId,
+      validation_run_id: null,
+      validation_result_id: null,
+      scoring_model: null,
+      policy_version: PROMOTION_POLICY_VERSION,
+      eligible_for_promotion: false,
+      review_required: false,
+      block_reasons: blockReasons,
+      policy_decision_status: "not_eligible",
+    };
+  }
+
+  // 4. Fetch latest SCORED validation run for THIS VERSION (strict lineage)
   const { data: runs } = await supabase
     .from("actor_validation_runs")
     .select("id, status, actor_version_id")
@@ -148,7 +164,7 @@ async function evaluateEligibility(
     blockReasons.push("validation_run_missing: No scored validation run for this version");
   }
 
-  // 4. Fetch validation result for that run (strict lineage)
+  // 5. Fetch validation result for that run
   let validationResult: any = null;
   if (scoredRun) {
     const { data: result } = await supabase
@@ -187,7 +203,7 @@ async function evaluateEligibility(
     scoring_model: validationResult?.scoring_model || null,
     policy_version: PROMOTION_POLICY_VERSION,
     eligible_for_promotion: eligible,
-    review_required: false, // No speculative review logic
+    review_required: false,
     block_reasons: blockReasons,
     policy_decision_status: eligible ? "eligible" : "not_eligible",
   };
@@ -207,25 +223,20 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     // Verify caller
-    const anonClient = createClient(
-      supabaseUrl,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
+    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
+    const { data: { user }, error: authErr } = await anonClient.auth.getUser(
+      authHeader.replace("Bearer ", ""),
     );
-    const {
-      data: { user },
-      error: authErr,
-    } = await anonClient.auth.getUser(authHeader.replace("Bearer ", ""));
     if (authErr || !user) return jsonRes({ error: "Not authenticated" }, 401);
 
     const body = await req.json();
-    const { action, actorId, actorVersionId, overrideReason, decisionNote } =
-      body as {
-        action: string;
-        actorId: string;
-        actorVersionId?: string;
-        overrideReason?: string;
-        decisionNote?: string;
-      };
+    const { action, actorId, actorVersionId, overrideReason, decisionNote } = body as {
+      action: string;
+      actorId: string;
+      actorVersionId?: string;
+      overrideReason?: string;
+      decisionNote?: string;
+    };
 
     if (!action || !actorId) {
       return jsonRes({ error: "action and actorId are required" }, 400);
@@ -240,216 +251,109 @@ Deno.serve(async (req) => {
 
     const typedAction = action as PromotionAction;
 
-    // ── Override validation ───────────────────────────────────────────────
+    // Override validation
     if (
       (typedAction === "override_approve" || typedAction === "override_reject") &&
       !overrideReason?.trim()
     ) {
-      return jsonRes(
-        { error: "Override actions require an override_reason" },
-        400,
-      );
+      return jsonRes({ error: "Override actions require an override_reason" }, 400);
     }
 
-    // ── Fetch current actor state for guards ──────────────────────────────
-    const { data: currentActor, error: fetchErr } = await supabase
-      .from("ai_actors")
-      .select(
-        "id, roster_ready, approved_version_id, promotion_status, current_promotion_decision_id",
-      )
-      .eq("id", actorId)
-      .single();
-
-    if (fetchErr || !currentActor) {
-      return jsonRes({ error: "Actor not found" }, 404);
-    }
-
-    // ── REVOKE: target current approved version, not eligibility version ──
+    // ── REVOKE: target current approved version ──────────────────────────
     if (typedAction === "revoke") {
-      if (!currentActor.roster_ready || !currentActor.approved_version_id) {
-        return jsonRes(
-          { error: "Cannot revoke: actor is not currently roster-ready" },
-          400,
-        );
-      }
-
-      // For revoke, the version is the currently approved one
-      const revokeVersionId = currentActor.approved_version_id;
-
-      // Idempotency: check if already revoked
-      if (currentActor.promotion_status === "revoked") {
-        return jsonRes(
-          { error: "Actor is already revoked" },
-          409,
-        );
-      }
-
-      // Insert revoke decision
-      const revokeDecision = {
-        actor_id: actorId,
-        actor_version_id: revokeVersionId,
-        validation_run_id: null,
-        validation_result_id: null,
-        scoring_model: "n/a",
-        policy_version: PROMOTION_POLICY_VERSION,
-        eligible_for_promotion: false,
-        review_required: false,
-        block_reasons: [],
-        policy_decision_status: "not_eligible",
-        final_decision_status: "revoked",
-        decision_mode: "revoke",
-        override_reason: overrideReason || null,
-        decision_note: decisionNote || null,
-        decided_by: user.id,
-      };
-
-      const { data: decision, error: insertErr } = await supabase
-        .from("actor_promotion_decisions")
-        .insert(revokeDecision)
-        .select("*")
+      const { data: currentActor } = await supabase
+        .from("ai_actors")
+        .select("approved_version_id, roster_ready, promotion_status")
+        .eq("id", actorId)
         .single();
 
-      if (insertErr) {
-        return jsonRes({ error: insertErr.message }, 500);
+      if (!currentActor?.roster_ready || !currentActor?.approved_version_id) {
+        return jsonRes({ error: "Cannot revoke: actor is not currently roster-ready" }, 400);
       }
 
-      // Atomic actor state update for revoke
-      await supabase
-        .from("ai_actors")
-        .update({
-          promotion_status: "revoked",
-          approved_version_id: null,
-          roster_ready: false,
-          current_promotion_decision_id: decision.id,
-          promotion_policy_version: PROMOTION_POLICY_VERSION,
-          promotion_updated_at: new Date().toISOString(),
-        })
-        .eq("id", actorId);
+      // Call atomic RPC — revoke has no validation lineage (null is intentional, not "n/a")
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc("apply_promotion_decision", {
+        p_actor_id: actorId,
+        p_actor_version_id: currentActor.approved_version_id,
+        p_validation_run_id: null,
+        p_validation_result_id: null,
+        p_scoring_model: null,
+        p_policy_version: PROMOTION_POLICY_VERSION,
+        p_eligible_for_promotion: false,
+        p_review_required: false,
+        p_block_reasons: [],
+        p_policy_decision_status: "not_eligible",
+        p_final_decision_status: "revoked",
+        p_decision_mode: "revoke",
+        p_override_reason: overrideReason || null,
+        p_decision_note: decisionNote || null,
+        p_decided_by: user.id,
+      });
 
-      return jsonRes({ decision, action: "revoked" });
+      if (rpcErr) return jsonRes({ error: rpcErr.message }, 500);
+
+      // Fetch the persisted decision for response
+      const { data: decision } = await supabase
+        .from("actor_promotion_decisions")
+        .select("*")
+        .eq("id", rpcResult.decision_id)
+        .single();
+
+      return jsonRes({ decision, action: "revoked", idempotent: rpcResult.idempotent });
     }
 
-    // ── Non-revoke actions: evaluate eligibility ──────────────────────────
-    const eligibility = await evaluateEligibility(
-      supabase,
-      actorId,
-      actorVersionId || null,
-    );
+    // ── Non-revoke: evaluate eligibility ─────────────────────────────────
+    const eligibility = await evaluateEligibility(supabase, actorId, actorVersionId || null);
 
-    // ── APPROVE: must be eligible ─────────────────────────────────────────
+    // APPROVE must be eligible
     if (typedAction === "approve" && !eligibility.eligible_for_promotion) {
-      return jsonRes(
-        {
-          error: `Cannot approve: ${eligibility.block_reasons.join("; ")}`,
-          eligibility,
-        },
-        400,
-      );
-    }
-
-    // ── Idempotency guard: check for existing identical decision ──────────
-    if (typedAction === "approve" || typedAction === "override_approve") {
-      // If this version is already the approved roster version, no-op
-      if (
-        currentActor.approved_version_id === eligibility.actor_version_id &&
-        currentActor.roster_ready === true &&
-        (currentActor.promotion_status === "approved" ||
-          currentActor.promotion_status === "override_approved")
-      ) {
-        // Already in desired state — return current decision
-        const { data: existingDecision } = await supabase
-          .from("actor_promotion_decisions")
-          .select("*")
-          .eq("id", currentActor.current_promotion_decision_id)
-          .single();
-
-        return jsonRes({
-          decision: existingDecision,
-          action: "already_approved",
-          idempotent: true,
-        });
-      }
+      return jsonRes({
+        error: `Cannot approve: ${eligibility.block_reasons.join("; ")}`,
+        eligibility,
+      }, 400);
     }
 
     const resolvedVersionId = eligibility.actor_version_id;
     if (!resolvedVersionId) {
-      return jsonRes(
-        { error: "No actor version available for promotion decision" },
-        400,
-      );
+      return jsonRes({ error: "No actor version available for promotion decision" }, 400);
     }
 
-    // ── Insert decision row ───────────────────────────────────────────────
-    const isApproval =
-      typedAction === "approve" || typedAction === "override_approve";
+    // Call atomic RPC
+    const { data: rpcResult, error: rpcErr } = await supabase.rpc("apply_promotion_decision", {
+      p_actor_id: actorId,
+      p_actor_version_id: resolvedVersionId,
+      p_validation_run_id: eligibility.validation_run_id,
+      p_validation_result_id: eligibility.validation_result_id,
+      p_scoring_model: eligibility.scoring_model,
+      p_policy_version: PROMOTION_POLICY_VERSION,
+      p_eligible_for_promotion: eligibility.eligible_for_promotion,
+      p_review_required: false,
+      p_block_reasons: eligibility.block_reasons,
+      p_policy_decision_status: eligibility.policy_decision_status,
+      p_final_decision_status: ACTION_TO_FINAL[typedAction],
+      p_decision_mode: ACTION_TO_MODE[typedAction],
+      p_override_reason: overrideReason || null,
+      p_decision_note: decisionNote || null,
+      p_decided_by: user.id,
+    });
 
-    const decisionRow = {
-      actor_id: actorId,
-      actor_version_id: resolvedVersionId,
-      validation_run_id: eligibility.validation_run_id,
-      validation_result_id: eligibility.validation_result_id,
-      scoring_model: eligibility.scoring_model || "n/a",
-      policy_version: PROMOTION_POLICY_VERSION,
-      eligible_for_promotion: eligibility.eligible_for_promotion,
-      review_required: false,
-      block_reasons: eligibility.block_reasons,
-      policy_decision_status: eligibility.policy_decision_status,
-      final_decision_status: ACTION_TO_FINAL[typedAction],
-      decision_mode: ACTION_TO_MODE[typedAction],
-      override_reason: overrideReason || null,
-      decision_note: decisionNote || null,
-      decided_by: user.id,
-    };
+    if (rpcErr) return jsonRes({ error: rpcErr.message }, 500);
 
-    const { data: decision, error: insertErr } = await supabase
-      .from("actor_promotion_decisions")
-      .insert(decisionRow)
-      .select("*")
-      .single();
-
-    if (insertErr) {
-      return jsonRes({ error: insertErr.message }, 500);
-    }
-
-    // ── Update actor current state ────────────────────────────────────────
-    const actorUpdate: Record<string, any> = {
-      current_promotion_decision_id: decision.id,
-      promotion_policy_version: PROMOTION_POLICY_VERSION,
-      promotion_updated_at: new Date().toISOString(),
-    };
-
-    if (isApproval) {
-      // Supersede prior approvals ONLY on new approval
-      await supabase
+    if (rpcResult.idempotent) {
+      const { data: existingDecision } = await supabase
         .from("actor_promotion_decisions")
-        .update({ final_decision_status: "superseded" })
-        .eq("actor_id", actorId)
-        .in("final_decision_status", ["approved", "override_approved"])
-        .neq("id", decision.id);
-
-      actorUpdate.promotion_status = decision.final_decision_status;
-      actorUpdate.approved_version_id = resolvedVersionId;
-      actorUpdate.roster_ready = true;
-    } else {
-      // Reject / override_reject — do NOT destroy existing approval state
-      actorUpdate.promotion_status = decision.final_decision_status;
-      // If actor was previously approved for a DIFFERENT version,
-      // keep roster_ready and approved_version_id intact.
-      // Only clear if the rejection is for the currently approved version.
-      if (currentActor.approved_version_id === resolvedVersionId) {
-        actorUpdate.approved_version_id = null;
-        actorUpdate.roster_ready = false;
-      }
-      // If no prior approval exists, ensure coherent state
-      if (!currentActor.approved_version_id) {
-        actorUpdate.roster_ready = false;
-      }
+        .select("*")
+        .eq("id", rpcResult.decision_id)
+        .single();
+      return jsonRes({ decision: existingDecision, eligibility, action: typedAction, idempotent: true });
     }
 
-    await supabase
-      .from("ai_actors")
-      .update(actorUpdate)
-      .eq("id", actorId);
+    // Fetch the newly created decision
+    const { data: decision } = await supabase
+      .from("actor_promotion_decisions")
+      .select("*")
+      .eq("id", rpcResult.decision_id)
+      .single();
 
     return jsonRes({ decision, eligibility, action: typedAction });
   } catch (err: any) {
