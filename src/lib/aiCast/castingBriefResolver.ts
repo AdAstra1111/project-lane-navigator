@@ -897,10 +897,11 @@ function inferEthnicityFromCanonContext(canonJson: Record<string, unknown> | nul
  * This produces a casting-ready description, not raw tag soup.
  */
 function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): string {
-  // ── 1. Base anchor: [ethnicity] [gender] [age] ──
+  // ── 1. Base anchor: [ethnicity] [gender], playing age X–Y ──
   const ethnicity = dedupeAndResolveConflicts(buckets.ethnicity);
   const gender = dedupeAndResolveConflicts(buckets.gender);
   const age = dedupeAndResolveConflicts(buckets.age);
+  const playingAge = derivePlayingAge(age);
 
   let baseAnchor = '';
   const baseParts: string[] = [];
@@ -908,14 +909,11 @@ function composeActorDescriptionFromBuckets(buckets: ActorIdentityBuckets): stri
   if (gender.length > 0) baseParts.push(gender[0]);
   if (baseParts.length > 0) {
     baseAnchor = baseParts.join(' ');
-    if (age.length > 0) {
-      // Determine correct pronoun from gender
-      const genderLower = (gender[0] || '').toLowerCase();
-      const pronoun = /\b(woman|female|girl)\b/i.test(genderLower) ? 'her'
-        : /\b(man|male|boy)\b/i.test(genderLower) ? 'his'
-        : 'their';
-      baseAnchor += ` in ${pronoun} ${age[0]}`;
+    if (playingAge) {
+      baseAnchor += `, playing age ${playingAge}`;
     }
+  } else if (playingAge) {
+    baseAnchor = `playing age ${playingAge}`;
   } else if (age.length > 0) {
     baseAnchor = age[0];
   }
