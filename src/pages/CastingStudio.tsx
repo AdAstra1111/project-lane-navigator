@@ -108,6 +108,41 @@ export default function CastingStudio() {
     enabled: !!projectId,
   });
 
+  // ── Generate candidates ──
+  const handleGenerate = useCallback(async (characterFilter?: string) => {
+    if (!projectId || !user?.id) return;
+    setIsGenerating(true);
+    const toastId = toast.loading(
+      characterFilter
+        ? `Generating casting options for ${characterFilter}...`
+        : 'Generating casting options for all characters...',
+      { duration: 120000 }
+    );
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-casting-candidates', {
+        body: { projectId, candidatesPerCharacter: 4, characterFilter },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        if (data.error.includes('credits') || data.error.includes('funds')) {
+          toast.error('AI credits exhausted. Please add funds in Settings → Workspace → Usage.', { id: toastId });
+        } else {
+          toast.error(data.error, { id: toastId });
+        }
+        return;
+      }
+      toast.success(
+        `Generated ${data.generated} candidate${data.generated !== 1 ? 's' : ''} across ${data.characters} character${data.characters !== 1 ? 's' : ''}${data.failed > 0 ? ` (${data.failed} failed)` : ''}`,
+        { id: toastId }
+      );
+      invalidate();
+    } catch (e: any) {
+      toast.error(e.message || 'Generation failed', { id: toastId });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [projectId, user?.id]);
+
   // ── Mutations ──
   const invalidate = () => qc.invalidateQueries({ queryKey: ['casting-candidates', projectId] });
 
