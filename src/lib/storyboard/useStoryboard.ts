@@ -1,9 +1,12 @@
 /**
  * Storyboard Pipeline v1 — React Query hooks
+ *
+ * Cast context is resolved via canonical castResolver before run creation.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { storyboardApi } from './storyboardApi';
 import { toast } from 'sonner';
+import { resolveFullProjectCast } from '@/lib/aiCast/castResolver';
 
 export function useCanonicalUnits(projectId: string | undefined, unitKeys?: string[]) {
   return useQuery({
@@ -47,8 +50,33 @@ export function useStoryboardMutations(projectId: string | undefined) {
   };
 
   const createRunAndPanels = useMutation({
-    mutationFn: (params?: { unitKeys?: string[]; stylePreset?: string; aspectRatio?: string; includeDocumentIds?: string[] }) =>
-      storyboardApi.createRunAndPanels(projectId!, params?.unitKeys, params?.stylePreset, params?.aspectRatio, params?.includeDocumentIds),
+    mutationFn: async (params?: { unitKeys?: string[]; stylePreset?: string; aspectRatio?: string; includeDocumentIds?: string[] }) => {
+      // Resolve cast context via canonical resolver before run creation
+      let castContext: any[] | undefined;
+      if (projectId) {
+        try {
+          const castMap = await resolveFullProjectCast(projectId);
+          const entries = Object.entries(castMap)
+            .filter(([, v]) => v.bound)
+            .map(([key, v]) => {
+              const r = v as any;
+              return {
+                character_key: key,
+                actor_id: r.actor_id,
+                actor_version_id: r.actor_version_id,
+                actor_name: r.actor_name,
+                description: r.recipe_json?.description || '',
+                headshot_url: r.assets?.headshot || null,
+                full_body_url: r.assets?.full_body || null,
+              };
+            });
+          if (entries.length > 0) castContext = entries;
+        } catch (e) {
+          console.warn('[Storyboard] Cast context resolution failed, proceeding without:', (e as Error).message);
+        }
+      }
+      return storyboardApi.createRunAndPanels(projectId!, params?.unitKeys, params?.stylePreset, params?.aspectRatio, params?.includeDocumentIds, castContext);
+    },
     onSuccess: (data) => {
       toast.success(`Panel plan created: ${data.panelsCount} panels`);
       invalidateAll();

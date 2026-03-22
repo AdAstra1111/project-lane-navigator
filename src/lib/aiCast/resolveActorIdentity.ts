@@ -11,6 +11,7 @@
  */
 import { supabase } from '@/integrations/supabase/client';
 import { resolveFullProjectCast, type CastResolverResult } from './castResolver';
+import { normalizeCharacterKey } from './normalizeCharacterKey';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ export async function resolveProjectCastIdentity(
       .in('curation_state', ['active', 'approved', 'locked']);
 
     for (const img of anchorImages || []) {
-      const name = (img.subject || '').toLowerCase().trim();
+      const name = normalizeCharacterKey(img.subject || '');
       if (!name || actorBoundNames.has(name)) continue;
 
       if (!map.has(name)) {
@@ -134,7 +135,7 @@ export async function resolveCharacterCastIdentity(
   characterName: string,
 ): Promise<ActorIdentityAnchors> {
   const map = await resolveProjectCastIdentity(projectId);
-  const key = characterName.toLowerCase().trim();
+  const key = normalizeCharacterKey(characterName);
   return map.get(key) || {
     characterName,
     source: 'unresolved',

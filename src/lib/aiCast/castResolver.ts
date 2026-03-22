@@ -11,6 +11,7 @@
  * - If no binding exists → explicit null result (no silent fallback)
  */
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeCharacterKey } from './normalizeCharacterKey';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ export async function resolveProjectCastContext(params: {
   characterKey: string;
 }): Promise<CastContextResult> {
   const { projectId, characterKey } = params;
-  const normalizedKey = characterKey.toLowerCase().trim();
+  const normalizedKey = normalizeCharacterKey(characterKey);
 
   // Query project_ai_cast binding
   const { data: binding, error } = await (supabase as any)
@@ -81,7 +82,7 @@ export async function resolveProjectCastContext(params: {
       .eq('project_id', projectId);
 
     const match = (bindingNorm || []).find(
-      (b: any) => (b.character_key || '').toLowerCase().trim() === normalizedKey
+      (b: any) => normalizeCharacterKey(b.character_key || '') === normalizedKey
     );
 
     if (!match || !match.ai_actor_version_id) {
@@ -157,7 +158,7 @@ export async function resolveFullProjectCast(projectId: string): Promise<Project
   }
 
   for (const binding of bindings as any[]) {
-    const key = (binding.character_key || '').toLowerCase().trim();
+    const key = normalizeCharacterKey(binding.character_key || '');
     if (!key) continue;
 
     const versionId = binding.ai_actor_version_id;

@@ -637,7 +637,7 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
       public_url: publicUrl,
       seed: seed || null,
       model: IMAGE_MODEL,
-      gen_params: { prompt: finalPrompt, negative_prompt: negativePrompt, style_preset: stylePreset, aspect_ratio: aspectRatio, seed },
+      gen_params: { prompt: finalPrompt, negative_prompt: negativePrompt, style_preset: stylePreset, aspect_ratio: aspectRatio, seed, cast_provenance: panel.panel_payload?._audit?.cast_context_hash ? { cast_context_hash: panel.panel_payload._audit.cast_context_hash } : null },
       created_by: userId,
     }).select().single();
 

@@ -208,26 +208,26 @@ const SKIPPED_COHERENCE: AnchorCoherenceResult = {
 
 // ── Actor-Level Functions (post-creation) ────────────────────────────────────
 
-/** Resolve anchor URLs from an actor's latest approved version assets. */
+/** Resolve anchor URLs from an actor's canonical approved version assets. */
 async function resolveActorAnchorUrls(actorId: string): Promise<AnchorUrls> {
-  const { data: versions } = await (supabase as any)
-    .from('ai_actor_versions')
-    .select('id')
-    .eq('actor_id', actorId)
-    .eq('is_approved', true)
-    .order('version_number', { ascending: false })
-    .limit(1);
+  // Use Phase 4 canonical approved_version_id — NO is_approved fallback
+  const { data: actor } = await (supabase as any)
+    .from('ai_actors')
+    .select('approved_version_id')
+    .eq('id', actorId)
+    .maybeSingle();
 
-  let versionId = versions?.[0]?.id;
+  let versionId = actor?.approved_version_id;
 
+  // Display-only fallback to latest version if no canonical approval exists
   if (!versionId) {
-    const { data: anyVersions } = await (supabase as any)
+    const { data: latestVersions } = await (supabase as any)
       .from('ai_actor_versions')
       .select('id')
       .eq('actor_id', actorId)
       .order('version_number', { ascending: false })
       .limit(1);
-    versionId = anyVersions?.[0]?.id;
+    versionId = latestVersions?.[0]?.id;
   }
 
   if (!versionId) return { headshot: null, profile: null, fullBody: null };

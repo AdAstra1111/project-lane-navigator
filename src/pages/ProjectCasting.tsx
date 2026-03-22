@@ -20,6 +20,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getActorThumbnail, getIdentityStrength, type IdentityStrength } from '@/lib/aiCast/identityStrength';
 import { resolveProjectCastIdentity, type ActorIdentityAnchors, type IdentitySource } from '@/lib/aiCast/resolveActorIdentity';
+import { normalizeCharacterKey } from '@/lib/aiCast/normalizeCharacterKey';
 
 interface CastMapping {
   id: string;
@@ -179,7 +180,7 @@ export default function ProjectCasting() {
             const actor = actors.find((a: any) => a.id === m.ai_actor_id);
             const thumbnail = actor ? getActorThumbnail(actor.ai_actor_versions, (actor as any).approved_version_id) : null;
             const identity = actor ? getIdentityStrength(actor.ai_actor_versions, (actor as any).approved_version_id) : null;
-            const charKey = m.character_key.toLowerCase().trim();
+            const charKey = normalizeCharacterKey(m.character_key);
             const resolvedIdentity = identityMap?.[charKey];
 
             return (
