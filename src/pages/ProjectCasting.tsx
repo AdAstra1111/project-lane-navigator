@@ -2383,7 +2383,7 @@ function InlineCreateActorDialog({
             Create Actor for {characterKey}
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Review the role context and edit the suggested actor criteria below.
+            Story context is shown for reference only. Actor criteria describe the performer's physical appearance — not their character arc.
           </DialogDescription>
         </DialogHeader>
 
