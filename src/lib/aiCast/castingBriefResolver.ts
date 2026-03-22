@@ -24,15 +24,8 @@
  * 7. project_images character descriptors
  * 8. minimal fallback
  */
- * 1. canon_facts
- * 2. Document-enriched appearance signals (character_bible, character_profile)
- * 3. character_visual_dna
- * 4. canon_json.characters (story context only)
- * 5. Document support signals (treatment, story_outline, scripts)
- * 6. World bible styling cues
- * 7. project_images character descriptors
- * 8. minimal fallback
- */
+
+
 
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeCharacterKey } from './normalizeCharacterKey';
