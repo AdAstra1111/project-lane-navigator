@@ -1,16 +1,20 @@
 /**
  * electionStage — Deterministic image election for LookBook slides.
  *
- * Uses the CANONICAL scorer only (lookbookScorer.scoreImageForSlide).
- * No alternative scoring logic.
+ * Uses the CANONICAL scorer (lookbookScorer.scoreImageForSlide) as base,
+ * augmented by the multi-factor lookbookSelectionScoring layer (Phase 16.5)
+ * for style cohesion, shot intent, and cross-image cohesion.
  *
- * INPUT: section pools, slide definitions, optional narrative intelligence
+ * INPUT: section pools, slide definitions, optional narrative intelligence, optional style lock
  * OUTPUT: ElectionResult (per-slide winners + poster hero)
  * SIDE EFFECTS: none (pure functions)
  */
 import type { ProjectImage } from '@/lib/images/types';
 import { classifyOrientation } from '@/lib/images/orientationUtils';
 import { scoreImageForSlide, getImageFingerprint, type ScoringContext, type SlotIntentContext } from './lookbookScorer';
+import { scoreLookbookCandidate, type SelectionScoringContext, type LookbookSelectionScore } from '../lookbookSelectionScoring';
+import type { StyleLock } from '../styleLock';
+import { hashStyleLock } from '../styleLock';
 import { SLIDE_SECTION_AFFINITY, SLIDE_TO_POOL, type PoolKey } from './lookbookSlotRegistry';
 import { getSlotIntent } from './lookbookSlotIntent';
 import type { NarrativeEvidence } from './narrativeEvidence';
