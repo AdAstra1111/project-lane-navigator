@@ -129,6 +129,7 @@ export function CandidateDetailPanel({
   const isProcessing = candidate.status === 'queued' || candidate.status === 'rendering' || candidate.status === 'scoring';
   const isReady = candidate.status === 'ready';
   const isFailed = candidate.status === 'failed';
+  const isEmpty = candidate.status === 'empty';
 
   return (
     <div className={cn('space-y-4', className)}>
