@@ -1668,6 +1668,12 @@ FRAMING RULES:
         }
       }
 
+      // Step 8b½: SHOT LIST CONTEXT — canonical cinematic source (Phase 18.1)
+      // Injected BEFORE style/shot/composition layers to ground the image in planned cinematics
+      if (shotListPromptBlock && !isIdentityGeneration && !promptOverrideUsed) {
+        prompt += `\n\n${shotListPromptBlock}`;
+      }
+
       // Step 8c: CINEMATIC STYLE LOCK — project-wide visual cohesion
       if (cinematicStylePromptBlock && !isIdentityGeneration) {
         prompt += `\n\n${cinematicStylePromptBlock}`;
