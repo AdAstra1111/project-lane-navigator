@@ -576,21 +576,48 @@ describe('meetsMinimumIdentityQuality', () => {
 describe('Phase 17.5 — sparse input produces casting-grade output', () => {
   it('transforms "tall, sharp, fierce, quiet" into anchored identity', () => {
     const b = createEmptyBuckets();
-    b.height.push('tall');
-    b.archetype.push('sharp');
-    b.presence.push('fierce');
-    b.presence.push('quiet');
+    classifyIntoBucket('tall', b);
+    classifyIntoBucket('sharp', b);
+    classifyIntoBucket('fierce', b);
+    classifyIntoBucket('quiet', b);
 
     const completed = completeActorIdentityBuckets(b, null, []);
     const desc = composeActorDescriptionFromBuckets(completed);
 
     // Must not be raw tag soup
     expect(desc).not.toBe('tall, sharp, fierce, quiet');
+    // "sharp" must be anchored to features
+    expect(desc).toContain('sharp features');
+    // "sharp" standalone must not survive
+    expect(desc).not.toMatch(/,\s*sharp\s*,/);
     // fierce/quiet should be expanded
-    expect(desc).not.toContain('fierce');
-    expect(desc).not.toContain(', quiet,');
+    expect(desc).not.toMatch(/\bfierce\b/);
     // Should contain anchored or expanded forms
     expect(desc.length).toBeGreaterThan(15);
+  });
+
+  it('Hana-like protagonist gets structured casting identity', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    classifyIntoBucket('tall', b);
+    classifyIntoBucket('sharp', b);
+    classifyIntoBucket('dark', b);
+
+    const completed = completeActorIdentityBuckets(b, 'protagonist', ['period-drama']);
+    const desc = composeActorDescriptionFromBuckets(completed);
+
+    // Must start with base anchor
+    expect(desc).toMatch(/^woman/i);
+    expect(desc).toContain('early twenties');
+    // Physical traits must be anchored
+    expect(desc).toContain('sharp features');
+    expect(desc).toContain('dark hair');
+    // No floating adjectives
+    expect(desc).not.toMatch(/,\s*sharp\s*,/);
+    expect(desc).not.toMatch(/,\s*dark\s*,/);
+    // Must read like a casting identity sentence
+    expect(desc.split(',').length).toBeGreaterThanOrEqual(3);
   });
 
   it('lead character gets richer output than non-lead', () => {
