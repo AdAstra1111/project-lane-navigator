@@ -2383,7 +2383,7 @@ function InlineCreateActorDialog({
             Create Actor for {characterKey}
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Review the role context and edit the suggested actor criteria below.
+            Story context is shown for reference only. Actor criteria describe the performer's physical appearance — not their character arc.
           </DialogDescription>
         </DialogHeader>
 
@@ -2393,11 +2393,11 @@ function InlineCreateActorDialog({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Section 1 — Role Context (read-only) */}
+            {/* Section 1 — Character Context (read-only, quarantined from actor criteria) */}
             {context && (
               <div className="rounded-md border border-border/40 bg-muted/10 p-3 space-y-1.5">
                 <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Role Context
+                  Character Context <span className="font-normal opacity-60">— story reference only</span>
                 </h4>
                 <p className="text-xs font-medium text-foreground">{context.display_name}</p>
                 {context.role_in_story && (
@@ -2418,7 +2418,7 @@ function InlineCreateActorDialog({
             {/* Section 2 — Suggested Actor Criteria (editable) */}
             <div className="space-y-3">
               <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Suggested Actor Criteria
+                Actor Criteria <span className="font-normal opacity-60">— physical appearance &amp; presence</span>
               </h4>
 
               {/* Brief metadata badges */}
@@ -2461,7 +2461,7 @@ function InlineCreateActorDialog({
                   className="text-xs min-h-[80px]"
                 />
                 <p className="text-[9px] text-muted-foreground/60">
-                  Describe the performer's visual appearance only. Story details are excluded automatically.
+                  Describe physical appearance, build, and presence only. Do not include story, personality, or plot details — these belong in Character Context above.
                 </p>
               </div>
 
