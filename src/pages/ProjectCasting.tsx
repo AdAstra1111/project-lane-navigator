@@ -45,6 +45,11 @@ import {
   type OutputConsistencyResult,
   type CastConsistencyStatus,
 } from '@/lib/aiCast/castConsistency';
+import {
+  evaluateProjectContinuity,
+  type ProjectContinuitySummary,
+  type CharacterContinuityResult,
+} from '@/lib/aiCast/continuityDiagnostics';
 
 interface CastMapping {
   id: string;
