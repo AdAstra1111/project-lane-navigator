@@ -295,12 +295,58 @@ describe('composeActorDescriptionFromBuckets', () => {
     expect(result).toBe('');
   });
 
-  it('appends "presence" suffix to presence markers', () => {
+  it('handles presence terms without redundant "presence" suffix', () => {
+    const b = createEmptyBuckets();
+    b.presence.push('controlled intensity');
+    b.presence.push('quiet authority');
+    const result = composeActorDescriptionFromBuckets(b);
+    // Should NOT have double "presence" — the terms already imply it
+    expect(result).toContain('controlled intensity');
+    expect(result).toContain('quiet authority');
+  });
+
+  it('adds "presence" suffix only when needed', () => {
     const b = createEmptyBuckets();
     b.presence.push('commanding');
-    b.presence.push('elegant');
     const result = composeActorDescriptionFromBuckets(b);
-    expect(result).toContain('presence');
+    expect(result).toContain('commanding presence');
+  });
+
+  it('no floating adjectives survive in final output', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.face.push('sharp features');
+    b.hair.push('dark hair');
+    const result = composeActorDescriptionFromBuckets(b);
+    // "sharp" alone must not appear — only "sharp features"
+    expect(result).not.toMatch(/\bsharp\b(?!\s+features)/);
+    expect(result).toContain('sharp features');
+  });
+
+  it('base anchor includes gender and age', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.hair.push('dark hair');
+    const result = composeActorDescriptionFromBuckets(b);
+    expect(result).toMatch(/^woman/i);
+    expect(result).toContain('early twenties');
+  });
+
+  it('enforces max 220 char length', () => {
+    const b = createEmptyBuckets();
+    b.gender.push('woman');
+    b.age.push('early twenties');
+    b.build.push('slender athletic build');
+    b.face.push('sharp angular features with prominent cheekbones');
+    b.hair.push('long flowing dark hair');
+    b.eyes.push('deep set piercing dark eyes');
+    b.skin.push('olive complexion');
+    b.presence.push('commanding authority');
+    b.presence.push('controlled intensity');
+    b.styling.push('elaborate period-appropriate Victorian styling');
+    const result = composeActorDescriptionFromBuckets(b);
+    expect(result.length).toBeLessThanOrEqual(220);
   });
 });
 
