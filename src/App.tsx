@@ -86,6 +86,7 @@ const Showcase = lazy(() => import("./pages/Showcase"));
 const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
 const AIContentPage = lazy(() => import("./pages/AIContentPage"));
 const AICastLibrary = lazy(() => import("./pages/AICastLibrary"));
+const ActorMarketplace = lazy(() => import("./pages/ActorMarketplace"));
 const ProjectCasting = lazy(() => import("./pages/ProjectCasting"));
 const CastingStudio = lazy(() => import("./pages/CastingStudio"));
 const NarrativeDna = lazy(() => import("./pages/NarrativeDna"));
