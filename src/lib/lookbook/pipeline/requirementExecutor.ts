@@ -75,6 +75,7 @@ async function resolveCharacterAnchors(projectId: string): Promise<Map<string, C
       hasAnchors: anchors.hasAnchors,
       source: anchors.source,
       aiActorId: anchors.aiActorId,
+      aiActorVersionId: anchors.aiActorVersionId,
       additionalRefs: anchors.additionalRefs,
     });
   }
