@@ -2423,19 +2423,55 @@ function InlineCreateActorDialog({
                 Actor Criteria <span className="font-normal opacity-60">— physical appearance &amp; presence</span>
               </h4>
 
-              {/* Source quality notice */}
-              {brief && brief.prefill_quality === 'source_thin' && (
-                <Alert variant="default" className="py-2 px-3">
-                  <AlertDescription className="text-[10px] text-muted-foreground">
-                    Limited appearance data found in project documents. Current prefill is based on available canon/context only. You can manually enrich the fields below.
-                  </AlertDescription>
-                </Alert>
-              )}
-              {brief && brief.prefill_quality === 'source_partial' && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                  Some appearance details were inferred from context. Review and adjust as needed.
-                </p>
-              )}
+              {/* Casting Specificity Profile */}
+              {brief && (() => {
+                const profile = buildCastingSpecificityProfile(brief);
+                const dimensions = getSpecificityDimensionEntries(profile);
+                const behaviorLabel = getSearchBehaviorLabel(profile.specificityBand);
+                return (
+                  <div className="rounded-md border border-border/40 bg-muted/5 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Casting Profile
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={profile.specificityBand === 'high' ? 'default' : 'outline'} className="text-[9px] h-4">
+                          Specificity: {profile.specificityBand === 'low' ? 'Low' : profile.specificityBand === 'medium' ? 'Medium' : 'High'}
+                        </Badge>
+                        <Badge variant="outline" className="text-[9px] h-4">
+                          Search: {behaviorLabel}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-x-3 gap-y-1">
+                      {dimensions.map(d => (
+                        <div key={d.key} className="flex items-center gap-1.5">
+                          <span className={cn(
+                            'h-1.5 w-1.5 rounded-full shrink-0',
+                            d.status === 'known' ? 'bg-primary' :
+                            d.status === 'inferred' ? 'bg-amber-400' :
+                            'bg-muted-foreground/30'
+                          )} />
+                          <span className="text-[10px] text-muted-foreground">{d.label}</span>
+                          <span className={cn(
+                            'text-[9px] ml-auto',
+                            d.status === 'known' ? 'text-primary' :
+                            d.status === 'inferred' ? 'text-amber-500' :
+                            'text-muted-foreground/50'
+                          )}>
+                            {d.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {profile.specificityBand === 'low' && (
+                      <p className="text-[10px] text-muted-foreground/80 pt-1 border-t border-border/20">
+                        Limited appearance data found. Actor search results will be intentionally broad to show diverse candidates.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Brief metadata badges */}
               {brief && (
