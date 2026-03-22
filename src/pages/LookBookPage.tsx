@@ -36,6 +36,7 @@ import { runLookbookPipeline } from '@/lib/lookbook/pipeline/runLookbookPipeline
 import type { PipelineMode, PipelineProgress } from '@/lib/lookbook/pipeline/types';
 import { sectionKeyToEdgeFunctionSection, sectionKeyToAssetGroup } from '@/lib/lookbook/pipeline/lookbookSlotRegistry';
 import { LookbookPipelineProgress } from '@/components/lookbook/LookbookPipelineProgress';
+import { StyleLockPanel } from '@/components/lookbook/StyleLockPanel';
 
 type LookbookMode = 'workspace' | 'viewer';
 
