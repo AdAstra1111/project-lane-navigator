@@ -6,7 +6,8 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   Users, Plus, Loader2, CheckCircle2, Search, Sparkles, ChevronRight,
   ImagePlus, ShieldCheck, Trash2, Upload, ArrowLeft, Film, Shield,
-  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert
+  AlertTriangle, Eye, SlidersHorizontal, ArrowUpDown, Image, ShieldAlert,
+  FlaskConical, Clock, XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
