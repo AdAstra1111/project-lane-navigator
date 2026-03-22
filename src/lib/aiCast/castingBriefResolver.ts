@@ -1497,7 +1497,7 @@ export async function buildCharacterCastingBrief(
     styling_cues: [...new Set(buckets.styling)].slice(0, 5),
     performance_vibe: dedupedPresence.slice(0, 5),
     negative_exclusions: negativeExclusions,
-    suggested_actor_name: displayName,
+    suggested_actor_name: generateActorPlaceholderName(ethnicityHint, genderPresentation, roleInStory),
     actor_description: actorDescription,
     actor_tags: actorTags,
     actor_criteria_highlights: actorCriteriaHighlights,
