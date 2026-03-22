@@ -366,8 +366,9 @@ export function runElectionStage(
     selectedImages: [...selectedImages],
   });
 
-  // 1. Poster hero — global election
-  const posterHero = selectPosterHero(allUniqueImages);
+  // 1. Poster hero — global election (Phase 16.6: composition-aware)
+  const posterHeroSelCtx = styleLock ? makeSelectionCtx('cover') : null;
+  const posterHero = selectPosterHero(allUniqueImages, posterHeroSelCtx);
   const coverImageUrl = posterHero?.url || '';
 
   // 2. Per-slide elections
