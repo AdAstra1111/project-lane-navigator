@@ -926,35 +926,94 @@ function derivePlayingAge(ageHints: string[]): string | null {
   return null;
 }
 
-// ── Actor placeholder name generator ─────────────────────────────────────────
+// ── 4-digit roster number formatter (canonical) ─────────────────────────────
 
-function generateActorPlaceholderName(
+function formatActorRosterNumber(n: number): string {
+  return String(n).padStart(4, '0');
+}
+
+/**
+ * Allocate the next global actor roster number from DB sequence.
+ * Race-safe: uses Postgres sequence via RPC.
+ */
+async function allocateNextRosterNumber(): Promise<number> {
+  const { data, error } = await supabase.rpc('next_actor_roster_number');
+  if (error || data == null) {
+    // Fallback: count existing actors + 1 (only if RPC unavailable)
+    const { count } = await supabase
+      .from('ai_actors')
+      .select('id', { count: 'exact', head: true });
+    return (count ?? 0) + 1;
+  }
+  return data as number;
+}
+
+// ── Synthetic actor name pools (deterministic, seeded) ──────────────────────
+
+const JAPANESE_GIVEN_F = ['Aiko', 'Hana', 'Yuki', 'Mei', 'Rin', 'Sora', 'Akari', 'Mio', 'Kaede', 'Nao', 'Sakura', 'Kayo', 'Emi', 'Riko', 'Sayuri'];
+const JAPANESE_GIVEN_M = ['Ren', 'Haruto', 'Yuto', 'Sho', 'Kaito', 'Takumi', 'Riku', 'Sota', 'Hinata', 'Daiki', 'Kenji', 'Akira', 'Koji', 'Shin', 'Taro'];
+const JAPANESE_SURNAME = ['Tanaka', 'Sato', 'Suzuki', 'Takahashi', 'Watanabe', 'Ito', 'Yamamoto', 'Nakamura', 'Kobayashi', 'Kato', 'Yoshida', 'Yamada', 'Sasaki', 'Mori', 'Inoue'];
+
+const GENERIC_GIVEN_F = ['Elena', 'Sofia', 'Mara', 'Lena', 'Nora', 'Clara', 'Vera', 'Iris', 'Zara', 'Lila', 'Ada', 'Thea', 'Dina', 'Alma', 'Cora'];
+const GENERIC_GIVEN_M = ['Leo', 'Marco', 'Emil', 'Nico', 'Sven', 'Ivan', 'Rami', 'Hugo', 'Felix', 'Darian', 'Jonas', 'Alec', 'Kai', 'Reza', 'Tomas'];
+const GENERIC_SURNAME = ['Voss', 'Marin', 'Linden', 'Solano', 'Reeves', 'Ashford', 'Navarro', 'Kessler', 'Strand', 'Okafor', 'Morel', 'Thorne', 'Cortes', 'Langley', 'Hale'];
+
+const CHINESE_GIVEN_F = ['Mei', 'Lan', 'Xia', 'Yue', 'Ling', 'Wei', 'Jing', 'Hua', 'Xin', 'Fei'];
+const CHINESE_GIVEN_M = ['Wei', 'Jun', 'Chen', 'Ming', 'Hao', 'Lei', 'Long', 'Feng', 'Bo', 'Tao'];
+const CHINESE_SURNAME = ['Wang', 'Li', 'Zhang', 'Liu', 'Chen', 'Yang', 'Huang', 'Zhao', 'Wu', 'Zhou'];
+
+const KOREAN_GIVEN_F = ['Soo', 'Yuna', 'Hye', 'Min', 'Eun', 'Ji', 'Sera', 'Da', 'Ari', 'Nari'];
+const KOREAN_GIVEN_M = ['Jun', 'Min', 'Hyun', 'Seo', 'Tae', 'Jae', 'Sung', 'Woo', 'Dae', 'Ho'];
+const KOREAN_SURNAME = ['Kim', 'Lee', 'Park', 'Choi', 'Jung', 'Kang', 'Yoon', 'Shin', 'Han', 'Seo'];
+
+const INDIAN_GIVEN_F = ['Priya', 'Ananya', 'Devi', 'Meera', 'Kavya', 'Isha', 'Nisha', 'Riya', 'Tara', 'Jaya'];
+const INDIAN_GIVEN_M = ['Arjun', 'Vikram', 'Rohan', 'Aarav', 'Kiran', 'Ravi', 'Anil', 'Suraj', 'Nikhil', 'Dev'];
+const INDIAN_SURNAME = ['Sharma', 'Patel', 'Kumar', 'Singh', 'Nair', 'Reddy', 'Joshi', 'Mehta', 'Rao', 'Das'];
+
+type NamePool = { givenF: string[]; givenM: string[]; surname: string[] };
+
+const ETHNICITY_NAME_POOLS: Record<string, NamePool> = {
+  japanese: { givenF: JAPANESE_GIVEN_F, givenM: JAPANESE_GIVEN_M, surname: JAPANESE_SURNAME },
+  chinese: { givenF: CHINESE_GIVEN_F, givenM: CHINESE_GIVEN_M, surname: CHINESE_SURNAME },
+  korean: { givenF: KOREAN_GIVEN_F, givenM: KOREAN_GIVEN_M, surname: KOREAN_SURNAME },
+  indian: { givenF: INDIAN_GIVEN_F, givenM: INDIAN_GIVEN_M, surname: INDIAN_SURNAME },
+};
+
+/**
+ * Generate a deterministic synthetic actor name from ethnicity, gender, and seed (roster number).
+ * Seeded by roster number for reproducibility.
+ */
+function generateSyntheticActorName(
   ethnicity: string | null,
   gender: string | null,
-  role: string | null,
+  seed: number,
 ): string {
-  const parts: string[] = [];
+  const ethKey = (ethnicity || '').toLowerCase().trim();
+  const pool = ETHNICITY_NAME_POOLS[ethKey] || { givenF: GENERIC_GIVEN_F, givenM: GENERIC_GIVEN_M, surname: GENERIC_SURNAME };
 
-  if (ethnicity) parts.push(ethnicity);
+  const isFemale = gender ? /woman|female|girl/i.test(gender) : false;
+  const isMale = gender ? /man|male|boy/i.test(gender) : false;
 
-  if (gender) {
-    const g = gender.toLowerCase();
-    if (/woman|female|girl/.test(g)) parts.push('Female');
-    else if (/man|male|boy/.test(g)) parts.push('Male');
-    else parts.push(gender);
+  const givenPool = isFemale ? pool.givenF : isMale ? pool.givenM : pool.givenF;
+  const given = givenPool[seed % givenPool.length];
+  const surname = pool.surname[seed % pool.surname.length];
+
+  // Avoid given === surname collision; offset surname if needed
+  if (given.toLowerCase() === surname.toLowerCase()) {
+    const altSurname = pool.surname[(seed + 1) % pool.surname.length];
+    return `${given} ${altSurname}`;
   }
 
-  // Add role label if available
-  if (role) {
-    const r = role.toLowerCase();
-    if (/protagonist|lead|hero|heroine|main/.test(r)) parts.push('Lead');
-    else if (/antagonist|villain/.test(r)) parts.push('Antagonist');
-    else if (/support/.test(r)) parts.push('Supporting');
-  }
+  return `${given} ${surname}`;
+}
 
-  if (parts.length === 0) return 'AI Actor A';
-
-  return parts.join(' ') + ' A';
+/**
+ * Compose a full actor roster name: "NNNN — FirstName Surname"
+ */
+function composeActorRosterName(rosterNumber: number, ethnicity: string | null, gender: string | null): string {
+  const num = formatActorRosterNumber(rosterNumber);
+  const name = generateSyntheticActorName(ethnicity, gender, rosterNumber);
+  return `${num} — ${name}`;
 }
 
 /**
