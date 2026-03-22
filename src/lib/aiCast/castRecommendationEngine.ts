@@ -47,6 +47,7 @@ export interface ProjectCharacterCandidate {
   age_hint?: string | null;
   gender_hint?: string | null;
   tags: string[];
+  brief?: CastingBrief;
 }
 
 export interface ActorRecommendation {
@@ -65,6 +66,12 @@ export interface ActorRecommendation {
 export interface CharacterRecommendationResult {
   character_key: string;
   recommendations: ActorRecommendation[];
+  specificity?: {
+    score: number;
+    band: 'low' | 'medium' | 'high';
+    mode: 'exploration' | 'precision';
+    diversityStrategy: 'wide' | 'balanced' | 'narrow';
+  };
 }
 
 export interface ProjectCastRecommendationResult {
