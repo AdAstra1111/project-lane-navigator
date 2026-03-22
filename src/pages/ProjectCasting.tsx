@@ -174,6 +174,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showSceneIntegrity,
   });
 
+  // Regen policy (lazy)
+  const { data: regenPolicyData, isLoading: regenPolicyLoading, refetch: refetchRegenPolicy } = useQuery({
+    queryKey: ['regen-policy', projectId],
+    queryFn: () => buildRegenPolicy(projectId!),
+    enabled: !!projectId && showRegenPolicy,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
