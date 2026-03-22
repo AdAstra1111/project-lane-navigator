@@ -208,8 +208,8 @@ Deno.serve(async (req) => {
     // 3. Resolve anchor images
     const anchors = await resolveActorAnchors(supabase, run.actor_id);
 
-    // 4. Enforce PG gates
-    const gate = checkPGGates(anchors, actor);
+    // 4. Enforce PG gates (canonical — uses persisted status only, no independent counting)
+    const gate = checkPGGates(actor);
     if (gate.blocked) {
       await supabase.from("actor_validation_runs").update({
         status: "failed",
