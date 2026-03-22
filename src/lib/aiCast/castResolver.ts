@@ -158,7 +158,7 @@ export async function resolveFullProjectCast(projectId: string): Promise<Project
   }
 
   for (const binding of bindings as any[]) {
-    const key = (binding.character_key || '').toLowerCase().trim();
+    const key = normalizeCharacterKey(binding.character_key || '');
     if (!key) continue;
 
     const versionId = binding.ai_actor_version_id;

@@ -135,7 +135,7 @@ export async function resolveCharacterCastIdentity(
   characterName: string,
 ): Promise<ActorIdentityAnchors> {
   const map = await resolveProjectCastIdentity(projectId);
-  const key = characterName.toLowerCase().trim();
+  const key = normalizeCharacterKey(characterName);
   return map.get(key) || {
     characterName,
     source: 'unresolved',
