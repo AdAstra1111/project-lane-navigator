@@ -33,6 +33,10 @@ import {
   evaluateAnchorCoverage, persistAnchorStatus,
   type AnchorCoverageStatus, type AnchorCoherenceStatus,
 } from '@/lib/aiCast/anchorValidation';
+import {
+  useLatestValidationRun, useValidationImages, useStartValidation,
+  VALIDATION_SLOTS, type ValidationRun, type ValidationImage,
+} from '@/lib/aiCast/actorValidation';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
