@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ValidationRunStatus = 'pending' | 'generating' | 'scoring' | 'complete' | 'failed';
+export type ValidationRunStatus = 'pending' | 'generating' | 'scoring' | 'pack_generated' | 'scored' | 'complete' | 'failed';
 export type ValidationPhase = 'quick' | 'full';
 
 export interface ValidationRun {
@@ -107,7 +107,7 @@ export async function startValidationRun(actorId: string, actorVersionId?: strin
     .from('actor_validation_runs')
     .select('id, status')
     .eq('actor_id', actorId)
-    .in('status', ['pending', 'generating', 'scoring'])
+    .in('status', ['pending', 'generating', 'scoring', 'pack_generated'])
     .limit(1);
 
   if (existing && existing.length > 0) {
@@ -193,6 +193,7 @@ export function useLatestValidationRun(actorId: string | undefined) {
       const run = query.state.data as ValidationRun | null;
       // Poll while run is active
       if (run && ['pending', 'generating', 'scoring'].includes(run.status)) return 5000;
+      // Also poll for pack_generated in case Phase 3 scoring kicks in automatically
       return false;
     },
   });

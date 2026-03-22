@@ -86,21 +86,20 @@ async function resolveActorAnchors(supabase: any, actorId: string): Promise<Anch
   return { headshot, profile, fullBody, anchorCount, versionId };
 }
 
-// ── PG Gate Check ───────────────────────────────────────────────────────────
+// ── PG Gate Check (canonical semantics — must match client-side anchorValidation.ts) ─
 
-function checkPGGates(anchors: AnchorSet, actor: any): { blocked: boolean; reason: string | null } {
-  // PG-00: Coverage
-  if (anchors.anchorCount < 1) {
-    return { blocked: true, reason: "PG-00: No anchor images found. Upload headshot, profile, and full-body references first." };
-  }
-
-  // Check persisted gate status on actor record
+function checkPGGates(actor: any): { blocked: boolean; reason: string | null } {
+  // Use ONLY persisted canonical gate statuses — no independent anchor counting.
+  // These statuses are set by the shared anchorValidation service after evaluation.
   const coverageStatus = actor.anchor_coverage_status || "insufficient";
   const coherenceStatus = actor.anchor_coherence_status || "unknown";
 
+  // PG-00: Anchor Coverage Gate
   if (coverageStatus === "insufficient") {
-    return { blocked: true, reason: "PG-00: Insufficient anchor coverage. Requires at minimum headshot and full-body references." };
+    return { blocked: true, reason: "PG-00: Insufficient anchor coverage. Requires headshot, profile, and full-body references." };
   }
+
+  // PG-01: Anchor Coherence Gate
   if (coherenceStatus === "incoherent") {
     return { blocked: true, reason: "PG-01: Anchor set is incoherent — identity references contradict each other." };
   }
@@ -209,8 +208,8 @@ Deno.serve(async (req) => {
     // 3. Resolve anchor images
     const anchors = await resolveActorAnchors(supabase, run.actor_id);
 
-    // 4. Enforce PG gates
-    const gate = checkPGGates(anchors, actor);
+    // 4. Enforce PG gates (canonical — uses persisted status only, no independent counting)
+    const gate = checkPGGates(actor);
     if (gate.blocked) {
       await supabase.from("actor_validation_runs").update({
         status: "failed",
@@ -384,8 +383,8 @@ Deno.serve(async (req) => {
       advisory_penalty_codes: [],
     });
 
-    // 11. Mark run as complete — status reflects pack generated, NOT fully scored
-    const finalStatus = completedCount === 0 ? "failed" : "complete";
+    // 11. Mark run as pack_generated — distinct from future 'scored' status (Phase 3)
+    const finalStatus = completedCount === 0 ? "failed" : "pack_generated";
     await supabase.from("actor_validation_runs").update({
       status: finalStatus,
       pack_coverage: packCoverage,
