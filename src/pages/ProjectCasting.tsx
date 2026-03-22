@@ -2238,7 +2238,7 @@ function InlineCreateActorDialog({
         onCreatedAndBound(characterKey);
       } else {
         // Actor created but not yet roster-ready — user must validate/promote first
-        onCreatedPending(characterKey);
+        onCreatedPending(characterKey, actorId);
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to create actor');
