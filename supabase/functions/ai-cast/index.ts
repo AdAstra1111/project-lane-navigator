@@ -262,12 +262,12 @@ Deno.serve(async (req) => {
           (m: any) => (m as any).ai_actors?.user_id === userId
         );
 
-        // For each mapping, resolve canonical approved version and assets
+        // For each mapping, resolve ONLY the pinned version from binding — no fallback
         const castContext: any[] = [];
         for (const mapping of ownedMappings) {
           const actor = (mapping as any).ai_actors;
-          // Use pinned version from binding, else Phase 4 canonical approved_version_id
-          const versionId = (mapping as any).ai_actor_version_id || actor?.approved_version_id || null;
+          // MUST use pinned version from binding only — no fallback to approved_version_id
+          const versionId = (mapping as any).ai_actor_version_id || null;
 
           let version: any = null;
           let assets: any[] = [];
