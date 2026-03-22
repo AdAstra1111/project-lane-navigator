@@ -1935,6 +1935,82 @@ export type Database = {
           },
         ]
       }
+      casting_candidates: {
+        Row: {
+          additional_refs: string[] | null
+          batch_id: string
+          character_key: string
+          created_at: string
+          display_name: string | null
+          full_body_url: string | null
+          generation_config: Json | null
+          headshot_url: string | null
+          id: string
+          project_id: string
+          promoted_actor_id: string | null
+          promoted_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          additional_refs?: string[] | null
+          batch_id?: string
+          character_key: string
+          created_at?: string
+          display_name?: string | null
+          full_body_url?: string | null
+          generation_config?: Json | null
+          headshot_url?: string | null
+          id?: string
+          project_id: string
+          promoted_actor_id?: string | null
+          promoted_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          additional_refs?: string[] | null
+          batch_id?: string
+          character_key?: string
+          created_at?: string
+          display_name?: string | null
+          full_body_url?: string | null
+          generation_config?: Json | null
+          headshot_url?: string | null
+          id?: string
+          project_id?: string
+          promoted_actor_id?: string | null
+          promoted_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "casting_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "casting_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "casting_candidates_promoted_actor_id_fkey"
+            columns: ["promoted_actor_id"]
+            isOneToOne: false
+            referencedRelation: "ai_actors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       character_identity_notes: {
         Row: {
           canon_check_messages: Json
