@@ -1598,6 +1598,11 @@ FRAMING RULES:
               aspect_compliant: aspectCompliant,
               aspect_drift: aspectDrift,
               vertical_drama_project: isVerticalDramaProject,
+              // ── CINEMATIC STYLE LOCK + SHOT INTENT: provenance ──
+              style_lock_hash: cinematicStyleHash || null,
+              style_lock_active: !!cinematicStyleLock,
+              shot_intent: resolvedShotIntent || null,
+              shot_intent_slide_type: slideType,
               // ── AUTO-COMPLETE CONTEXT: requirement-origin + actor attribution metadata ──
               ...(autoCompleteContext ? {
                 auto_complete_context: {
