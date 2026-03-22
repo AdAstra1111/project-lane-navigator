@@ -896,6 +896,16 @@ describe('inferGenderFromPassages', () => {
     expect(inferGenderFromPassages(passages)).toBe('woman');
   });
 
+  it('infers male from short passage with clear pronouns (2+ with 2x dominance)', () => {
+    const passages = ['He stood alone. His sword gleamed.'];
+    expect(inferGenderFromPassages(passages)).toBe('man');
+  });
+
+  it('infers female from short passage with clear pronouns (2+ with 2x dominance)', () => {
+    const passages = ['She walked gracefully. Her kimono flowed.'];
+    expect(inferGenderFromPassages(passages)).toBe('woman');
+  });
+
   it('returns null when pronouns are mixed/ambiguous', () => {
     const passages = [
       'He met her at the temple. She told him about his father.',
@@ -906,6 +916,11 @@ describe('inferGenderFromPassages', () => {
 
   it('returns null with insufficient pronoun count', () => {
     const passages = ['The warrior stood alone.'];
+    expect(inferGenderFromPassages(passages)).toBeNull();
+  });
+
+  it('returns null with only one pronoun occurrence', () => {
+    const passages = ['He was there.'];
     expect(inferGenderFromPassages(passages)).toBeNull();
   });
 });
