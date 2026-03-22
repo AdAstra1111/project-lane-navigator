@@ -30,7 +30,13 @@
 import { supabase } from '@/integrations/supabase/client';
 import { normalizeCharacterKey } from './normalizeCharacterKey';
 import { getRosterActorsForCasting, type ActorIntelligenceProfile } from './actorIntelligence';
-import { buildCharacterCastingBrief } from './castingBriefResolver';
+import { buildCharacterCastingBrief, type CastingBrief } from './castingBriefResolver';
+import {
+  buildCastingSpecificityProfile,
+  buildCastingSearchPlan,
+  type CastingSpecificityProfile,
+  type CastingSearchPlan,
+} from './castingSpecificity';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
