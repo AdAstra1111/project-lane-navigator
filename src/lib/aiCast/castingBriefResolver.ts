@@ -1055,8 +1055,92 @@ function composeNegativePrompt(canonJson: any): string[] {
   return [...new Set(exclusions)];
 }
 
+/**
+ * Phase 17.6: Identity expansion — attempt to fill sparse buckets
+ * when minimum quality is not met, using safe deterministic rules.
+ */
+function expandIdentityBuckets(
+  buckets: ActorIdentityBuckets,
+  roleInStory: string | null,
+  worldStylingCues: string[],
+): ActorIdentityBuckets {
+  const expanded: ActorIdentityBuckets = {
+    age: [...buckets.age],
+    gender: [...buckets.gender],
+    ethnicity: [...buckets.ethnicity],
+    build: [...buckets.build],
+    height: [...buckets.height],
+    face: [...buckets.face],
+    hair: [...buckets.hair],
+    eyes: [...buckets.eyes],
+    skin: [...buckets.skin],
+    scars_marks: [...buckets.scars_marks],
+    styling: [...buckets.styling],
+    presence: [...buckets.presence],
+    archetype: [...buckets.archetype],
+  };
 
-export async function buildCharacterCastingBrief(
+  // If height exists but build is empty, try to pair
+  if (expanded.height.length > 0 && expanded.build.length === 0) {
+    const h = expanded.height[0].toLowerCase();
+    if (/\btall\b/.test(h)) expanded.build.push('slender frame');
+    else if (/\bpetite\b/.test(h)) expanded.build.push('petite frame');
+  }
+
+  // If styling empty and world cues available, add period styling
+  if (expanded.styling.length === 0 && worldStylingCues.length > 0) {
+    expanded.styling.push('period-appropriate styling');
+  }
+
+  // For leads, be more aggressive about promoting safe archetype to presence
+  const isLead = roleInStory
+    ? /\b(?:protagonist|lead|main\s*character|central|hero|heroine|principal)\b/i.test(roleInStory)
+    : false;
+
+  if (isLead && expanded.presence.length === 0) {
+    const promotable = expanded.archetype.filter(a => isPerformerSafePresence(a.toLowerCase()));
+    for (const p of promotable) {
+      expanded.presence.push(expandPresenceMarker(p));
+    }
+    expanded.archetype = expanded.archetype.filter(a => !promotable.includes(a));
+  }
+
+  return expanded;
+}
+
+/**
+ * Phase 17.6: Compose curated phrase-level actor criteria highlights for modal chip display.
+ * Returns 4–6 high-value, deduped, human-readable phrases.
+ */
+function composeActorCriteriaHighlights(buckets: ActorIdentityBuckets): string[] {
+  const highlights: string[] = [];
+  const seen = new Set<string>();
+
+  const addUnique = (phrase: string) => {
+    const norm = phrase.toLowerCase().trim();
+    if (norm.length < 3 || seen.has(norm)) return;
+    seen.add(norm);
+    highlights.push(phrase.trim());
+  };
+
+  // Priority: face/hair → body/height → presence → styling → marks
+  for (const f of dedupeAndResolveConflicts(buckets.face).slice(0, 1)) addUnique(f);
+  for (const h of dedupeAndResolveConflicts(buckets.hair).slice(0, 1)) addUnique(h);
+  for (const e of dedupeAndResolveConflicts(buckets.eyes).slice(0, 1)) addUnique(e);
+
+  const height = dedupeAndResolveConflicts(buckets.height);
+  const build = dedupeAndResolveConflicts(buckets.build);
+  if (height.length > 0) addUnique(height[0]);
+  else if (build.length > 0) addUnique(build[0]);
+
+  for (const p of dedupeAndResolveConflicts(buckets.presence).slice(0, 1)) addUnique(p);
+  for (const s of dedupeAndResolveConflicts(buckets.styling).slice(0, 1)) addUnique(s);
+  for (const m of dedupeAndResolveConflicts(buckets.scars_marks).slice(0, 1)) addUnique(m);
+
+  return highlights.slice(0, 6);
+}
+
+
   projectId: string,
   characterKey: string,
 ): Promise<CharacterCastingBriefResult> {
