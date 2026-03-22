@@ -196,7 +196,7 @@ export function pickBackgroundImage(
   if (bestLandscape) return bestLandscape.img.signedUrl!;
   if (scored.length > 0) return scored[0].img.signedUrl!;
 
-  // Global fallback
+  // Global fallback — also uses composition-aware augmented scoring (Phase 16.6)
   const allSectionImages: ProjectImage[] = [];
   for (const pool of Object.values(ctx.sectionPools)) {
     for (const img of pool) {
@@ -207,8 +207,12 @@ export function pickBackgroundImage(
   }
   const globalFallback = (fallbackPool.length > 0 ? fallbackPool : allSectionImages)
     .filter(i => !isExcluded(i))
-    .map(img => ({ img, score: scoreImageForSlide(img, slideType, true, scoringCtx) }));
-  globalFallback.sort((a, b) => b.score - a.score);
+    .map(img => {
+      const base = scoreImageForSlide(img, slideType, true, scoringCtx);
+      const { total } = computeAugmentedScore(img, slideType, base, selectionCtx || null);
+      return { img, score: total };
+    });
+  globalFallback.sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
   const globalLandscape = globalFallback.find(s => classifyOrientation(s.img.width, s.img.height) === 'landscape');
   if (globalLandscape) return globalLandscape.img.signedUrl!;
   if (globalFallback.length > 0) return globalFallback[0].img.signedUrl!;
@@ -220,7 +224,8 @@ export function pickBackgroundImage(
 
 export function selectPosterHero(
   allImages: ProjectImage[],
-): { url: string; id: string; score: number } | null {
+  selectionCtx?: SelectionScoringContext | null,
+): { url: string; id: string; score: number; selectionScore?: LookbookSelectionScore } | null {
   const candidates = allImages.filter(img => img.signedUrl);
   if (candidates.length === 0) return null;
 
@@ -247,10 +252,13 @@ export function selectPosterHero(
         prompt.includes('kiln') || prompt.includes('craftsman')) {
       score -= 30;
     }
-    return { img, score };
+
+    // Phase 16.6: composition-aware augmentation for poster hero
+    const { total, selectionScore } = computeAugmentedScore(img, 'cover', score, selectionCtx || null);
+    return { img, score: total, selectionScore };
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score || a.img.id.localeCompare(b.img.id));
 
   const top3 = scored.slice(0, 3).map(s => ({
     id: s.img.id.slice(0, 8),
@@ -262,7 +270,7 @@ export function selectPosterHero(
   console.log(`[LookBook:posterHero] election: top3=${JSON.stringify(top3)} pool=${candidates.length}`);
 
   const winner = scored[0];
-  return { url: winner.img.signedUrl!, id: winner.img.id, score: winner.score };
+  return { url: winner.img.signedUrl!, id: winner.img.id, score: winner.score, selectionScore: winner.selectionScore };
 }
 
 // ── Image Role Assignment ────────────────────────────────────────────────────
@@ -358,8 +366,9 @@ export function runElectionStage(
     selectedImages: [...selectedImages],
   });
 
-  // 1. Poster hero — global election
-  const posterHero = selectPosterHero(allUniqueImages);
+  // 1. Poster hero — global election (Phase 16.6: composition-aware)
+  const posterHeroSelCtx = styleLock ? makeSelectionCtx('cover') : null;
+  const posterHero = selectPosterHero(allUniqueImages, posterHeroSelCtx);
   const coverImageUrl = posterHero?.url || '';
 
   // 2. Per-slide elections
