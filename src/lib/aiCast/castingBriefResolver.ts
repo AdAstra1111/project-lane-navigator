@@ -421,18 +421,23 @@ function escapeRegex(s: string): string {
 /**
  * Infer gender from pronoun usage in character passages.
  * Deterministic: counts he/him/his vs she/her/hers occurrences.
- * Only returns a result if one pronoun set dominates by ≥3x ratio.
+ *
+ * Policy:
+ *   - infer if ≥2 dominant pronouns AND zero opposite pronouns
+ *   - OR if ≥3 dominant pronouns AND ≥2x ratio over opposite
+ *   - otherwise return null (mixed / insufficient evidence)
  */
 function inferGenderFromPassages(passages: string[]): string | null {
   const text = passages.join(' ').toLowerCase();
-  // Exclude possessive "her" when followed by a noun (ambiguous with "her dress" etc.)
-  // but keep standalone "her" as object pronoun
   const maleCount = (text.match(/\b(he|him|his|himself)\b/g) || []).length;
   const femaleCount = (text.match(/\b(she|her|hers|herself)\b/g) || []).length;
 
-  // Threshold: require at least 2 pronouns with 2x dominance (relaxed from 3/3x for short passages)
-  if (maleCount >= 2 && maleCount >= femaleCount * 2) return 'man';
-  if (femaleCount >= 2 && femaleCount >= maleCount * 2) return 'woman';
+  // Short-passage path: 2+ with zero opposition
+  if (maleCount >= 2 && femaleCount === 0) return 'man';
+  if (femaleCount >= 2 && maleCount === 0) return 'woman';
+  // Longer-passage path: 3+ with strong dominance
+  if (maleCount >= 3 && maleCount >= femaleCount * 2) return 'man';
+  if (femaleCount >= 3 && femaleCount >= maleCount * 2) return 'woman';
   return null;
 }
 
