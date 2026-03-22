@@ -75,7 +75,7 @@ import {
 } from '@/components/ui/dialog';
 import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
 import { aiCastApi } from '@/lib/aiCast/aiCastApi';
-import { buildCharacterActorPrefill, type CharacterActorPrefill } from '@/lib/aiCast/characterToActorPrefill';
+// Legacy prefill wrapper removed — canonical path is buildCharacterCastingBrief
 import { buildCharacterCastingBrief, type CharacterCastingBriefResult, type CastingBrief, type CharacterContextSummary } from '@/lib/aiCast/castingBriefResolver';
 import {
   createPendingActorBindContext,
