@@ -7,7 +7,7 @@ import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Users, Plus, Loader2, Trash2, CheckCircle2, ExternalLink, Link2, AlertCircle, Unlink,
-  RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye
+  RefreshCw, AlertTriangle, Activity, ShieldCheck, ShieldAlert, Shield, Eye, ListChecks, XCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,10 @@ import {
   type GovernanceRecommendation,
   type CharacterGovernanceState,
 } from '@/lib/aiCast/castGovernance';
+import {
+  queueCastRegenJobs, listCastRegenJobs, cancelCastRegenJob,
+  type CastRegenJob,
+} from '@/lib/aiCast/castRegenJobs';
 
 interface CastMapping {
   id: string;
@@ -52,6 +56,7 @@ export default function ProjectCasting() {
   const [newCharKey, setNewCharKey] = useState('');
   const [showImpact, setShowImpact] = useState(false);
   const [showHealth, setShowHealth] = useState(false);
+  const [showRegenJobs, setShowRegenJobs] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -113,11 +118,44 @@ export default function ProjectCasting() {
     enabled: !!projectId && showHealth,
   });
 
+  // Regen jobs list (lazy)
+  const { data: regenJobs, isLoading: regenJobsLoading, refetch: refetchRegenJobs } = useQuery({
+    queryKey: ['cast-regen-jobs', projectId],
+    queryFn: () => listCastRegenJobs(projectId!),
+    enabled: !!projectId && showRegenJobs,
+  });
+
+  // Queue all regen jobs mutation
+  const queueAllRegenMutation = useMutation({
+    mutationFn: async (opts?: { characterKey?: string }) => {
+      return queueCastRegenJobs(projectId!, opts);
+    },
+    onSuccess: (result) => {
+      if (result.created_count > 0) {
+        toast.success(`Queued ${result.created_count} regen job(s)${result.skipped_duplicates > 0 ? `, ${result.skipped_duplicates} already queued` : ''}`);
+      } else if (result.skipped_duplicates > 0) {
+        toast.info(`All ${result.skipped_duplicates} job(s) already queued`);
+      } else {
+        toast.info('No outputs need regeneration');
+      }
+      refetchRegenJobs();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Cancel regen job mutation
+  const cancelRegenMutation = useMutation({
+    mutationFn: cancelCastRegenJob,
+    onSuccess: () => { toast.success('Job cancelled'); refetchRegenJobs(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-impact', projectId] });
     qc.invalidateQueries({ queryKey: ['cast-health', projectId] });
+    qc.invalidateQueries({ queryKey: ['cast-regen-jobs', projectId] });
   };
 
   const addMapping = useMutation({
@@ -229,6 +267,12 @@ export default function ProjectCasting() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowRegenJobs(!showRegenJobs); if (!showRegenJobs) refetchRegenJobs(); }}
+          >
+            <ListChecks className="h-3.5 w-3.5" /> {showRegenJobs ? 'Hide' : ''} Regen Jobs
+          </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
             onClick={() => { setShowHealth(!showHealth); if (!showHealth) refetchHealth(); }}
@@ -416,9 +460,58 @@ export default function ProjectCasting() {
           ) : healthData ? (
             <CastHealthPanel data={healthData} actors={actors} projectId={projectId!} onRebind={(charKey, actorId) =>
               rebindMutation.mutate({ characterKey: charKey, nextActorId: actorId, reason: 'Governance rebind' })
-            } />
+            } onQueueRegen={(charKey) => queueAllRegenMutation.mutate({ characterKey: charKey })} />
           ) : (
             <p className="text-xs text-muted-foreground">No health data available.</p>
+          )}
+        </div>
+      )}
+
+      {/* Regen Jobs Panel */}
+      {showRegenJobs && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+              <ListChecks className="h-3.5 w-3.5" /> Cast Regen Jobs
+            </h3>
+            <Button
+              size="sm" variant="outline"
+              className="h-7 text-[10px] gap-1"
+              onClick={() => queueAllRegenMutation.mutate({})}
+              disabled={queueAllRegenMutation.isPending}
+            >
+              {queueAllRegenMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+              Queue All Regen Jobs
+            </Button>
+          </div>
+          {regenJobsLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : (regenJobs || []).length > 0 ? (
+            <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
+              {(regenJobs || []).map(job => (
+                <div key={job.id} className="flex items-center gap-3 px-3 py-2">
+                  <RegenJobStatusBadge status={job.status} />
+                  <span className="text-[10px] font-medium text-foreground w-24 truncate">{job.character_key}</span>
+                  <span className="text-[9px] font-mono text-muted-foreground">{job.output_id.slice(0, 12)}…</span>
+                  <Badge variant="outline" className="text-[9px] h-4">{job.reason.replace(/_/g, ' ')}</Badge>
+                  <span className="text-[9px] text-muted-foreground/60 ml-auto">
+                    {new Date(job.created_at).toLocaleDateString()}
+                  </span>
+                  {job.status === 'queued' && (
+                    <Button
+                      size="icon" variant="ghost" className="h-5 w-5"
+                      onClick={() => cancelRegenMutation.mutate(job.id)}
+                      disabled={cancelRegenMutation.isPending}
+                      title="Cancel"
+                    >
+                      <XCircle className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-4">No regen jobs yet.</p>
           )}
         </div>
       )}
@@ -730,11 +823,12 @@ const RECOMMENDATION_LABELS: Record<GovernanceRecommendation, string> = {
   investigate_missing_binding: 'Investigate missing binding',
 };
 
-function CastHealthPanel({ data, actors, projectId, onRebind }: {
+function CastHealthPanel({ data, actors, projectId, onRebind, onQueueRegen }: {
   data: CastGovernanceResult;
   actors: any[];
   projectId: string;
   onRebind: (charKey: string, actorId: string) => void;
+  onQueueRegen?: (characterKey: string) => void;
 }) {
   const OverallIcon = SEVERITY_CONFIG[data.overall_health].icon;
 
@@ -764,6 +858,7 @@ function CastHealthPanel({ data, actors, projectId, onRebind }: {
             actors={actors}
             projectId={projectId}
             onRebind={onRebind}
+            onQueueRegen={onQueueRegen}
           />
         ))}
         {Object.keys(data.characters).length === 0 && (
@@ -774,11 +869,12 @@ function CastHealthPanel({ data, actors, projectId, onRebind }: {
   );
 }
 
-function CastHealthRow({ state, actors, projectId, onRebind }: {
+function CastHealthRow({ state, actors, projectId, onRebind, onQueueRegen }: {
   state: CharacterGovernanceState;
   actors: any[];
   projectId: string;
   onRebind: (charKey: string, actorId: string) => void;
+  onQueueRegen?: (characterKey: string) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showOutputs, setShowOutputs] = useState(false);
@@ -817,6 +913,15 @@ function CastHealthRow({ state, actors, projectId, onRebind }: {
               onClick={() => onRebind(state.character_key, state.bound_actor_id!)}
             >
               <RefreshCw className="h-2.5 w-2.5" /> Update
+            </Button>
+          )}
+          {state.recommendations.includes('regenerate_outputs') && state.impact_out_of_sync > 0 && onQueueRegen && (
+            <Button
+              size="sm" variant="outline"
+              className="h-6 text-[10px] gap-1"
+              onClick={() => onQueueRegen(state.character_key)}
+            >
+              <ListChecks className="h-2.5 w-2.5" /> Queue Regen
             </Button>
           )}
           {state.impact_total > 0 && (
@@ -909,5 +1014,24 @@ function CastHealthRow({ state, actors, projectId, onRebind }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Regen Job Status Badge ──────────────────────────────────────────────────
+
+const REGEN_STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  queued: { label: 'Queued', className: 'bg-muted text-muted-foreground border-border' },
+  running: { label: 'Running', className: 'bg-primary/15 text-primary border-primary/30' },
+  completed: { label: 'Done', className: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30' },
+  failed: { label: 'Failed', className: 'bg-destructive/15 text-destructive border-destructive/30' },
+  cancelled: { label: 'Cancelled', className: 'bg-muted text-muted-foreground/60 border-border/50' },
+};
+
+function RegenJobStatusBadge({ status }: { status: string }) {
+  const config = REGEN_STATUS_CONFIG[status] || REGEN_STATUS_CONFIG.queued;
+  return (
+    <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full border font-medium', config.className)}>
+      {config.label}
+    </span>
   );
 }
