@@ -567,6 +567,9 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const { data, isLoading } = useAIActor(actorId);
   const { updateActor, createVersion } = useAICastMutations();
   const actor: AIActor | undefined = data?.actor;
+  const startValidation = useStartValidation();
+  const { data: latestRun } = useLatestValidationRun(actorId);
+  const { data: validationImages } = useValidationImages(latestRun?.id);
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
