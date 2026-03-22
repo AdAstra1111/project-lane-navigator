@@ -720,7 +720,7 @@ export default function ProjectCasting() {
                             );
                             await resolvePendingActorBindContext(pb.actor_id, projectId!, pb.character_key);
                             invalidateAll();
-                            toast.success(`Bound ${actor?.name || 'actor'} to ${pb.character_key}`);
+                            toast.success(`Bound ${resolveActorDisplayName(actor, { characterKey: pb.character_key })} to ${pb.character_key}`);
                           } catch (err: any) {
                             toast.error(err.message || 'Bind failed');
                           }
