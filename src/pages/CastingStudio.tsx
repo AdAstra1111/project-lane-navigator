@@ -680,7 +680,7 @@ function CandidateExpanded({
         )}
         {(candidate.status === 'shortlisted' || candidate.status === 'generated') && (
           <Button size="sm" className="text-xs gap-1" onClick={onPromote}>
-            <Crown className="h-3 w-3" /> Promote to Actor
+            <ShieldCheck className="h-3 w-3" /> Validate & Promote
           </Button>
         )}
       </DialogFooter>
