@@ -30,7 +30,9 @@ function statusToStageIndex(status: CandidateStatus): number {
     case 'rendering': return 1;
     case 'scoring': return 3;
     case 'ready': return 4;
-    case 'failed': return -1;
+    case 'failed':
+    case 'empty':
+      return -1;
     default: return 0;
   }
 }
@@ -41,7 +43,9 @@ function statusToPercent(status: CandidateStatus): number {
     case 'rendering': return 40;
     case 'scoring': return 75;
     case 'ready': return 100;
-    case 'failed': return 0;
+    case 'failed':
+    case 'empty':
+      return 0;
     default: return 0;
   }
 }

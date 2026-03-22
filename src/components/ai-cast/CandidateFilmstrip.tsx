@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export type CandidateStatus = 'queued' | 'rendering' | 'scoring' | 'ready' | 'failed';
+export type CandidateStatus = 'queued' | 'rendering' | 'scoring' | 'ready' | 'failed' | 'empty';
 
 export interface CandidateItem {
   id: string;
