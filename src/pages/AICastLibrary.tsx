@@ -172,10 +172,20 @@ export default function AICastLibrary() {
       </div>
 
       {/* Stats */}
-      <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-4 text-[11px] text-muted-foreground flex-wrap">
         <span>{actors.length} actor{actors.length !== 1 ? 's' : ''}</span>
         <span>{actors.filter(a => a.status === 'active').length} active</span>
         <span>{actors.filter(a => (a as any).roster_ready).length} roster</span>
+        {intelligenceData && (
+          <>
+            <span className="text-primary">{intelligenceData.multi_project_count} multi-project</span>
+            {intelligenceData.by_tier.signature ? (
+              <span className="flex items-center gap-0.5 text-amber-500">
+                <Crown className="h-2.5 w-2.5" /> {intelligenceData.by_tier.signature} signature
+              </span>
+            ) : null}
+          </>
+        )}
       </div>
 
       {/* Grid */}
