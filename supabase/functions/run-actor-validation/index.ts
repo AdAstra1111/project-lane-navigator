@@ -383,8 +383,8 @@ Deno.serve(async (req) => {
       advisory_penalty_codes: [],
     });
 
-    // 11. Mark run as complete — status reflects pack generated, NOT fully scored
-    const finalStatus = completedCount === 0 ? "failed" : "complete";
+    // 11. Mark run as pack_generated — distinct from future 'scored' status (Phase 3)
+    const finalStatus = completedCount === 0 ? "failed" : "pack_generated";
     await supabase.from("actor_validation_runs").update({
       status: finalStatus,
       pack_coverage: packCoverage,
