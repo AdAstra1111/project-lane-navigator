@@ -28,6 +28,7 @@ interface CandidateFilmstripProps {
   onCreateAnother: () => void;
   onRetryLoad?: (id: string) => void;
   isGenerating?: boolean;
+  generationBlocked?: boolean;
   className?: string;
 }
 
