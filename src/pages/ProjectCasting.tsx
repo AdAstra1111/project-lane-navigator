@@ -387,7 +387,7 @@ export default function ProjectCasting() {
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
           <div className="rounded-lg border border-border/30 bg-muted/5 p-3 space-y-1.5">
             {allCharacters.map(charName => {
-              const key = charName.toLowerCase().trim();
+              const key = normalizeCharacterKey(charName);
               const entry = identityMap[key];
               return (
                 <div key={key} className="flex items-center gap-3 text-[11px]">
