@@ -52,6 +52,7 @@ import {
   listActorOnMarketplace, unlistActorFromMarketplace,
   type PricingTier, type ActorVisibility,
 } from '@/lib/aiCast/marketplaceIntelligence';
+import { ActorCandidateReview } from '@/components/ai-cast/ActorCandidateReview';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
