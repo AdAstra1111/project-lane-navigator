@@ -37,6 +37,7 @@ const STATUS_CONFIG: Record<CandidateStatus, { label: string; color: string; ico
   scoring: { label: 'Scoring', color: 'bg-amber-500/20 text-amber-400', icon: 'loader' },
   ready: { label: 'Ready', color: 'bg-emerald-500/20 text-emerald-400' },
   failed: { label: 'Failed', color: 'bg-destructive/20 text-destructive', icon: 'error' },
+  empty: { label: 'No image yet', color: 'bg-muted text-muted-foreground' },
 };
 
 function CandidateThumbnail({ candidate, onRetry }: { candidate: CandidateItem; onRetry?: () => void }) {
