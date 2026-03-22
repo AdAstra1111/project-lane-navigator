@@ -272,7 +272,7 @@ describe('composeActorDescriptionFromBuckets', () => {
     const result = composeActorDescriptionFromBuckets(b);
 
     expect(result).toContain('woman');
-    expect(result).toContain('early twenties');
+    expect(result).toContain('playing age 20–25');
     expect(result).toContain('slender');
     expect(result).toContain('sharp features');
     expect(result).toContain('dark hair');
