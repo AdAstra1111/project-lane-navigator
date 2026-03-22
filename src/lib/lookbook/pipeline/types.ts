@@ -205,4 +205,11 @@ export interface PipelineResult {
   durationMs: number;
   /** Final requirement progress snapshot */
   requirements?: RequirementProgress[];
+  /** Shot list preflight result (Phase 18.2) */
+  shotListPreflight?: {
+    status: string;
+    shot_list_id: string | null;
+    reason: string | null;
+    auto_generated: boolean;
+  };
 }
