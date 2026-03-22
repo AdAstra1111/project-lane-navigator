@@ -1441,6 +1441,15 @@ export async function buildCharacterCastingBrief(
     }
   }
 
+  // Seed ethnicity from canon world context if not already resolved
+  if (!rawBuckets.ethnicity.length) {
+    const inferredEthnicity = inferEthnicityFromCanonContext(canonRow?.canon_json);
+    if (inferredEthnicity) {
+      rawBuckets.ethnicity.push(inferredEthnicity);
+      if (!ethnicityHint) ethnicityHint = inferredEthnicity;
+    }
+  }
+
   // Styling cues
   for (const sc of stylingCues) {
     rawBuckets.styling.push(sc);
