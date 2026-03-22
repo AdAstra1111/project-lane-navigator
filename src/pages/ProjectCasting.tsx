@@ -152,6 +152,36 @@ export default function ProjectCasting() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Process regen jobs mutation
+  const processRegenMutation = useMutation({
+    mutationFn: (limit: number) => processCastRegenJobs(limit),
+    onSuccess: (result) => {
+      if (result.processed === 0) {
+        toast.info('No queued jobs to process');
+      } else {
+        const failed = result.results.filter(r => r.result === 'failed').length;
+        const completed = result.results.filter(r => r.result === 'completed' || r.result === 'skipped').length;
+        toast.success(`Processed ${result.processed} job(s): ${completed} completed${failed > 0 ? `, ${failed} failed` : ''}`);
+      }
+      refetchRegenJobs();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Retry failed job mutation
+  const retryRegenMutation = useMutation({
+    mutationFn: retryCastRegenJob,
+    onSuccess: (result) => {
+      if (result.skipped) {
+        toast.info('Retry skipped — job already queued');
+      } else {
+        toast.success('Retry job queued');
+      }
+      refetchRegenJobs();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['project-ai-cast', projectId] });
     qc.invalidateQueries({ queryKey: ['project-identity-map', projectId] });
