@@ -1323,6 +1323,118 @@ serve(async (req) => {
     const narrativeMoments = await loadNarrativeMoments(supabase, project_id);
     console.log(`[narrative-binding] project=${project_id} scenes_loaded=${narrativeMoments.length}`);
 
+    // ── PHASE 18.1: SHOT LIST CONTEXT — Load canonical shot list for lookbook grounding ──
+    interface ShotListContextItem {
+      id: string;
+      order_index: number;
+      scene_number: string | null;
+      scene_heading: string | null;
+      shot_type: string | null;
+      framing: string | null;
+      camera_movement: string | null;
+      action: string | null;
+      characters_present: string[];
+      location: string | null;
+      time_of_day: string | null;
+    }
+    let shotListContextItems: ShotListContextItem[] = [];
+    let shotListId: string | null = null;
+    {
+      const { data: lists } = await supabase
+        .from("shot_lists")
+        .select("id")
+        .eq("project_id", project_id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (lists?.length) {
+        shotListId = lists[0].id;
+        const { data: items } = await supabase
+          .from("shot_list_items")
+          .select("id, order_index, scene_number, scene_heading, shot_type, framing, camera_movement, action, characters_present, location, time_of_day")
+          .eq("shot_list_id", shotListId)
+          .order("order_index", { ascending: true })
+          .limit(500);
+        if (items?.length) {
+          shotListContextItems = items.map((r: any) => ({
+            id: r.id,
+            order_index: r.order_index ?? 0,
+            scene_number: r.scene_number || null,
+            scene_heading: r.scene_heading || null,
+            shot_type: r.shot_type || null,
+            framing: r.framing || null,
+            camera_movement: r.camera_movement || null,
+            action: r.action || null,
+            characters_present: Array.isArray(r.characters_present) ? r.characters_present.filter((c: any) => typeof c === 'string') : [],
+            location: r.location || null,
+            time_of_day: r.time_of_day || null,
+          }));
+        }
+      }
+      console.log(`[shot-list-context] project=${project_id} shot_list_id=${shotListId || 'none'} items=${shotListContextItems.length}`);
+    }
+
+    // ── PHASE 18.1: Build shot list prompt block for the current slide type ──
+    let shotListPromptBlock = '';
+    let shotListMappedItemIds: string[] = [];
+    if (shotListContextItems.length > 0) {
+      // Simple slide-type mapping: score each item and pick top 3
+      function scoreShotForSlideServer(item: ShotListContextItem, st: string, total: number): number {
+        let sc = 0;
+        const posRatio = total > 1 ? item.order_index / (total - 1) : 0.5;
+        const fr = (item.framing || '').toUpperCase();
+        const sht = (item.shot_type || '').toUpperCase();
+        const mv = (item.camera_movement || '').toUpperCase();
+        const act = (item.action || '').toLowerCase();
+        const hasCh = item.characters_present.length > 0;
+        switch (st) {
+          case 'cover': case 'poster_directions':
+            if (['WS','MS'].includes(fr)) sc += 8; if (hasCh) sc += 5; if (posRatio < 0.4) sc += 4; break;
+          case 'world':
+            if (['WS','AERIAL'].includes(fr) || sht === 'AERIAL') sc += 10; if (item.location) sc += 6; if (!hasCh) sc += 4; break;
+          case 'characters':
+            if (['CU','ECU','MS'].includes(fr)) sc += 8; if (item.characters_present.length === 1) sc += 6; break;
+          case 'key_moments': case 'key_moment':
+            if (hasCh) sc += 4; if (act.includes('fight')||act.includes('confront')||act.includes('reveal')) sc += 8;
+            if (mv !== 'STATIC') sc += 3; if (posRatio > 0.3 && posRatio < 0.8) sc += 4; break;
+          case 'story_engine':
+            if (item.characters_present.length >= 2) sc += 8; if (['OTS','2SHOT'].includes(sht)) sc += 6; break;
+          case 'themes': case 'visual_language':
+            if (['WS','INSERT'].includes(fr)) sc += 6; if (!hasCh) sc += 4; if (item.time_of_day) sc += 3; break;
+          case 'closing':
+            if (posRatio > 0.7) sc += 8; if (act.includes('end')||act.includes('depart')) sc += 6; break;
+        }
+        return sc;
+      }
+      const total = shotListContextItems.length;
+      const scored = shotListContextItems.map(it => ({ it, sc: scoreShotForSlideServer(it, slideType, total) }));
+      scored.sort((a, b) => b.sc - a.sc || a.it.order_index - b.it.order_index);
+      const top = scored.slice(0, 3).map(s => s.it);
+      shotListMappedItemIds = top.map(t => t.id);
+
+      if (top.length > 0) {
+        const primary = top[0];
+        const lines = ['[SHOT LIST CONTEXT — CANONICAL CINEMATIC SOURCE]', ''];
+        if (primary.scene_heading) lines.push(`SCENE: ${primary.scene_heading}`);
+        if (primary.action) lines.push(`ACTION: ${primary.action}`);
+        if (primary.characters_present.length > 0) lines.push(`CHARACTERS PRESENT: ${primary.characters_present.join(', ')}`);
+        if (primary.location) lines.push(`LOCATION: ${primary.location}`);
+        if (primary.time_of_day) lines.push(`TIME OF DAY: ${primary.time_of_day}`);
+        if (primary.framing) lines.push(`FRAMING: ${primary.framing}`);
+        if (primary.camera_movement) lines.push(`CAMERA MOVEMENT: ${primary.camera_movement}`);
+        if (top.length > 1) {
+          lines.push('', `ADDITIONAL CONTEXT (${top.length - 1} more shots):`);
+          for (const t of top.slice(1)) {
+            const p: string[] = [];
+            if (t.scene_heading) p.push(t.scene_heading);
+            if (t.action) p.push(t.action.slice(0, 80));
+            if (p.length) lines.push(`  • ${p.join(' — ')}`);
+          }
+        }
+        lines.push('', 'Generate this image grounded in this specific cinematic plan.');
+        shotListPromptBlock = lines.join('\n');
+      }
+    }
+
     // ── CANONICAL VISUAL BINDING: Auto-resolve character, location, world ──
     const canonicalBindings = await resolveCanonicalBindings(
       supabase, project_id, section, canon?.canon_json || null,
