@@ -193,6 +193,7 @@ const AnimatedRoutes = () => {
           <Route path="/exemplars" element={<ProtectedRoute><ExemplarBrowser /></ProtectedRoute>} />
           <Route path="/ci-blueprint" element={<ProtectedRoute><CIBlueprintEngine /></ProtectedRoute>} />
           <Route path="/ai-cast" element={<ProtectedRoute><AICastLibrary /></ProtectedRoute>} />
+          <Route path="/actor-marketplace" element={<ProtectedRoute><ActorMarketplace /></ProtectedRoute>} />
           <Route path="/calibration-lab" element={<ProtectedRoute><CalibrationLab /></ProtectedRoute>} />
           <Route path="/demo" element={<GuidedDemo />} />
           <Route path="/demo/cinematic" element={<CinematicDemo />} />
