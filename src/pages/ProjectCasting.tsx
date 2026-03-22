@@ -414,7 +414,7 @@ export default function ProjectCasting() {
           {healthLoading ? (
             <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
           ) : healthData ? (
-            <CastHealthPanel data={healthData} actors={actors} onRebind={(charKey, actorId) =>
+            <CastHealthPanel data={healthData} actors={actors} projectId={projectId!} onRebind={(charKey, actorId) =>
               rebindMutation.mutate({ characterKey: charKey, nextActorId: actorId, reason: 'Governance rebind' })
             } />
           ) : (
