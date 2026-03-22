@@ -320,11 +320,12 @@ export async function executeRequirements(
                 slide_type: targetReq.slideType,
                 pass,
                 requested_shot_type: targetReq.shotType,
-                // ── ACTOR ATTRIBUTION: persisted on generated rows ──
+                // ── ACTOR ATTRIBUTION + CAST PROVENANCE: persisted on generated rows ──
                 resolved_character_names: allCharNames,
                 ai_actor_ids: Object.keys(resolvedActorIds).length > 0 ? resolvedActorIds : undefined,
                 ai_actor_version_ids: Object.keys(resolvedActorVersionIds).length > 0 ? resolvedActorVersionIds : undefined,
                 identity_sources: Object.keys(identitySources).length > 0 ? identitySources : undefined,
+                cast_provenance: castProvenance.length > 0 ? castProvenance : undefined,
               },
             },
           });
