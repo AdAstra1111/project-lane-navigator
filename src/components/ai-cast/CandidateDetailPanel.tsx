@@ -30,7 +30,9 @@ function statusToStageIndex(status: CandidateStatus): number {
     case 'rendering': return 1;
     case 'scoring': return 3;
     case 'ready': return 4;
-    case 'failed': return -1;
+    case 'failed':
+    case 'empty':
+      return -1;
     default: return 0;
   }
 }
@@ -41,7 +43,9 @@ function statusToPercent(status: CandidateStatus): number {
     case 'rendering': return 40;
     case 'scoring': return 75;
     case 'ready': return 100;
-    case 'failed': return 0;
+    case 'failed':
+    case 'empty':
+      return 0;
     default: return 0;
   }
 }
@@ -125,6 +129,7 @@ export function CandidateDetailPanel({
   const isProcessing = candidate.status === 'queued' || candidate.status === 'rendering' || candidate.status === 'scoring';
   const isReady = candidate.status === 'ready';
   const isFailed = candidate.status === 'failed';
+  const isEmpty = candidate.status === 'empty';
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -216,13 +221,31 @@ export function CandidateDetailPanel({
         )}
       </div>
 
-      {/* Failed state */}
-      {isFailed && (
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 flex items-center gap-3">
-          <XCircle className="h-4 w-4 text-destructive shrink-0" />
+      {/* Failed / empty state */}
+      {(isFailed || isEmpty) && (
+        <div className={cn(
+          'rounded-lg p-3 flex items-center gap-3',
+          isFailed
+            ? 'border border-destructive/20 bg-destructive/5'
+            : 'border border-border/30 bg-muted/10'
+        )}>
+          {isFailed ? (
+            <XCircle className="h-4 w-4 text-destructive shrink-0" />
+          ) : (
+            <ImageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+          )}
           <div className="flex-1">
-            <p className="text-xs text-destructive font-medium">Generation failed</p>
-            <p className="text-[10px] text-muted-foreground">This candidate could not be completed.</p>
+            <p className={cn(
+              'text-xs font-medium',
+              isFailed ? 'text-destructive' : 'text-foreground'
+            )}>
+              {isFailed ? 'Generation failed' : 'No image generated yet'}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              {isFailed
+                ? 'This candidate could not be completed.'
+                : 'This version has no saved image asset, so nothing is currently rendering.'}
+            </p>
           </div>
           {onRegenerate && (
             <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onRegenerate(candidate.id)}>

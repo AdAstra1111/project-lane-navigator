@@ -29,12 +29,12 @@ function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[
   for (const ver of versions) {
     const assets = ver.ai_actor_assets || [];
     if (assets.length === 0) {
-      // Version with no assets — show as a single placeholder candidate
+      // Version exists, but no generated/uploaded images were persisted for it yet.
       items.push({
         id: ver.id,
         label: `Version ${ver.version_number}`,
         thumbnailUrl: null,
-        status: 'queued',
+        status: 'empty',
         score: null,
         versionNumber: ver.version_number,
       });

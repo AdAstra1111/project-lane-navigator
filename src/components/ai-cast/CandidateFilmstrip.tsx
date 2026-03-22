@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export type CandidateStatus = 'queued' | 'rendering' | 'scoring' | 'ready' | 'failed';
+export type CandidateStatus = 'queued' | 'rendering' | 'scoring' | 'ready' | 'failed' | 'empty';
 
 export interface CandidateItem {
   id: string;
@@ -37,6 +37,7 @@ const STATUS_CONFIG: Record<CandidateStatus, { label: string; color: string; ico
   scoring: { label: 'Scoring', color: 'bg-amber-500/20 text-amber-400', icon: 'loader' },
   ready: { label: 'Ready', color: 'bg-emerald-500/20 text-emerald-400' },
   failed: { label: 'Failed', color: 'bg-destructive/20 text-destructive', icon: 'error' },
+  empty: { label: 'No image yet', color: 'bg-muted text-muted-foreground' },
 };
 
 function CandidateThumbnail({ candidate, onRetry }: { candidate: CandidateItem; onRetry?: () => void }) {
@@ -65,10 +66,11 @@ function CandidateThumbnail({ candidate, onRetry }: { candidate: CandidateItem; 
     );
   }
 
-  if (!candidate.thumbnailUrl) {
+  if (candidate.status === 'empty' || !candidate.thumbnailUrl) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-muted/5">
-        <ImageIcon className="h-5 w-5 text-muted-foreground/20" />
+      <div className="w-full h-full flex flex-col items-center justify-center bg-muted/5 gap-1">
+        <ImageIcon className="h-5 w-5 text-muted-foreground/30" />
+        <span className="text-[8px] text-muted-foreground/70">No image yet</span>
       </div>
     );
   }
