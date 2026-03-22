@@ -40,6 +40,19 @@ export interface CharacterContextSummary {
   canon_notes: string[];
 }
 
+/** Extraction sufficiency diagnostics — which identity dimensions are source-grounded */
+export interface ExtractionSufficiency {
+  has_gender: boolean;
+  has_ethnicity: boolean;
+  has_age: boolean;
+  has_physical_description_signals: boolean;
+  has_styling_signals: boolean;
+  has_presence_signals: boolean;
+}
+
+/** Prefill quality classification */
+export type PrefillQuality = 'source_rich' | 'source_partial' | 'source_thin';
+
 export interface CastingBrief {
   age_hint?: string | null;
   gender_presentation?: string | null;
@@ -54,6 +67,10 @@ export interface CastingBrief {
   actor_tags: string[];
   /** Phase 17.6: Curated phrase-level highlights for modal chip display */
   actor_criteria_highlights: string[];
+  /** Extraction sufficiency diagnostics */
+  extraction_sufficiency: ExtractionSufficiency;
+  /** Overall prefill quality state */
+  prefill_quality: PrefillQuality;
 }
 
 export interface CharacterCastingBriefResult {
