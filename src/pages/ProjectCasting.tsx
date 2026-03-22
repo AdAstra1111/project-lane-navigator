@@ -469,6 +469,20 @@ export default function ProjectCasting() {
             onClick={() => { setShowRecommendations(!showRecommendations); if (!showRecommendations) refetchRecommendations(); }}
           >
             <Zap className="h-3.5 w-3.5" /> {showRecommendations ? 'Hide' : ''} Recommend Cast
+           </Button>
+          <Button
+            variant={showCastPack ? 'default' : 'outline'} size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => {
+              if (!showCastPack && !castPack) {
+                generatePackMutation.mutate();
+              } else {
+                setShowCastPack(!showCastPack);
+              }
+            }}
+            disabled={generatePackMutation.isPending}
+          >
+            {generatePackMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Users className="h-3.5 w-3.5" />}
+            {showCastPack ? 'Hide' : ''} Cast Pack
           </Button>
           <Link to="/ai-cast">
             <Button variant="default" size="sm" className="h-8 text-xs gap-1.5">
