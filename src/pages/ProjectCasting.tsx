@@ -101,6 +101,7 @@ export default function ProjectCasting() {
   const [showSceneIntegrity, setShowSceneIntegrity] = useState(false);
   const [showRegenPolicy, setShowRegenPolicy] = useState(false);
   const [showCastLibrary, setShowCastLibrary] = useState<string | null>(null); // character key to cast
+  const [showCreateActor, setShowCreateActor] = useState<string | null>(null); // character key for inline create
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [showCastPack, setShowCastPack] = useState(false);
   const [castPack, setCastPack] = useState<ProjectCastPack | null>(null);
