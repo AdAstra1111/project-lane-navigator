@@ -687,7 +687,8 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   onBack: () => void;
 }) {
   const { data, isLoading } = useAIActor(actorId);
-  const { updateActor, createVersion } = useAICastMutations();
+  const { updateActor, createVersion, deleteActor } = useAICastMutations();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const actor: AIActor | undefined = data?.actor;
   const startValidation = useStartValidation();
   const { data: latestRun } = useLatestValidationRun(actorId);
