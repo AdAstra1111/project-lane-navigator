@@ -287,7 +287,6 @@ export default function ProjectCasting() {
                       onClick={() => rebindMutation.mutate({
                         characterKey: m.character_key,
                         nextActorId: m.ai_actor_id,
-                        nextActorVersionId: (actor as any).approved_version_id,
                         reason: 'Update to latest approved version',
                       })}
                       disabled={rebindMutation.isPending}
