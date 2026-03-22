@@ -1919,7 +1919,7 @@ FRAMING RULES:
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (err: unknown) {
+  } catch (err) {
     const errMsg = err instanceof Error ? err.message : "Unknown error";
     console.error("generate-lookbook-image error:", errMsg);
     return new Response(JSON.stringify({ error: errMsg }), {
