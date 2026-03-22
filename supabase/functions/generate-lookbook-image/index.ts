@@ -1712,6 +1712,11 @@ FRAMING RULES:
               // ── COMPOSITION RULE: provenance ──
               composition_rule: resolvedCompositionRule || null,
               composition_rule_hash: compositionRuleHash || null,
+              // ── CAMERA LANGUAGE: provenance ──
+              camera_language_hash: cameraLanguageHash || null,
+              // ── PRODUCTION DESIGN: provenance ──
+              production_design_hash: productionDesignHash || null,
+              production_design_architecture: productionArchitecture || null,
               // ── AUTO-COMPLETE CONTEXT: requirement-origin + actor attribution metadata ──
               ...(autoCompleteContext ? {
                 auto_complete_context: {
