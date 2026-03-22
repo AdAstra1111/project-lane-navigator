@@ -39,7 +39,7 @@ import {
   VALIDATION_SLOTS, type ValidationRun, type ValidationImage, type ValidationResult,
 } from '@/lib/aiCast/actorValidation';
 import {
-  useTriggerScoring, getScoreBandColor, getConfidenceColor,
+  getScoreBandColor, getConfidenceColor,
 } from '@/lib/aiCast/validationScoring';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
