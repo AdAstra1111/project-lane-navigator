@@ -32,6 +32,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { resolveCompositionRuleForLookbookSlot } from '@/lib/lookbook/compositionRules';
 
 interface LookBookViewerProps {
   data: LookBookData;
@@ -97,6 +98,30 @@ function FitStatusIcon({ status }: { status: OverrideFitStatus }) {
   if (status === 'valid') return <CheckCircle2 className="h-3 w-3 text-emerald-500" />;
   if (status === 'weak-fit') return <AlertTriangle className="h-3 w-3 text-amber-500" />;
   return <XCircle className="h-3 w-3 text-destructive" />;
+}
+
+// ── Composition Rule Diagnostic (Phase 16.6) ────────────────────────────────
+
+function CompositionRuleDiagnostic({ slideType }: { slideType: string }) {
+  const rule = resolveCompositionRuleForLookbookSlot(slideType);
+  const entries = [
+    ['Balance', rule.balance],
+    ['Subject', rule.subject_scale],
+    ['Density', rule.visual_density],
+    ['Horizon', rule.horizon_bias || '—'],
+    ['Headroom', rule.headroom_bias || '—'],
+    ['Neg. Space', rule.negative_space_bias || '—'],
+  ];
+  return (
+    <div className="space-y-0.5">
+      {entries.map(([label, value]) => (
+        <div key={label} className="flex items-center justify-between text-[9px]">
+          <span className="text-muted-foreground">{label}</span>
+          <span className="font-mono text-foreground">{value}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ── Layout Inspector Panel ──────────────────────────────────────────────────
@@ -450,7 +475,7 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
               onOverride={handleOverride}
             />
 
-            {/* ── Selection Score Diagnostics (Phase 16.5) ── */}
+            {/* ── Selection Score Diagnostics (Phase 16.5 + 16.6) ── */}
             {currentSlideData.roledImages && currentSlideData.roledImages.length > 0 && (
               <Collapsible className="mt-3">
                 <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
@@ -471,6 +496,17 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
                 </CollapsibleContent>
               </Collapsible>
             )}
+
+            {/* ── Composition Rule Diagnostics (Phase 16.6) ── */}
+            <Collapsible className="mt-2">
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
+                <Info className="h-3 w-3" />
+                Composition Rule
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1.5">
+                <CompositionRuleDiagnostic slideType={currentSlideData.type} />
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         )}
       </div>
