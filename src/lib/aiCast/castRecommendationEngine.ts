@@ -1,16 +1,19 @@
 /**
- * castRecommendationEngine — Phase 16.7: Deterministic cast recommendations.
+ * castRecommendationEngine — Phase 16.7 + 17.2: Deterministic cast recommendations.
  *
  * Proposes strong actor candidates for a project's characters using:
+ * - casting brief (visual performer requirements, NOT raw story text)
  * - existing actor intelligence (quality, reusability, usage)
- * - project canon (character facts, traits, tags)
  * - deterministic tag/text overlap scoring
+ *
+ * Phase 17.2 update: recommendations now consume CastingBrief to prevent
+ * plot-language from influencing actor matching.
  *
  * READ-ONLY. Advisory only. No bindings are mutated.
  *
  * WEIGHTS (documented):
- *   tag_overlap:     35%  — character tags vs actor tags
- *   text_overlap:    25%  — descriptor token overlap
+ *   tag_overlap:     35%  — casting brief tags vs actor tags
+ *   text_overlap:    25%  — actor description token overlap
  *   quality:         20%  — validation quality score
  *   reusability:     12%  — tier-based boost
  *   usage_proof:      8%  — cross-project proof
