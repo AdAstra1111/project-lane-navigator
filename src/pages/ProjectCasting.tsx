@@ -190,6 +190,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showRegenPolicy,
   });
 
+  // Cast recommendations (lazy)
+  const { data: recommendationData, isLoading: recommendationsLoading, refetch: refetchRecommendations } = useQuery({
+    queryKey: ['cast-recommendations', projectId],
+    queryFn: () => buildProjectCastRecommendations(projectId!),
+    enabled: !!projectId && showRecommendations,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
