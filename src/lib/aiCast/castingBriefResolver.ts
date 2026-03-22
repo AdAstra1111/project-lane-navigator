@@ -426,25 +426,94 @@ function buildCharacterNamePatterns(displayName: string, characterKey: string): 
  * Returns array of { heading, level, body } objects.
  */
 function parseDocumentSections(text: string): Array<{ heading: string; level: number; body: string }> {
-  const headingRegex = /^(#{1,6})\s+(.+)$/gm;
-  const sections: Array<{ heading: string; level: number; startIdx: number }> = [];
+  // Support optional leading bullet/dash before heading markers: "- ### NAME"
+  const headingRegex = /^(?:-\s*)?(?:#{1,6})\s+(.+)$/gm;
+  const rawRegex = /^(?:-\s*)?(#{1,6})\s+(.+)$/gm;
+  const sections: Array<{ heading: string; level: number; startIdx: number; matchEnd: number }> = [];
 
   let match: RegExpExecArray | null;
-  while ((match = headingRegex.exec(text)) !== null) {
+  while ((match = rawRegex.exec(text)) !== null) {
     sections.push({
       heading: match[2].trim(),
       level: match[1].length,
-      startIdx: match.index + match[0].length,
+      startIdx: match.index,
+      matchEnd: match.index + match[0].length,
     });
   }
 
   if (sections.length === 0) return [];
 
   return sections.map((sec, i) => {
-    const endIdx = i < sections.length - 1 ? sections[i + 1].startIdx - sections[i + 1].heading.length - sections[i + 1].level - 2 : text.length;
-    const body = text.slice(sec.startIdx, endIdx).trim();
+    const bodyStart = sec.matchEnd;
+    const bodyEnd = i < sections.length - 1 ? sections[i + 1].startIdx : text.length;
+    const body = text.slice(bodyStart, bodyEnd).trim();
     return { heading: sec.heading, level: sec.level, body };
   });
+}
+
+/**
+ * Detect and extract a flat "record card" character bible format where
+ * field headings like NAME / ROLE / AGE / PHYSICAL DESCRIPTION repeat
+ * for each character, and the character name is body text under a NAME heading.
+ *
+ * Returns the matched character's field sections, or null if format not detected.
+ */
+interface RecordCardField {
+  heading: string;
+  body: string;
+}
+
+/** Headings that signal a NAME field in record-card format */
+const NAME_FIELD_HEADINGS = /^(name|character\s*name|character)$/i;
+
+/** Headings considered record-card field labels (broad set) */
+const RECORD_CARD_FIELD_HEADINGS = /^(name|character\s*name|character|role|age|physical\s*description|appearance|look|visual\s*description|costume|style|styling|backstory|motivation|arc|relationships?|goals?|secrets?|fatal\s*flaw|voice|personality|psychology|conflict|desires?|fears?|history|background|occupation|status|description|traits?)$/i;
+
+function extractRecordCardCharacter(
+  sections: Array<{ heading: string; level: number; body: string }>,
+  namePatterns: RegExp[],
+): RecordCardField[] | null {
+  // Detect record-card format: multiple NAME fields at the same level
+  const nameFieldIndices: number[] = [];
+  let recordLevel: number | null = null;
+
+  for (let i = 0; i < sections.length; i++) {
+    if (NAME_FIELD_HEADINGS.test(sections[i].heading)) {
+      if (recordLevel === null) recordLevel = sections[i].level;
+      if (sections[i].level === recordLevel) {
+        nameFieldIndices.push(i);
+      }
+    }
+  }
+
+  // Need at least 1 NAME field, and surrounding fields should look like record-card labels
+  if (nameFieldIndices.length === 0 || recordLevel === null) return null;
+
+  // Verify this is a record-card format: check that other same-level headings are field labels
+  const sameLevelSections = sections.filter(s => s.level === recordLevel);
+  const fieldLabelCount = sameLevelSections.filter(s => RECORD_CARD_FIELD_HEADINGS.test(s.heading)).length;
+  if (fieldLabelCount < sameLevelSections.length * 0.5) return null; // Not a record-card format
+
+  // Find which NAME field body matches our character
+  for (const nameIdx of nameFieldIndices) {
+    const nameBody = sections[nameIdx].body.trim().split(/\n/)[0].trim();
+    const matched = namePatterns.some(p => p.test(nameBody));
+    if (!matched) continue;
+
+    // Found the character's NAME field — collect all fields until next NAME at same level
+    const fields: RecordCardField[] = [];
+    for (let j = nameIdx; j < sections.length; j++) {
+      if (j > nameIdx && sections[j].level === recordLevel && NAME_FIELD_HEADINGS.test(sections[j].heading)) {
+        break; // Next character record starts
+      }
+      if (sections[j].level >= recordLevel) {
+        fields.push({ heading: sections[j].heading, body: sections[j].body });
+      }
+    }
+    return fields;
+  }
+
+  return null;
 }
 
 /**
@@ -477,16 +546,44 @@ function findCharacterSectionRange(
  * Extract character-specific passages from document plaintext.
  *
  * Strategy (in order):
- * 1. Section-aware: find the character's heading section, then route
- *    sub-headings into performer vs story buckets.
- * 2. Fallback: line-level name matching (original behavior).
+ * A. Record-card format: flat repeated field-card structure (NAME/ROLE/AGE/etc.)
+ * B. Hierarchical section-aware: character name in heading
+ * C. Fallback: line-level name matching
  */
 function extractCharacterPassages(text: string, displayName: string, characterKey: string): string[] {
   const namePatterns = buildCharacterNamePatterns(displayName, characterKey);
 
-  // ── 1. Section-aware extraction ──
+  // ── A. Record-card format extraction ──
   const sections = parseDocumentSections(text);
   if (sections.length >= 2) {
+    const recordCard = extractRecordCardCharacter(sections, namePatterns);
+    if (recordCard && recordCard.length > 0) {
+      const performerPassages: string[] = [];
+      const generalPassages: string[] = [];
+
+      for (const field of recordCard) {
+        const bodyLines = field.body.split(/\n+/).map(l => l.trim()).filter(l => l.length > 5);
+        if (bodyLines.length === 0) continue;
+
+        if (PERFORMER_SECTION_HEADINGS.test(field.heading)) {
+          performerPassages.push(...bodyLines);
+        } else if (STORY_SECTION_HEADINGS.test(field.heading)) {
+          continue; // Story-only — skip for performer extraction
+        } else if (NAME_FIELD_HEADINGS.test(field.heading)) {
+          continue; // Skip the NAME field itself
+        } else {
+          // ROLE, VOICE, or unclassified — include as general
+          generalPassages.push(...bodyLines);
+        }
+      }
+
+      const result = [...performerPassages, ...generalPassages];
+      if (result.length > 0) {
+        return result.slice(0, 20);
+      }
+    }
+
+    // ── B. Hierarchical section-aware extraction ──
     const range = findCharacterSectionRange(sections, namePatterns);
     if (range) {
       const performerPassages: string[] = [];
@@ -498,14 +595,10 @@ function extractCharacterPassages(text: string, displayName: string, characterKe
         if (bodyLines.length === 0) continue;
 
         if (PERFORMER_SECTION_HEADINGS.test(sec.heading)) {
-          // High-value performer content — include all lines
           performerPassages.push(...bodyLines);
         } else if (STORY_SECTION_HEADINGS.test(sec.heading)) {
-          // Story content — skip for performer extraction
-          // (will still be available via storyNotes pathway)
           continue;
         } else {
-          // Unclassified sub-section or the character's own heading body
           generalPassages.push(...bodyLines);
         }
       }
@@ -517,7 +610,7 @@ function extractCharacterPassages(text: string, displayName: string, characterKe
     }
   }
 
-  // ── 2. Fallback: line-level name matching ──
+  // ── C. Fallback: line-level name matching ──
   const lines = text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 15);
 
   const matches = lines.filter(line =>
@@ -1906,6 +1999,7 @@ export const _testHelpers = {
   buildCharacterNamePatterns,
   parseDocumentSections,
   findCharacterSectionRange,
+  extractRecordCardCharacter,
   PERFORMER_SECTION_HEADINGS,
   STORY_SECTION_HEADINGS,
 };
