@@ -516,6 +516,7 @@ export default function ProjectCasting() {
         </div>
       )}
 
+      {identityMap && Object.keys(identityMap).length > 0 && (
         <div className="border-t border-border/30 pt-4 space-y-2">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Identity Diagnostics</h3>
           <div className="rounded-lg border border-border/30 bg-muted/5 p-3 space-y-1.5">
