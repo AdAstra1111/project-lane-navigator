@@ -46,12 +46,13 @@ import {
   usePromotionEligibility, usePromotionDecisions, useActorPromotionState, useApplyPromotionDecision,
 } from '@/lib/aiCast/usePromotion';
 import type { PromotionDecision, FinalDecisionStatus } from '@/lib/aiCast/promotionPolicy';
+import { buildActorIntelligence, type ActorIntelligenceSummary } from '@/lib/aiCast/actorIntelligence';
 
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
-type SortMode = 'recent' | 'name' | 'usage';
-type FilterStatus = 'all' | 'active' | 'draft';
+type SortMode = 'recent' | 'name' | 'usage' | 'quality';
+type FilterStatus = 'all' | 'active' | 'draft' | 'roster';
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
