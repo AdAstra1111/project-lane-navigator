@@ -545,6 +545,62 @@ export async function buildCharacterCastingBrief(
     }
   }
 
+  // ── 1b. Document-enriched appearance signals (character_bible, profile, etc.) ──
+  // Priority source #2: richer than canon_json, read from project_documents.
+  {
+    const docCandidates = await loadCharacterDocumentCandidates(
+      projectId,
+      DOC_TYPE_PRIORITY_FOR_APPEARANCE,
+    );
+
+    for (const doc of docCandidates) {
+      const passages = extractCharacterPassages(doc.plaintext, displayName, characterKey);
+      if (passages.length === 0) continue;
+
+      const signals = extractAppearanceSignalsFromPassages(passages);
+
+      // Age: only set if not already resolved from canon_facts
+      if (!ageHint && signals.ageSignals.length > 0) {
+        ageHint = signals.ageSignals[0];
+        tags.push(signals.ageSignals[0].toLowerCase());
+      }
+
+      // Visual markers: add unique values
+      for (const vm of signals.visualMarkers) {
+        if (!visualMarkers.includes(vm)) {
+          visualMarkers.push(vm);
+          tags.push(vm.toLowerCase());
+        }
+      }
+
+      // Styling from clothing mentions
+      for (const sc of signals.stylingSignals) {
+        if (!stylingCues.includes(sc)) {
+          stylingCues.push(sc);
+        }
+      }
+
+      // Presence markers from document text
+      for (const pm of signals.presenceSignals) {
+        if (!presenceMarkers.includes(pm)) {
+          presenceMarkers.push(pm);
+        }
+      }
+
+      // Also enrich story context from character bible passages
+      if (doc.doc_type === 'character_bible' || doc.doc_type === 'character_profile') {
+        // Find the richest intro passage for story context
+        const introPassage = passages[0];
+        if (introPassage && storyNotes.length < 5) {
+          const sanitizedForContext = introPassage.length > 200
+            ? introPassage.slice(0, 200) + '…'
+            : introPassage;
+          storyNotes.push(sanitizedForContext);
+        }
+      }
+    }
+  }
+
   // ── 2. canon_json.characters ────────────────────────────────────────────
   // ALL canon_json.characters fields go to STORY CONTEXT ONLY.
   // They are narrative descriptions, not visual performer criteria.
