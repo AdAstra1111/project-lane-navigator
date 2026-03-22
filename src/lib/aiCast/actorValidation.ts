@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type ValidationRunStatus = 'pending' | 'generating' | 'scoring' | 'complete' | 'failed';
+export type ValidationRunStatus = 'pending' | 'generating' | 'scoring' | 'pack_generated' | 'scored' | 'complete' | 'failed';
 export type ValidationPhase = 'quick' | 'full';
 
 export interface ValidationRun {
