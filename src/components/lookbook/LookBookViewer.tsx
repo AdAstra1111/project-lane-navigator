@@ -510,6 +510,48 @@ export function LookBookViewer({ data, onExportPDF, isExporting, className, onSl
                 <CompositionRuleDiagnostic slideType={currentSlideData.type} />
               </CollapsibleContent>
             </Collapsible>
+
+            {/* ── Phase 18: Camera Language ── */}
+            <Collapsible className="mt-2">
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
+                <Info className="h-3 w-3" />
+                Camera Language
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1.5 space-y-0.5">
+                {(() => {
+                  const cam = resolveCameraLanguageForSlot(currentSlideData.type);
+                  return [
+                    ['Style', cam.camera_style],
+                    ['Movement', cam.movement],
+                    ['Lens', cam.lens_behavior],
+                  ].map(([l, v]) => (
+                    <div key={l} className="flex items-center justify-between text-[9px]">
+                      <span className="text-muted-foreground">{l}</span>
+                      <span className="font-mono text-foreground">{v}</span>
+                    </div>
+                  ));
+                })()}
+              </CollapsibleContent>
+            </Collapsible>
+
+            {/* ── Phase 18: Editorial Flow ── */}
+            <Collapsible className="mt-2">
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground w-full">
+                <Info className="h-3 w-3" />
+                Editorial Flow
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1.5 space-y-0.5">
+                {[
+                  ['Intensity', `${(getEditorialIntensity(currentSlideData.type) * 100).toFixed(0)}%`],
+                  ['Phase', getEditorialPhase(currentSlideData.type)],
+                ].map(([l, v]) => (
+                  <div key={l} className="flex items-center justify-between text-[9px]">
+                    <span className="text-muted-foreground">{l}</span>
+                    <span className="font-mono text-foreground">{v}</span>
+                  </div>
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         )}
       </div>
