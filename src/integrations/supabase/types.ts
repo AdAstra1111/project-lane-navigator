@@ -2118,6 +2118,66 @@ export type Database = {
           },
         ]
       }
+      cast_regen_jobs: {
+        Row: {
+          character_key: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          output_id: string
+          output_type: string
+          project_id: string
+          reason: string
+          requested_by: string | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          character_key: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          output_id: string
+          output_type?: string
+          project_id: string
+          reason: string
+          requested_by?: string | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          character_key?: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          output_id?: string
+          output_type?: string
+          project_id?: string
+          reason?: string
+          requested_by?: string | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cast_regen_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "cast_regen_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cast_trends: {
         Row: {
           actor_name: string
