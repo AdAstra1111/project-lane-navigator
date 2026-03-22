@@ -45,6 +45,11 @@ import {
   type OutputConsistencyResult,
   type CastConsistencyStatus,
 } from '@/lib/aiCast/castConsistency';
+import {
+  evaluateProjectContinuity,
+  type ProjectContinuitySummary,
+  type CharacterContinuityResult,
+} from '@/lib/aiCast/continuityDiagnostics';
 
 interface CastMapping {
   id: string;
@@ -66,6 +71,7 @@ export default function ProjectCasting() {
   const [showHealth, setShowHealth] = useState(false);
   const [showRegenJobs, setShowRegenJobs] = useState(false);
   const [showConsistency, setShowConsistency] = useState(false);
+  const [showContinuity, setShowContinuity] = useState(false);
 
   const { data: mappings, isLoading } = useQuery({
     queryKey: ['project-ai-cast', projectId],
@@ -139,6 +145,13 @@ export default function ProjectCasting() {
     queryKey: ['cast-consistency', projectId],
     queryFn: () => evaluateProjectCastConsistency(projectId!),
     enabled: !!projectId && showConsistency,
+  });
+
+  // Character continuity (lazy)
+  const { data: continuityData, isLoading: continuityLoading, refetch: refetchContinuity } = useQuery({
+    queryKey: ['cast-continuity', projectId],
+    queryFn: () => evaluateProjectContinuity(projectId!),
+    enabled: !!projectId && showContinuity,
   });
 
   // Queue all regen jobs mutation
@@ -319,6 +332,12 @@ export default function ProjectCasting() {
             onClick={() => { setShowConsistency(!showConsistency); if (!showConsistency) refetchConsistency(); }}
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> {showConsistency ? 'Hide' : ''} Consistency
+          </Button>
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => { setShowContinuity(!showContinuity); if (!showContinuity) refetchContinuity(); }}
+          >
+            <Activity className="h-3.5 w-3.5" /> {showContinuity ? 'Hide' : ''} Continuity
           </Button>
           <Button
             variant="outline" size="sm" className="h-8 text-xs gap-1.5"
@@ -626,6 +645,22 @@ export default function ProjectCasting() {
             <CastConsistencyPanel data={consistencyData} />
           ) : (
             <p className="text-xs text-muted-foreground">No consistency data available.</p>
+          )}
+        </div>
+      )}
+
+      {/* Character Continuity Panel */}
+      {showContinuity && (
+        <div className="border-t border-border/30 pt-4 space-y-3">
+          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5" /> Character Continuity
+          </h3>
+          {continuityLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : continuityData ? (
+            <ContinuityPanel data={continuityData} />
+          ) : (
+            <p className="text-xs text-muted-foreground">No continuity data available.</p>
           )}
         </div>
       )}
@@ -1276,6 +1311,109 @@ function CastConsistencyPanel({ data }: { data: CastConsistencySummary }) {
         {Object.keys(data.by_character).length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-4">No characters with provenance data.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Continuity Panel ────────────────────────────────────────────────────────
+
+const CONTINUITY_STATUS_CONFIG: Record<string, { label: string; dotClass: string; textClass: string }> = {
+  stable: { label: 'Stable', dotClass: 'bg-emerald-500', textClass: 'text-emerald-700' },
+  mixed: { label: 'Mixed', dotClass: 'bg-amber-500', textClass: 'text-amber-700' },
+  broken: { label: 'Broken', dotClass: 'bg-destructive', textClass: 'text-destructive' },
+  unknown: { label: 'Unknown', dotClass: 'bg-muted-foreground', textClass: 'text-muted-foreground' },
+};
+
+const CONTINUITY_OVERALL_CONFIG: Record<string, { label: string; icon: typeof CheckCircle2; className: string }> = {
+  stable: { label: 'All Stable', icon: CheckCircle2, className: 'text-emerald-600' },
+  mixed: { label: 'Drift Detected', icon: AlertTriangle, className: 'text-amber-600' },
+  broken: { label: 'Continuity Broken', icon: AlertCircle, className: 'text-destructive' },
+};
+
+function ContinuityPanel({ data }: { data: ProjectContinuitySummary }) {
+  const [expandedChar, setExpandedChar] = useState<string | null>(null);
+  const overall = CONTINUITY_OVERALL_CONFIG[data.overall_status] || CONTINUITY_OVERALL_CONFIG.stable;
+  const OverallIcon = overall.icon;
+
+  if (data.total_characters === 0) {
+    return <p className="text-xs text-muted-foreground">No characters with provenance data found.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 p-3 rounded-lg border border-border/50 bg-card/30">
+        <div className="flex items-center gap-2">
+          <OverallIcon className={cn('h-5 w-5', overall.className)} />
+          <span className="text-sm font-medium text-foreground">{overall.label}</span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground ml-auto">
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> {data.stable_count} stable</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> {data.mixed_count} mixed</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-destructive" /> {data.broken_count} broken</span>
+          {data.unknown_count > 0 && (
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-muted-foreground" /> {data.unknown_count} unknown</span>
+          )}
+        </div>
+      </div>
+
+      {/* Per-character rows */}
+      <div className="rounded-lg border border-border/30 bg-muted/5 divide-y divide-border/20">
+        {Object.values(data.characters).map((char) => {
+          const sc = CONTINUITY_STATUS_CONFIG[char.status] || CONTINUITY_STATUS_CONFIG.unknown;
+          const isExpanded = expandedChar === char.character_key;
+
+          return (
+            <div key={char.character_key} className="p-3 space-y-2">
+              <div
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={() => setExpandedChar(isExpanded ? null : char.character_key)}
+              >
+                <span className={cn('h-2 w-2 rounded-full shrink-0', sc.dotClass)} />
+                <span className="text-xs font-medium text-foreground w-28 truncate">{char.character_key}</span>
+                <span className="text-[11px] text-muted-foreground">{char.outputs_checked} outputs</span>
+                <Badge variant="outline" className={cn('text-[9px] h-4', sc.textClass)}>
+                  {sc.label}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground">
+                  Score: <strong className="text-foreground">{char.continuity_score}%</strong>
+                </span>
+                {char.dominant_actor_version_id && (
+                  <span className="text-[9px] font-mono text-muted-foreground/60">
+                    dom: {char.dominant_actor_version_id.slice(0, 8)}
+                  </span>
+                )}
+                {char.drift_detected && (
+                  <span className="ml-auto text-[9px] text-muted-foreground/60">
+                    Use Consistency + Regen Jobs to converge
+                  </span>
+                )}
+                <Eye className="h-3 w-3 text-muted-foreground ml-auto shrink-0" />
+              </div>
+
+              {isExpanded && (
+                <div className="ml-5 pl-3 border-l-2 border-border/30 space-y-1">
+                  <p className="text-[10px] text-muted-foreground">
+                    <strong>{char.distinct_actor_version_ids.length}</strong> distinct version{char.distinct_actor_version_ids.length !== 1 ? 's' : ''} across {char.outputs_checked} output{char.outputs_checked !== 1 ? 's' : ''}
+                  </p>
+                  {char.distinct_actor_version_ids.map((vid) => (
+                    <div key={vid} className="flex items-center gap-2 text-[9px] text-muted-foreground">
+                      <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', vid === char.dominant_actor_version_id ? 'bg-emerald-500' : 'bg-amber-500')} />
+                      <span className="font-mono">{vid.slice(0, 16)}…</span>
+                      {vid === char.dominant_actor_version_id && (
+                        <Badge variant="outline" className="text-[8px] h-3.5 border-emerald-500/30 text-emerald-700">dominant ({char.dominant_count})</Badge>
+                      )}
+                    </div>
+                  ))}
+                  {char.distinct_actor_version_ids.length === 0 && (
+                    <p className="text-[9px] text-muted-foreground">No usable version IDs in provenance.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
