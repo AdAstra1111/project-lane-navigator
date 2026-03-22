@@ -633,6 +633,13 @@ function ActorDetail({ actorId, usageEntries, onBack }: {
   const { data: latestRun } = useLatestValidationRun(actorId);
   const { data: validationImages } = useValidationImages(latestRun?.id);
   const { data: validationResult } = useValidationResult(latestRun?.id);
+  const { data: eligibility } = usePromotionEligibility(actorId);
+  const { data: promotionState } = useActorPromotionState(actorId);
+  const { data: decisions } = usePromotionDecisions(actorId);
+  const applyDecision = useApplyPromotionDecision();
+  const [overrideReason, setOverrideReason] = useState('');
+  const [decisionNote, setDecisionNote] = useState('');
+  const [showOverride, setShowOverride] = useState(false);
 
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
