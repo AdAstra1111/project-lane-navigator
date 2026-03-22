@@ -147,6 +147,13 @@ export default function ProjectCasting() {
     enabled: !!projectId && showConsistency,
   });
 
+  // Character continuity (lazy)
+  const { data: continuityData, isLoading: continuityLoading, refetch: refetchContinuity } = useQuery({
+    queryKey: ['cast-continuity', projectId],
+    queryFn: () => evaluateProjectContinuity(projectId!),
+    enabled: !!projectId && showContinuity,
+  });
+
   // Queue all regen jobs mutation
   const queueAllRegenMutation = useMutation({
     mutationFn: async (opts?: { characterKey?: string }) => {
