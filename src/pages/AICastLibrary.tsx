@@ -224,12 +224,19 @@ export default function AICastLibrary() {
 
 // ── Actor Card ──────────────────────────────────────────────────────────────
 
-function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount: number; onClick: () => void }) {
+function ActorCard({ actor, usageCount, intelligence, onClick }: { actor: AIActor; usageCount: number; intelligence: import('@/lib/aiCast/actorIntelligence').ActorIntelligenceProfile | null; onClick: () => void }) {
   const thumbnail = getActorThumbnail(actor.ai_actor_versions, (actor as any).approved_version_id);
   const identity = getIdentityStrength(actor.ai_actor_versions, (actor as any).approved_version_id);
   const coverageStatus = (actor as any).anchor_coverage_status as AnchorCoverageStatus | undefined;
   const rosterReady = (actor as any).roster_ready as boolean | undefined;
   const promotionStatus = (actor as any).promotion_status as string | undefined;
+
+  const tierConfig: Record<string, { label: string; className: string }> = {
+    signature: { label: 'Signature', className: 'text-amber-400 border-amber-400/30' },
+    reliable: { label: 'Reliable', className: 'text-emerald-400 border-emerald-400/30' },
+    emerging: { label: 'Emerging', className: 'text-sky-400 border-sky-400/30' },
+    unvalidated: { label: 'Unvalidated', className: 'text-muted-foreground border-border' },
+  };
 
   return (
     <button onClick={onClick} className="text-left rounded-lg border border-border/50 bg-card/50 hover:bg-muted/20 transition-colors overflow-hidden group">
@@ -246,6 +253,13 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
             <AnchorCoverageBadge status={coverageStatus} />
           )}
         </div>
+        {intelligence?.quality_score != null && (
+          <div className="absolute bottom-2 left-2">
+            <span className="rounded-full text-[9px] px-2 py-0.5 font-medium bg-background/80 backdrop-blur-sm text-foreground border border-border/30">
+              Q: {intelligence.quality_score}
+            </span>
+          </div>
+        )}
       </div>
       <div className="p-3 space-y-1.5">
         <div className="flex items-center justify-between">
@@ -258,6 +272,11 @@ function ActorCard({ actor, usageCount, onClick }: { actor: AIActor; usageCount:
           {rosterReady && (
             <Badge variant="outline" className="text-[10px] h-5 gap-0.5 text-amber-300 border-amber-300/30">
               <Crown className="h-2.5 w-2.5" /> Roster
+            </Badge>
+          )}
+          {intelligence && intelligence.reusability_tier !== 'unvalidated' && (
+            <Badge variant="outline" className={cn('text-[9px] h-5', tierConfig[intelligence.reusability_tier]?.className)}>
+              {tierConfig[intelligence.reusability_tier]?.label}
             </Badge>
           )}
           {!rosterReady && promotionStatus && !['none', 'rejected', 'override_rejected'].includes(promotionStatus) && (
