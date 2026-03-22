@@ -2176,7 +2176,7 @@ function InlineCreateActorDialog({
   characterKey: string | null;
   onClose: () => void;
   onCreatedAndBound: (characterKey: string) => void;
-  onCreatedPending: (characterKey: string) => void;
+  onCreatedPending: (characterKey: string, actorId: string) => void;
   actors: any[];
 }) {
   const [prefill, setPrefill] = useState<CharacterActorPrefill | null>(null);
