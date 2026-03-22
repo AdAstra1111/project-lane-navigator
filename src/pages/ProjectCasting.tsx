@@ -71,9 +71,11 @@ import {
   type ProjectCastPack, type CastPackCharacterChoice, type ApplyCastPackResult,
 } from '@/lib/aiCast/castPackEngine';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
 import { getActorThumbnail as getActorThumb } from '@/lib/aiCast/identityStrength';
+import { aiCastApi } from '@/lib/aiCast/aiCastApi';
+import { buildCharacterActorPrefill, type CharacterActorPrefill } from '@/lib/aiCast/characterToActorPrefill';
 
 interface CastMapping {
   id: string;
