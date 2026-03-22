@@ -320,12 +320,15 @@ const SLIDE_ELECTION_SPECS: SlideElectionSpec[] = [
 /**
  * runElectionStage — Produces a complete ElectionResult.
  * All image selection happens HERE. Assembly consumes results only.
+ *
+ * Phase 16.5: accepts optional styleLock for augmented scoring.
  */
 export function runElectionStage(
   sectionPools: Record<PoolKey, ProjectImage[]>,
   allUniqueImages: ProjectImage[],
   narrativeEvidence?: NarrativeEvidence,
   identityBindings?: IdentityBindings,
+  styleLock?: StyleLock | null,
 ): ElectionResult {
   const ctx = createElectionContext(sectionPools);
 
@@ -340,7 +343,20 @@ export function runElectionStage(
   }
   const hasSceneEvidence = (narrativeEvidence?.sceneEvidence?.length || 0) > 0;
 
-  console.log(`[Election:intel] boundPrincipals=${boundPrincipalIds.size} (${[...boundPrincipalIds].map(id => id.slice(0,8)).join(',')}) hasSceneEvidence=${hasSceneEvidence} sceneCount=${narrativeEvidence?.sceneEvidence?.length || 0}`);
+  console.log(`[Election:intel] boundPrincipals=${boundPrincipalIds.size} (${[...boundPrincipalIds].map(id => id.slice(0,8)).join(',')}) hasSceneEvidence=${hasSceneEvidence} sceneCount=${narrativeEvidence?.sceneEvidence?.length || 0} styleLock=${styleLock ? 'active' : 'none'}`);
+
+  // Build the Phase 16.5 selection scoring context (shared across all slides)
+  const styleLockHash = styleLock ? hashStyleLock(styleLock) : null;
+  // Track selected images progressively for cohesion scoring
+  const selectedImages: ProjectImage[] = [];
+
+  /** Build a per-slide selection context */
+  const makeSelectionCtx = (slideType: string): SelectionScoringContext => ({
+    styleLock: styleLock || null,
+    styleLockHash,
+    slideType,
+    selectedImages: [...selectedImages],
+  });
 
   // 1. Poster hero — global election
   const posterHero = selectPosterHero(allUniqueImages);
@@ -358,12 +374,16 @@ export function runElectionStage(
       }
     }
 
+    const selCtx = styleLock ? makeSelectionCtx(spec.slideType) : null;
+
     // Special handling for cover/closing — use poster hero
     if (spec.slideType === 'cover' || spec.slideType === 'closing') {
-      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence);
+      const bgUrl = coverImageUrl || pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence, selCtx);
       if (bgUrl) {
         ctx.usedBackgroundUrls.push(bgUrl);
         trackSelection(ctx, bgUrl, spec.slideType);
+        const bgImg = ctx.urlToImage.get(bgUrl);
+        if (bgImg) selectedImages.push(bgImg);
       }
       slideElections.set(spec.slideId, {
         slideType: spec.slideType,
@@ -378,10 +398,12 @@ export function runElectionStage(
     // Background
     let bgUrl: string | undefined;
     if (spec.needsBackground) {
-      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence);
+      bgUrl = pickBackgroundImage(primaryPool, ctx, spec.slideType, fallbackPool, boundPrincipalIds, hasSceneEvidence, selCtx);
       if (bgUrl) {
         ctx.usedBackgroundUrls.push(bgUrl);
         trackSelection(ctx, bgUrl, spec.slideType);
+        const bgImg = ctx.urlToImage.get(bgUrl);
+        if (bgImg) selectedImages.push(bgImg);
       }
     }
 
@@ -396,14 +418,18 @@ export function runElectionStage(
       if (spec.slideType === 'story_engine') {
         const kmPool = sectionPools.keyMoments || [];
         const sePool = kmPool.length > 2 ? kmPool.slice(2, 6) : (sectionPools.motifs || []);
-        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
+        fgUrls = pickForegroundImages(sePool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence, selCtx);
       } else if (spec.slideType === 'visual_language') {
         const vlPool = [...(sectionPools.texture || []), ...(sectionPools.motifs || [])];
-        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
+        fgUrls = pickForegroundImages(vlPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence, selCtx);
       } else {
-        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence);
+        fgUrls = pickForegroundImages(combinedPool, spec.slideType, spec.maxForeground, ctx, bgUrl ? [bgUrl] : [], boundPrincipalIds, hasSceneEvidence, selCtx);
       }
-      fgUrls.forEach(u => trackSelection(ctx, u, spec.slideType));
+      fgUrls.forEach(u => {
+        trackSelection(ctx, u, spec.slideType);
+        const fgImg = ctx.urlToImage.get(u);
+        if (fgImg) selectedImages.push(fgImg);
+      });
     }
 
     slideElections.set(spec.slideId, {
