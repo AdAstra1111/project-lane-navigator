@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      actor_marketplace_listings: {
+        Row: {
+          actor_id: string
+          id: string
+          is_active: boolean
+          listed_at: string
+          listed_by: string | null
+          pricing_tier: string
+          updated_at: string
+          visibility: string
+        }
+        Insert: {
+          actor_id: string
+          id?: string
+          is_active?: boolean
+          listed_at?: string
+          listed_by?: string | null
+          pricing_tier?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Update: {
+          actor_id?: string
+          id?: string
+          is_active?: boolean
+          listed_at?: string
+          listed_by?: string | null
+          pricing_tier?: string
+          updated_at?: string
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actor_marketplace_listings_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: true
+            referencedRelation: "ai_actors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       actor_promotion_decisions: {
         Row: {
           actor_id: string
@@ -342,8 +383,11 @@ export type Database = {
           current_promotion_decision_id: string | null
           description: string
           id: string
+          is_listed: boolean
+          licensing_mode: string
           name: string
           negative_prompt: string
+          pricing_tier: string
           promotion_policy_version: string | null
           promotion_status: string | null
           promotion_updated_at: string | null
@@ -352,6 +396,7 @@ export type Database = {
           tags: string[]
           updated_at: string
           user_id: string
+          visibility: string
         }
         Insert: {
           anchor_coherence_status?: string
@@ -361,8 +406,11 @@ export type Database = {
           current_promotion_decision_id?: string | null
           description?: string
           id?: string
+          is_listed?: boolean
+          licensing_mode?: string
           name?: string
           negative_prompt?: string
+          pricing_tier?: string
           promotion_policy_version?: string | null
           promotion_status?: string | null
           promotion_updated_at?: string | null
@@ -371,6 +419,7 @@ export type Database = {
           tags?: string[]
           updated_at?: string
           user_id: string
+          visibility?: string
         }
         Update: {
           anchor_coherence_status?: string
@@ -380,8 +429,11 @@ export type Database = {
           current_promotion_decision_id?: string | null
           description?: string
           id?: string
+          is_listed?: boolean
+          licensing_mode?: string
           name?: string
           negative_prompt?: string
+          pricing_tier?: string
           promotion_policy_version?: string | null
           promotion_status?: string | null
           promotion_updated_at?: string | null
@@ -390,6 +442,7 @@ export type Database = {
           tags?: string[]
           updated_at?: string
           user_id?: string
+          visibility?: string
         }
         Relationships: [
           {
