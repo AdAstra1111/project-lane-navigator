@@ -1835,6 +1835,19 @@ FRAMING RULES:
               // ── PRODUCTION DESIGN: provenance ──
               production_design_hash: productionDesignHash || null,
               production_design_architecture: productionArchitecture || null,
+              // ── SHOT LIST CONTEXT: provenance (Phase 18.1) ──
+              shot_list_id: shotListId || null,
+              shot_list_item_ids: shotListMappedItemIds.length > 0 ? shotListMappedItemIds : null,
+              shot_list_context_used: shotListPromptBlock.length > 0,
+              shot_list_framing: (shotListContextItems.length > 0 && shotListMappedItemIds.length > 0)
+                ? (shotListContextItems.find(i => i.id === shotListMappedItemIds[0])?.framing || null) : null,
+              shot_list_camera_movement: (shotListContextItems.length > 0 && shotListMappedItemIds.length > 0)
+                ? (shotListContextItems.find(i => i.id === shotListMappedItemIds[0])?.camera_movement || null) : null,
+              shot_list_location: (shotListContextItems.length > 0 && shotListMappedItemIds.length > 0)
+                ? (shotListContextItems.find(i => i.id === shotListMappedItemIds[0])?.location || null) : null,
+              shot_list_time_of_day: (shotListContextItems.length > 0 && shotListMappedItemIds.length > 0)
+                ? (shotListContextItems.find(i => i.id === shotListMappedItemIds[0])?.time_of_day || null) : null,
+              narrative_source: shotListPromptBlock.length > 0 ? 'shot_list' : 'scene_graph',
               // ── AUTO-COMPLETE CONTEXT: requirement-origin + actor attribution metadata ──
               ...(autoCompleteContext ? {
                 auto_complete_context: {
