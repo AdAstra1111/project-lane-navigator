@@ -86,6 +86,12 @@ import {
   abandonPendingActorBindContext,
   type PendingActorBindContext,
 } from '@/lib/aiCast/pendingBindRecovery';
+import {
+  resolveActorDisplayName,
+  resolveActorPipelineState,
+  getPipelineStateLabel,
+  getPipelineStateStyle,
+} from '@/lib/aiCast/actorDisplayName';
 
 interface CastMapping {
   id: string;
