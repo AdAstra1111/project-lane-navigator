@@ -858,6 +858,7 @@ function CastHealthPanel({ data, actors, projectId, onRebind, onQueueRegen }: {
             actors={actors}
             projectId={projectId}
             onRebind={onRebind}
+            onQueueRegen={onQueueRegen}
           />
         ))}
         {Object.keys(data.characters).length === 0 && (
