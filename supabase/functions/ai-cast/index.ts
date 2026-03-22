@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
 
       case "list_actors": {
         const { data, error } = await db.from("ai_actors")
-          .select("*, ai_actor_versions(id, version_number, created_at)")
+          .select("*, ai_actor_versions!ai_actor_versions_actor_id_fkey(id, version_number, created_at)")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
         if (error) throw error;
