@@ -347,9 +347,11 @@ Deno.serve(async (req) => {
             }
 
             const aiData = await aiResp.json();
-            const imageB64 = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+            // Use robust multi-format extraction (matches shared imageGen.ts logic)
+            const imageB64 = extractImageDataUrl(aiData);
 
-            if (!imageB64 || !imageB64.startsWith("data:image")) {
+            if (!imageB64) {
+              console.error(`Screen test gen ${i}: no image extracted. Response keys:`, Object.keys(aiData?.choices?.[0]?.message || {}));
               errors.push({ index: i, error: "No image returned from model" });
               continue;
             }
