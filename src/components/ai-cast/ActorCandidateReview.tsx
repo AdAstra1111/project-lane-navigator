@@ -53,22 +53,26 @@ function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[
 
   for (const ver of versions) {
     const assets = ver.ai_actor_assets || [];
-    // Only show screen_test_still and non-anchor assets as review candidates
+    // Only show screen_test_still and exploratory_still as review candidates
     const reviewAssets = assets.filter(a => !ANCHOR_ASSET_TYPES.has(a.asset_type));
 
     if (reviewAssets.length === 0) continue;
 
     for (const asset of reviewAssets) {
+      const isExploratory = asset.asset_type === 'exploratory_still' || (asset.meta_json as any)?.generation_mode === 'exploratory';
       items.push({
         id: asset.id,
-        label: asset.asset_type === 'screen_test_still'
-          ? `Screen Test ${items.length + 1}`
-          : asset.asset_type.replace(/_/g, ' '),
+        label: isExploratory
+          ? `Option ${items.length + 1}`
+          : asset.asset_type === 'screen_test_still'
+            ? `Screen Test ${items.length + 1}`
+            : asset.asset_type.replace(/_/g, ' '),
         thumbnailUrl: asset.public_url || null,
         status: assetToCandidateStatus(asset),
         score: (asset.meta_json as any)?.score ?? null,
         versionNumber: ver.version_number,
         assetType: asset.asset_type,
+        isExploratory,
       });
     }
   }
