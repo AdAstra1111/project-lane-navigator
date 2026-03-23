@@ -87,16 +87,19 @@ export function useAICastMutations() {
     mutationFn: (params: { actorId: string; versionId: string; count?: number }) =>
       aiCastApi.generateScreenTest(params.actorId, params.versionId, params.count),
     onSuccess: (data) => {
-      if (data.code === 'SCREEN_TEST_NOT_CONFIGURED') {
-        toast.info('Screen test generation not available — upload reference images manually.');
+      if (data.code === 'ANCHOR_COVERAGE_INSUFFICIENT') {
+        toast.info('Upload all 3 anchor references (headshot, full body, profile) before generating.');
+      } else if (data.generated === 0 && data.errors?.length) {
+        toast.error(`Generation failed: ${data.errors[0]?.error || 'Unknown error'}`);
       } else {
-        toast.success(`Generated ${data.generated} screen test stills`);
+        const errCount = data.errors?.length || 0;
+        toast.success(`Generated ${data.generated} screen test still${data.generated !== 1 ? 's' : ''}${errCount > 0 ? ` (${errCount} failed)` : ''}`);
       }
       invalidate();
     },
     onError: (e: Error) => {
-      if (e.message?.includes('not configured')) {
-        toast.info('Screen test generation not available — upload reference images manually.');
+      if (e.message?.includes('anchor') || e.message?.includes('coverage')) {
+        toast.info('Upload all 3 anchor references before generating.');
       } else {
         toast.error(e.message);
       }
