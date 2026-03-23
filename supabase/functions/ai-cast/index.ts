@@ -227,10 +227,12 @@ Deno.serve(async (req) => {
       }
 
       case "generate_screen_test": {
-        const { actorId, versionId, count } = body;
+        const { actorId, versionId, count, mode } = body;
         if (!actorId || !versionId) {
           return jsonRes({ error: "actorId and versionId required" }, 400, req);
         }
+
+        const isExploratory = mode === "exploratory";
 
         // 1. Verify actor ownership
         const { data: stActor } = await db.from("ai_actors")
@@ -243,27 +245,30 @@ Deno.serve(async (req) => {
           .select("id, actor_id").eq("id", versionId).eq("actor_id", actorId).single();
         if (!stVer) return jsonRes({ error: "Version not found for this actor" }, 404, req);
 
-        // 3. Check anchor coverage
-        if ((stActor as any).anchor_coverage_status !== "complete") {
-          return jsonRes({
-            error: "Insufficient anchor coverage. Upload headshot, full body, and profile reference images first.",
-            code: "ANCHOR_COVERAGE_INSUFFICIENT",
-            current_status: (stActor as any).anchor_coverage_status,
-          }, 400, req);
-        }
+        // 3. Check anchor coverage — ONLY for locked (non-exploratory) mode
+        let anchors: any[] = [];
+        if (!isExploratory) {
+          if ((stActor as any).anchor_coverage_status !== "complete") {
+            return jsonRes({
+              error: "Insufficient anchor coverage. Upload headshot, full body, and profile reference images first.",
+              code: "ANCHOR_COVERAGE_INSUFFICIENT",
+              current_status: (stActor as any).anchor_coverage_status,
+            }, 400, req);
+          }
 
-        // 4. Fetch anchor reference images
-        const { data: anchorAssets } = await db.from("ai_actor_assets")
-          .select("public_url, asset_type, meta_json")
-          .eq("actor_version_id", versionId)
-          .in("asset_type", ["reference_headshot", "reference_full_body", "reference_profile"]);
-        const anchors = (anchorAssets || []).filter((a: any) => a.public_url);
+          // 4. Fetch anchor reference images
+          const { data: anchorAssets } = await db.from("ai_actor_assets")
+            .select("public_url, asset_type, meta_json")
+            .eq("actor_version_id", versionId)
+            .in("asset_type", ["reference_headshot", "reference_full_body", "reference_profile"]);
+          anchors = (anchorAssets || []).filter((a: any) => a.public_url);
 
-        if (anchors.length < 1) {
-          return jsonRes({
-            error: "No anchor reference images found for this version.",
-            code: "NO_ANCHOR_ASSETS",
-          }, 400, req);
+          if (anchors.length < 1) {
+            return jsonRes({
+              error: "No anchor reference images found for this version.",
+              code: "NO_ANCHOR_ASSETS",
+            }, 400, req);
+          }
         }
 
         // 5. Build generation prompts
@@ -289,21 +294,27 @@ Deno.serve(async (req) => {
         // 6. Generate images
         const results: any[] = [];
         const errors: any[] = [];
+        const assetType = isExploratory ? "exploratory_still" : "screen_test_still";
+        const storageSubdir = isExploratory ? "exploratory" : "screen-test";
 
         for (let i = 0; i < genCount; i++) {
           const pose = poses[i % poses.length];
-          const prompt = `Generate a photorealistic cinematic still of ${actorName}. ${actorDesc}. The shot is ${pose}. The image must look like a real photograph captured on set — not AI-rendered, not concept art. Real skin texture with visible pores, film grain, imperfect real-world lighting. ${negPrompt ? `Avoid: ${negPrompt}.` : ""} No watermarks, no text overlays.`;
+          const exploratoryNote = isExploratory
+            ? " This is an exploratory concept — generate a distinctive, visually compelling interpretation of this character description."
+            : "";
+          const prompt = `Generate a photorealistic cinematic still of ${actorName}. ${actorDesc}. The shot is ${pose}. The image must look like a real photograph captured on set — not AI-rendered, not concept art. Real skin texture with visible pores, film grain, imperfect real-world lighting.${exploratoryNote} ${negPrompt ? `Avoid: ${negPrompt}.` : ""} No watermarks, no text overlays.`;
 
           try {
-            // Build messages with anchor image references
+            // Build messages — include anchor refs only for locked mode
             const messageContent: any[] = [{ type: "text", text: prompt }];
-            // Include up to 2 anchor refs for identity consistency
-            for (const anchor of anchors.slice(0, 2)) {
-              if (anchor.public_url) {
-                messageContent.push({
-                  type: "image_url",
-                  image_url: { url: anchor.public_url },
-                });
+            if (!isExploratory) {
+              for (const anchor of anchors.slice(0, 2)) {
+                if (anchor.public_url) {
+                  messageContent.push({
+                    type: "image_url",
+                    image_url: { url: anchor.public_url },
+                  });
+                }
               }
             }
 
@@ -351,7 +362,7 @@ Deno.serve(async (req) => {
               bytes[b] = binaryStr.charCodeAt(b);
             }
 
-            const storagePath = `actors/${actorId}/screen-test/${versionId}_${i}_${Date.now()}.png`;
+            const storagePath = `actors/${actorId}/${storageSubdir}/${versionId}_${i}_${Date.now()}.png`;
             const { error: uploadErr } = await db.storage
               .from("ai-media")
               .upload(storagePath, bytes, { contentType: "image/png", upsert: true });
@@ -369,15 +380,17 @@ Deno.serve(async (req) => {
             // 9. Persist as asset
             const { data: assetRow, error: assetErr } = await db.from("ai_actor_assets").insert({
               actor_version_id: versionId,
-              asset_type: "screen_test_still",
+              asset_type: assetType,
               storage_path: storagePath,
               public_url: publicUrl,
               meta_json: {
-                shot_type: "screen_test",
+                shot_type: isExploratory ? "exploratory" : "screen_test",
+                generation_mode: isExploratory ? "exploratory" : "reference_locked",
                 pose_index: i,
                 pose_description: pose,
                 generated_at: new Date().toISOString(),
                 model: "gemini-3.1-flash-image-preview",
+                promotable: isExploratory, // exploratory results can be promoted
               },
             }).select("id, public_url, asset_type, meta_json").single();
 
@@ -397,6 +410,7 @@ Deno.serve(async (req) => {
         return jsonRes({
           generated: results.length,
           requested: genCount,
+          mode: isExploratory ? "exploratory" : "reference_locked",
           assets: results,
           errors: errors.length > 0 ? errors : undefined,
         }, 200, req);
