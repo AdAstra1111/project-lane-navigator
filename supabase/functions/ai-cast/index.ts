@@ -524,6 +524,9 @@ Deno.serve(async (req) => {
         // 5. Delete cast bindings referencing this actor
         await db.from("project_ai_cast").delete().eq("ai_actor_id", actorId);
 
+        // 5b. Delete pending actor binds
+        await db.from("pending_actor_binds").delete().eq("actor_id", actorId);
+
         // 6. Delete casting candidates referencing this actor
         await db.from("casting_candidates").delete().eq("promoted_actor_id", actorId);
 
