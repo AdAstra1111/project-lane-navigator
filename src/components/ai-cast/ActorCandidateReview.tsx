@@ -49,30 +49,27 @@ function assetToCandidateStatus(asset: AIActorAsset): CandidateStatus {
 
 function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[] {
   const items: CandidateItem[] = [];
+  const ANCHOR_ASSET_TYPES = new Set(['reference_headshot', 'reference_full_body', 'reference_profile']);
 
   for (const ver of versions) {
     const assets = ver.ai_actor_assets || [];
-    if (assets.length === 0) {
+    // Only show screen_test_still and non-anchor assets as review candidates
+    const reviewAssets = assets.filter(a => !ANCHOR_ASSET_TYPES.has(a.asset_type));
+
+    if (reviewAssets.length === 0) continue;
+
+    for (const asset of reviewAssets) {
       items.push({
-        id: ver.id,
-        label: `Version ${ver.version_number}`,
-        thumbnailUrl: null,
-        status: 'empty',
-        score: null,
+        id: asset.id,
+        label: asset.asset_type === 'screen_test_still'
+          ? `Screen Test ${items.length + 1}`
+          : asset.asset_type.replace(/_/g, ' '),
+        thumbnailUrl: asset.public_url || null,
+        status: assetToCandidateStatus(asset),
+        score: (asset.meta_json as any)?.score ?? null,
         versionNumber: ver.version_number,
+        assetType: asset.asset_type,
       });
-    } else {
-      for (const asset of assets) {
-        items.push({
-          id: asset.id,
-          label: asset.asset_type.replace(/_/g, ' '),
-          thumbnailUrl: asset.public_url || null,
-          status: assetToCandidateStatus(asset),
-          score: (asset.meta_json as any)?.score ?? null,
-          versionNumber: ver.version_number,
-          assetType: asset.asset_type,
-        });
-      }
     }
   }
 
