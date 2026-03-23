@@ -84,8 +84,8 @@ export function useAICastMutations() {
   });
 
   const generateScreenTest = useMutation({
-    mutationFn: (params: { actorId: string; versionId: string; count?: number }) =>
-      aiCastApi.generateScreenTest(params.actorId, params.versionId, params.count),
+    mutationFn: (params: { actorId: string; versionId: string; count?: number; mode?: 'exploratory' | 'reference_locked' }) =>
+      aiCastApi.generateScreenTest(params.actorId, params.versionId, params.count, params.mode),
     onSuccess: (data) => {
       if (data.code === 'ANCHOR_COVERAGE_INSUFFICIENT') {
         toast.info('Upload all 3 anchor references (headshot, full body, profile) before generating.');
