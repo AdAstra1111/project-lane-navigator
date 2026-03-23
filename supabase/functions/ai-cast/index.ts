@@ -7,7 +7,31 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const BUILD = "ai-cast-v2";
+// Robust image data URL extraction (mirrors _shared/imageGen.ts)
+function extractImageDataUrl(genResult: any): string | null {
+  try {
+    const choice = genResult?.choices?.[0]?.message;
+    if (!choice) return null;
+    const imgUrl = choice.images?.[0]?.image_url?.url;
+    if (imgUrl && imgUrl.startsWith("data:image")) return imgUrl;
+    if (Array.isArray(choice.content)) {
+      for (const part of choice.content) {
+        if (part.type === "image_url" && part.image_url?.url?.startsWith("data:image")) return part.image_url.url;
+        if (part.type === "image" && part.image?.url?.startsWith("data:image")) return part.image.url;
+        if (part.inline_data?.data) {
+          const mime = part.inline_data.mime_type || "image/png";
+          return `data:${mime};base64,${part.inline_data.data}`;
+        }
+        if (typeof part === "string" && part.startsWith("data:image")) return part;
+        if (typeof part.text === "string" && part.text.startsWith("data:image")) return part.text;
+      }
+    }
+    if (typeof choice.content === "string" && choice.content.startsWith("data:image")) return choice.content;
+  } catch (_) {}
+  return null;
+}
+
+const BUILD = "ai-cast-v3";
 
 function corsHeaders(req: Request) {
   const origin = req.headers.get("Origin") || "*";
