@@ -223,24 +223,38 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId, anc
   }, [versions, approvedVersionId]);
 
   const handleCreateAnother = useCallback(() => {
-    if (isBlocked) {
-      toast.error('Add anchor references (headshot, profile, full-body) before generating images.');
-      return;
-    }
     const latestVersion = versions[versions.length - 1];
     if (!latestVersion) {
       toast.error('No version available to generate from');
       return;
     }
+    // If anchors exist, use reference-locked mode; otherwise exploratory
+    const mode = coverageInsufficient ? 'exploratory' : 'reference_locked';
     generateScreenTest.mutate(
-      { actorId, versionId: latestVersion.id, count: 4 },
+      { actorId, versionId: latestVersion.id, count: 4, mode },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
         },
       }
     );
-  }, [actorId, versions, generateScreenTest, queryClient, isBlocked]);
+  }, [actorId, versions, generateScreenTest, queryClient, coverageInsufficient]);
+
+  const handleExploreOptions = useCallback(() => {
+    const latestVersion = versions[versions.length - 1];
+    if (!latestVersion) {
+      toast.error('No version available to generate from');
+      return;
+    }
+    generateScreenTest.mutate(
+      { actorId, versionId: latestVersion.id, count: 3, mode: 'exploratory' },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
+        },
+      }
+    );
+  }, [actorId, versions, generateScreenTest, queryClient]);
 
   const handleApprove = useCallback((id: string) => {
     for (const ver of versions) {
