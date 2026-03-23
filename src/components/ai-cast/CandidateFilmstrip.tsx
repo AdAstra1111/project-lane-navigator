@@ -19,6 +19,7 @@ export interface CandidateItem {
   score: number | null;
   versionNumber?: number;
   assetType?: string;
+  isExploratory?: boolean;
 }
 
 interface CandidateFilmstripProps {
