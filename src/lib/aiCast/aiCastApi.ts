@@ -103,8 +103,8 @@ export const aiCastApi = {
   deleteActor: (actorId: string, force?: boolean) =>
     callAiCast('delete_actor', { actorId, force: force || false }),
 
-  generateScreenTest: (actorId: string, versionId: string, count?: number) =>
-    callAiCast('generate_screen_test', { actorId, versionId, count }),
+  generateScreenTest: (actorId: string, versionId: string, count?: number, mode?: 'exploratory' | 'reference_locked') =>
+    callAiCast('generate_screen_test', { actorId, versionId, count, mode: mode || 'reference_locked' }),
 
   getCastContext: (projectId: string) =>
     callAiCast('get_cast_context', { projectId }),

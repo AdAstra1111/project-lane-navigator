@@ -19,6 +19,7 @@ export interface CandidateItem {
   score: number | null;
   versionNumber?: number;
   assetType?: string;
+  isExploratory?: boolean;
 }
 
 interface CandidateFilmstripProps {
@@ -151,6 +152,12 @@ export function CandidateFilmstrip({
               {/* Thumbnail */}
               <div className="aspect-[3/4] overflow-hidden bg-muted/5 relative">
                 <CandidateThumbnail candidate={c} onRetry={onRetryLoad ? () => onRetryLoad(c.id) : undefined} />
+                {/* Exploratory badge */}
+                {c.isExploratory && (
+                  <div className="absolute top-1 left-1 text-[8px] font-medium px-1.5 py-0.5 rounded-full bg-violet-500/80 text-white">
+                    Exploratory
+                  </div>
+                )}
                 {/* Score badge */}
                 {c.score != null && c.status === 'ready' && (
                   <div className={cn(

@@ -53,22 +53,26 @@ function buildCandidatesFromVersions(versions: AIActorVersion[]): CandidateItem[
 
   for (const ver of versions) {
     const assets = ver.ai_actor_assets || [];
-    // Only show screen_test_still and non-anchor assets as review candidates
+    // Only show screen_test_still and exploratory_still as review candidates
     const reviewAssets = assets.filter(a => !ANCHOR_ASSET_TYPES.has(a.asset_type));
 
     if (reviewAssets.length === 0) continue;
 
     for (const asset of reviewAssets) {
+      const isExploratory = asset.asset_type === 'exploratory_still' || (asset.meta_json as any)?.generation_mode === 'exploratory';
       items.push({
         id: asset.id,
-        label: asset.asset_type === 'screen_test_still'
-          ? `Screen Test ${items.length + 1}`
-          : asset.asset_type.replace(/_/g, ' '),
+        label: isExploratory
+          ? `Option ${items.length + 1}`
+          : asset.asset_type === 'screen_test_still'
+            ? `Screen Test ${items.length + 1}`
+            : asset.asset_type.replace(/_/g, ' '),
         thumbnailUrl: asset.public_url || null,
         status: assetToCandidateStatus(asset),
         score: (asset.meta_json as any)?.score ?? null,
         versionNumber: ver.version_number,
         assetType: asset.asset_type,
+        isExploratory,
       });
     }
   }
@@ -219,24 +223,38 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId, anc
   }, [versions, approvedVersionId]);
 
   const handleCreateAnother = useCallback(() => {
-    if (isBlocked) {
-      toast.error('Add anchor references (headshot, profile, full-body) before generating images.');
-      return;
-    }
     const latestVersion = versions[versions.length - 1];
     if (!latestVersion) {
       toast.error('No version available to generate from');
       return;
     }
+    // If anchors exist, use reference-locked mode; otherwise exploratory
+    const mode = coverageInsufficient ? 'exploratory' : 'reference_locked';
     generateScreenTest.mutate(
-      { actorId, versionId: latestVersion.id, count: 4 },
+      { actorId, versionId: latestVersion.id, count: 4, mode },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
         },
       }
     );
-  }, [actorId, versions, generateScreenTest, queryClient, isBlocked]);
+  }, [actorId, versions, generateScreenTest, queryClient, coverageInsufficient]);
+
+  const handleExploreOptions = useCallback(() => {
+    const latestVersion = versions[versions.length - 1];
+    if (!latestVersion) {
+      toast.error('No version available to generate from');
+      return;
+    }
+    generateScreenTest.mutate(
+      { actorId, versionId: latestVersion.id, count: 3, mode: 'exploratory' },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['ai-actor', actorId] });
+        },
+      }
+    );
+  }, [actorId, versions, generateScreenTest, queryClient]);
 
   const handleApprove = useCallback((id: string) => {
     for (const ver of versions) {
@@ -339,28 +357,67 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId, anc
     </div>
   );
 
-  // ── Blocked state: anchor coverage insufficient ──────────────────────────
+  // ── Blocked state: anchor coverage insufficient — show dual path ──────────
   if (isBlocked) {
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-6 space-y-4">
+      <div className="rounded-lg border border-border/40 bg-card p-6 space-y-5">
         {fileInput}
-        <div className="flex items-start gap-3">
-          <div className="rounded-full bg-amber-500/10 p-2 shrink-0">
-            <AlertTriangle className="h-5 w-5 text-amber-400" />
-          </div>
-          <div className="space-y-1.5">
-            <h4 className="text-sm font-medium text-foreground">
-              Upload reference images to unlock generation
-            </h4>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Upload a <strong>headshot</strong>, <strong>full body</strong>, and <strong>profile</strong> reference 
-              to establish visual identity. Once all three are uploaded, image generation and validation will unlock.
+        
+        {/* Two-path header */}
+        <div className="space-y-1.5">
+          <h4 className="text-sm font-medium text-foreground">Choose how to start</h4>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Explore visual options from text, or upload references for a locked reusable identity.
+          </p>
+        </div>
+
+        {/* Path cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Exploratory path */}
+          <button
+            onClick={handleExploreOptions}
+            disabled={generateScreenTest.isPending}
+            className={cn(
+              'rounded-lg border border-violet-500/30 bg-violet-500/5 p-4 text-left space-y-2',
+              'hover:border-violet-500/50 hover:bg-violet-500/10 transition-all',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+            )}
+          >
+            <div className="flex items-center gap-2">
+              {generateScreenTest.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
+              ) : (
+                <ImageIcon className="h-4 w-4 text-violet-400" />
+              )}
+              <span className="text-xs font-medium text-foreground">Generate Option Set</span>
+              <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-violet-500/30 text-violet-400">
+                Exploratory
+              </Badge>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Generate visual options from text description. Fast exploration — not locked to a fixed identity.
+            </p>
+          </button>
+
+          {/* Reference-locked path */}
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-left space-y-2">
+            <div className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-amber-400" />
+              <span className="text-xs font-medium text-foreground">Upload References</span>
+              <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-amber-500/30 text-amber-400">
+                Locked Identity
+              </Badge>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Upload headshot, full body, and profile to create a stable, reusable actor identity.
             </p>
           </div>
         </div>
 
+        {/* Anchor upload grid — always visible for reference path */}
         {anchorUploadGrid}
 
+        {/* Status indicators */}
         <div className="flex items-center gap-4 pl-1">
           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <div className="w-2 h-2 rounded-full bg-emerald-500/60" />
@@ -370,16 +427,12 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId, anc
             <div className="w-2 h-2 rounded-full bg-amber-500/60" />
             {anchorsFilled}/3 anchors uploaded
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
-            <div className="w-2 h-2 rounded-full bg-muted/40" />
-            Generation locked
-          </div>
         </div>
       </div>
     );
   }
 
-  // ── No versions at all ───────────────────────────────────────────────────
+  // ── No candidates yet ───────────────────────────────────────────────────
   if (candidates.length === 0 && versions.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border/40 p-8 text-center space-y-3">
@@ -405,7 +458,7 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId, anc
         onSelect={setSelectedId}
         onCreateAnother={handleCreateAnother}
         isGenerating={generateScreenTest.isPending}
-        generationBlocked={coverageInsufficient}
+        generationBlocked={false}
       />
 
       {selected && (
