@@ -458,7 +458,7 @@ export function ActorCandidateReview({ actorId, versions, approvedVersionId, anc
         onSelect={setSelectedId}
         onCreateAnother={handleCreateAnother}
         isGenerating={generateScreenTest.isPending}
-        generationBlocked={coverageInsufficient}
+        generationBlocked={false}
       />
 
       {selected && (
