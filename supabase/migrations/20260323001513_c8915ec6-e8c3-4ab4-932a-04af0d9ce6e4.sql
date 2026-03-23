@@ -1,0 +1,1 @@
+DELETE FROM public.pending_actor_binds WHERE actor_id NOT IN (SELECT id FROM public.ai_actors);
