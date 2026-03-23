@@ -227,12 +227,179 @@ Deno.serve(async (req) => {
       }
 
       case "generate_screen_test": {
-        // Screen test generation is not available at runtime.
-        // Upload reference images manually via the UI instead.
+        const { actorId, versionId, count } = body;
+        if (!actorId || !versionId) {
+          return jsonRes({ error: "actorId and versionId required" }, 400, req);
+        }
+
+        // 1. Verify actor ownership
+        const { data: stActor } = await db.from("ai_actors")
+          .select("id, name, description, negative_prompt, anchor_coverage_status, user_id")
+          .eq("id", actorId).eq("user_id", userId).single();
+        if (!stActor) return jsonRes({ error: "Actor not found or access denied" }, 404, req);
+
+        // 2. Verify version belongs to actor
+        const { data: stVer } = await db.from("ai_actor_versions")
+          .select("id, actor_id").eq("id", versionId).eq("actor_id", actorId).single();
+        if (!stVer) return jsonRes({ error: "Version not found for this actor" }, 404, req);
+
+        // 3. Check anchor coverage
+        if ((stActor as any).anchor_coverage_status !== "complete") {
+          return jsonRes({
+            error: "Insufficient anchor coverage. Upload headshot, full body, and profile reference images first.",
+            code: "ANCHOR_COVERAGE_INSUFFICIENT",
+            current_status: (stActor as any).anchor_coverage_status,
+          }, 400, req);
+        }
+
+        // 4. Fetch anchor reference images
+        const { data: anchorAssets } = await db.from("ai_actor_assets")
+          .select("public_url, asset_type, meta_json")
+          .eq("actor_version_id", versionId)
+          .in("asset_type", ["reference_headshot", "reference_full_body", "reference_profile"]);
+        const anchors = (anchorAssets || []).filter((a: any) => a.public_url);
+
+        if (anchors.length < 1) {
+          return jsonRes({
+            error: "No anchor reference images found for this version.",
+            code: "NO_ANCHOR_ASSETS",
+          }, 400, req);
+        }
+
+        // 5. Build generation prompts
+        const actorName = (stActor as any).name || "Character";
+        const actorDesc = (stActor as any).description || "";
+        const negPrompt = (stActor as any).negative_prompt || "";
+        const genCount = Math.min(Math.max(count || 3, 1), MAX_SCREEN_TEST_STILLS);
+
+        const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+        if (!LOVABLE_API_KEY) {
+          return jsonRes({ error: "AI generation not configured" }, 500, req);
+        }
+
+        const poses = [
+          "a cinematic medium close-up portrait, natural lighting, looking slightly off-camera, film grain texture",
+          "a cinematic three-quarter body shot, warm practical lighting, subtle environment context, captured on 35mm film",
+          "a dramatic close-up with strong side lighting, shallow depth of field, moody atmosphere, shot on Arri Alexa",
+          "a full body wide shot in a cinematic environment, natural daylight, authentic wardrobe, documentary-style framing",
+          "an intimate over-the-shoulder perspective, soft bokeh background, golden hour light, real skin texture with pores",
+          "a dynamic medium shot with movement, slightly desaturated color grade, environmental storytelling, handheld camera feel",
+        ];
+
+        // 6. Generate images
+        const results: any[] = [];
+        const errors: any[] = [];
+
+        for (let i = 0; i < genCount; i++) {
+          const pose = poses[i % poses.length];
+          const prompt = `Generate a photorealistic cinematic still of ${actorName}. ${actorDesc}. The shot is ${pose}. The image must look like a real photograph captured on set — not AI-rendered, not concept art. Real skin texture with visible pores, film grain, imperfect real-world lighting. ${negPrompt ? `Avoid: ${negPrompt}.` : ""} No watermarks, no text overlays.`;
+
+          try {
+            // Build messages with anchor image references
+            const messageContent: any[] = [{ type: "text", text: prompt }];
+            // Include up to 2 anchor refs for identity consistency
+            for (const anchor of anchors.slice(0, 2)) {
+              if (anchor.public_url) {
+                messageContent.push({
+                  type: "image_url",
+                  image_url: { url: anchor.public_url },
+                });
+              }
+            }
+
+            const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "google/gemini-3.1-flash-image-preview",
+                messages: [{ role: "user", content: messageContent }],
+                modalities: ["image", "text"],
+              }),
+            });
+
+            if (!aiResp.ok) {
+              const errText = await aiResp.text();
+              console.error(`Screen test gen ${i} failed (${aiResp.status}):`, errText);
+              if (aiResp.status === 429) {
+                errors.push({ index: i, error: "Rate limited — try again shortly", code: "RATE_LIMITED" });
+                continue;
+              }
+              if (aiResp.status === 402) {
+                errors.push({ index: i, error: "Credits exhausted", code: "CREDITS_EXHAUSTED" });
+                break;
+              }
+              errors.push({ index: i, error: `Generation failed: ${aiResp.status}` });
+              continue;
+            }
+
+            const aiData = await aiResp.json();
+            const imageB64 = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+
+            if (!imageB64 || !imageB64.startsWith("data:image")) {
+              errors.push({ index: i, error: "No image returned from model" });
+              continue;
+            }
+
+            // 7. Decode and upload to storage
+            const base64Data = imageB64.split(",")[1];
+            const binaryStr = atob(base64Data);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let b = 0; b < binaryStr.length; b++) {
+              bytes[b] = binaryStr.charCodeAt(b);
+            }
+
+            const storagePath = `actors/${actorId}/screen-test/${versionId}_${i}_${Date.now()}.png`;
+            const { error: uploadErr } = await db.storage
+              .from("ai-media")
+              .upload(storagePath, bytes, { contentType: "image/png", upsert: true });
+
+            if (uploadErr) {
+              console.error(`Upload failed for screen test ${i}:`, uploadErr);
+              errors.push({ index: i, error: "Upload failed" });
+              continue;
+            }
+
+            // 8. Get public URL
+            const { data: urlData } = db.storage.from("ai-media").getPublicUrl(storagePath);
+            const publicUrl = urlData?.publicUrl || "";
+
+            // 9. Persist as asset
+            const { data: assetRow, error: assetErr } = await db.from("ai_actor_assets").insert({
+              actor_version_id: versionId,
+              asset_type: "screen_test_still",
+              storage_path: storagePath,
+              public_url: publicUrl,
+              meta_json: {
+                shot_type: "screen_test",
+                pose_index: i,
+                pose_description: pose,
+                generated_at: new Date().toISOString(),
+                model: "gemini-3.1-flash-image-preview",
+              },
+            }).select("id, public_url, asset_type, meta_json").single();
+
+            if (assetErr) {
+              console.error(`Asset persist failed for ${i}:`, assetErr);
+              errors.push({ index: i, error: "Failed to save asset record" });
+              continue;
+            }
+
+            results.push(assetRow);
+          } catch (genErr) {
+            console.error(`Screen test generation ${i} exception:`, genErr);
+            errors.push({ index: i, error: (genErr as any)?.message || "Unknown generation error" });
+          }
+        }
+
         return jsonRes({
-          error: "Screen test generation is not configured. Please upload reference images manually via the AI Cast Library.",
-          code: "SCREEN_TEST_NOT_CONFIGURED",
-        }, 501, req);
+          generated: results.length,
+          requested: genCount,
+          assets: results,
+          errors: errors.length > 0 ? errors : undefined,
+        }, 200, req);
       }
 
       case "get_cast_context": {
